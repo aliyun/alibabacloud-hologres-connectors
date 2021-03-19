@@ -1,22 +1,20 @@
 package com.alibaba.hologres.hive;
 
-/**
- * Column.
- */
+/** Column. */
 public class Column {
-	String name;
-	int type;
+    String name;
+    int type;
 
-	public Column(String name, int type) {
-		this.name = name;
-		this.type = type;
-	}
+    public Column(String name, int type) {
+        this.name = name;
+        this.type = type;
+    }
 
-	public String getName() {
-		return name;
-	}
+    public String getName() {
+        return name;
+    }
 
-	public int getType() {
-		return type;
-	}
+    public int getType() {
+        return type;
+    }
 }

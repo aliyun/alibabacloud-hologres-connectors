@@ -13,39 +13,38 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
 
-/**
- * DatabaseMetaAccessor.
- */
+/** DatabaseMetaAccessor. */
 public class DatabaseMetaAccessor {
 
-	private static final Logger LOGGER = LoggerFactory.getLogger(DatabaseMetaAccessor.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(DatabaseMetaAccessor.class);
 
-	String url;
-	String tableName;
-	Properties props;
+    String url;
+    String tableName;
+    Properties props;
 
-	public DatabaseMetaAccessor(String url, String tableName, String username, String password) {
-		this.url = url;
-		this.tableName = tableName;
-		this.props = new Properties();
-		props.setProperty("user", username);
-		props.setProperty("password", password);
-	}
+    public DatabaseMetaAccessor(String url, String tableName, String username, String password) {
+        this.url = url;
+        this.tableName = tableName;
+        this.props = new Properties();
+        props.setProperty("user", username);
+        props.setProperty("password", password);
+    }
 
-	public List<Column> getColumns() throws SQLException {
-		LOGGER.info("getColumns,url:{},props:{}", url, props);
-		try (Connection conn = DriverManager.getConnection(url, props)) {
-			try (Statement stat = conn.createStatement()) {
-				try (ResultSet rs = stat.executeQuery("select * from " + tableName + " where 1=2")) {
-					ResultSetMetaData meta = rs.getMetaData();
-					List<Column> columns = new ArrayList<>();
-					for (int i = 0; i < meta.getColumnCount(); ++i) {
-						columns.add(new Column(meta.getColumnName(i + 1), meta.getColumnType(i + 1)));
-					}
-					return columns;
-				}
-			}
-		}
-	}
-
+    public List<Column> getColumns() throws SQLException {
+        LOGGER.info("getColumns,url:{},props:{}", url, props);
+        try (Connection conn = DriverManager.getConnection(url, props)) {
+            try (Statement stat = conn.createStatement()) {
+                try (ResultSet rs =
+                        stat.executeQuery("select * from " + tableName + " where 1=2")) {
+                    ResultSetMetaData meta = rs.getMetaData();
+                    List<Column> columns = new ArrayList<>();
+                    for (int i = 0; i < meta.getColumnCount(); ++i) {
+                        columns.add(
+                                new Column(meta.getColumnName(i + 1), meta.getColumnType(i + 1)));
+                    }
+                    return columns;
+                }
+            }
+        }
+    }
 }

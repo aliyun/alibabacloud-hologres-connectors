@@ -11,10 +11,11 @@
     <packaging>pom</packaging>
 
     <properties>
-        <hologres.client.version>1.2.7</hologres.client.version>
+        <hologres.client.version>1.2.9-SNAPSHOT</hologres.client.version>
         <java.version>1.8</java.version>
         <maven.compiler.source>${java.version}</maven.compiler.source>
         <maven.compiler.target>${java.version}</maven.compiler.target>
+        <spotless.version>2.4.2</spotless.version>
     </properties>
 
     <licenses>
@@ -26,7 +27,10 @@
     </licenses>
 
     <modules>
-        <module>hologres-connector-flink</module>
+        <module>hologres-connector-example</module>
+        <module>hologres-connector-flink-base</module>
+        <module>hologres-connector-flink-1.11</module>
+        <module>hologres-connector-flink-1.12</module>
         <module>hologres-connector-spark-2.x</module>
         <module>hologres-connector-spark-3.x</module>
         <module>hologres-connector-hive-2.x</module>
@@ -165,6 +169,36 @@
                                 </relocation>
                             </relocations>
                         </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>com.diffplug.spotless</groupId>
+                <artifactId>spotless-maven-plugin</artifactId>
+                <version>${spotless.version}</version>
+                <configuration>
+                    <java>
+                        <googleJavaFormat>
+                            <version>1.7</version>
+                            <style>AOSP</style>
+                        </googleJavaFormat>
+
+                        <!-- \# refers to the static imports -->
+                        <importOrder>
+                            <order>org.apache.flink,org.apache.flink.shaded,,javax,java,scala,\#</order>
+                        </importOrder>
+
+                        <removeUnusedImports />
+                    </java>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>spotless-check</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
                     </execution>
                 </executions>
             </plugin>

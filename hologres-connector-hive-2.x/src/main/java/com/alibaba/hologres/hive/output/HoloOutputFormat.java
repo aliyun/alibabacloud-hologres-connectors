@@ -32,23 +32,29 @@ import org.apache.hadoop.util.Progressable;
 import java.io.IOException;
 import java.util.Properties;
 
-/**
- * HoloOutputFormat.
- */
-public class HoloOutputFormat implements OutputFormat<NullWritable, MapWritable>,
-		HiveOutputFormat<NullWritable, MapWritable> {
+/** HoloOutputFormat. */
+public class HoloOutputFormat
+        implements OutputFormat<NullWritable, MapWritable>,
+                HiveOutputFormat<NullWritable, MapWritable> {
 
-	public FileSinkOperator.RecordWriter getHiveRecordWriter(JobConf jobConf, Path path, Class<? extends Writable> aClass, boolean b, Properties properties, Progressable progressable) throws IOException {
-		TaskAttemptContext taskAttemptContext = ShimLoader.getHadoopShims().newTaskAttemptContext(jobConf, null);
-		return new HoloRecordWriter(taskAttemptContext);
-	}
+    public FileSinkOperator.RecordWriter getHiveRecordWriter(
+            JobConf jobConf,
+            Path path,
+            Class<? extends Writable> aClass,
+            boolean b,
+            Properties properties,
+            Progressable progressable)
+            throws IOException {
+        TaskAttemptContext taskAttemptContext =
+                ShimLoader.getHadoopShims().newTaskAttemptContext(jobConf, null);
+        return new HoloRecordWriter(taskAttemptContext);
+    }
 
-	public RecordWriter<NullWritable, MapWritable> getRecordWriter(FileSystem fileSystem, JobConf jobConf, String s, Progressable progressable) throws IOException {
-		throw new UnsupportedOperationException("Write operations are not allowed.");
-	}
+    public RecordWriter<NullWritable, MapWritable> getRecordWriter(
+            FileSystem fileSystem, JobConf jobConf, String s, Progressable progressable)
+            throws IOException {
+        throw new UnsupportedOperationException("Write operations are not allowed.");
+    }
 
-	public void checkOutputSpecs(FileSystem fileSystem, JobConf jobConf) throws IOException {
-
-	}
-
+    public void checkOutputSpecs(FileSystem fileSystem, JobConf jobConf) throws IOException {}
 }
