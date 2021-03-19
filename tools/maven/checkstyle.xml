@@ -18,8 +18,8 @@ specific language governing permissions and limitations
 under the License.
 -->
 <!DOCTYPE module PUBLIC
-		"-//Puppy Crawl//DTD Check Configuration 1.3//EN"
-		"http://www.puppycrawl.com/dtds/configuration_1_3.dtd">
+	"-//Puppy Crawl//DTD Check Configuration 1.3//EN"
+	"http://www.puppycrawl.com/dtds/configuration_1_3.dtd">
 
 <!--
 This is a checkstyle configuration file. For descriptions of
@@ -30,10 +30,6 @@ This file is based on the checkstyle file of Apache Beam.
 -->
 
 <module name="Checker">
-
-	<!--<module name="FileTabCharacter">-->
-	<!--&lt;!&ndash; Checks that there are no tab characters in the file. &ndash;&gt;-->
-	<!--</module>-->
 
 	<module name="NewlineAtEndOfFile">
 		<!-- windows can use \r\n vs \n, so enforce the most used one ie UNIx style -->
@@ -97,13 +93,6 @@ This file is based on the checkstyle file of Apache Beam.
 
 		-->
 
-		<module name="RegexpSinglelineJava">
-			<property name="format" value="^\t* +\t*\S"/>
-			<property name="message"
-			          value="Line has leading space characters; indentation should be performed with tabs only."/>
-			<property name="ignoreComments" value="true"/>
-		</module>
-
 		<!-- Prohibit T.getT() methods for standard boxed types -->
 		<module name="Regexp">
 			<property name="format" value="Boolean\.getBoolean"/>
@@ -134,41 +123,41 @@ This file is based on the checkstyle file of Apache Beam.
 			<property name="format" value="org\.apache\.commons\.lang3\.Validate"/>
 			<property name="illegalPattern" value="true"/>
 			<property name="message"
-			          value="Use Guava Checks instead of Commons Validate. Please refer to the coding guidelines."/>
+					  value="Use Guava Checks instead of Commons Validate. Please refer to the coding guidelines."/>
 		</module>
 		<!-- forbid the use of google.common.base.Preconditions -->
 		<module name="Regexp">
 			<property name="format" value="import com\.google\.common\.base\.Preconditions"/>
 			<property name="illegalPattern" value="true"/>
 			<property name="message"
-			          value="Use Flink's Preconditions instead of Guava's Preconditions"/>
+					  value="Use Flink's Preconditions instead of Guava's Preconditions"/>
 		</module>
 		<!-- forbid the use of com.google.common.annotations.VisibleForTesting -->
 		<module name="Regexp">
 			<property name="format"
-			          value="import com\.google\.common\.annotations\.VisibleForTesting"/>
+					  value="import com\.google\.common\.annotations\.VisibleForTesting"/>
 			<property name="illegalPattern" value="true"/>
 			<property name="message"
-			          value="Use Flink's VisibleForTesting instead of Guava's VisibleForTesting"/>
+					  value="Use Flink's VisibleForTesting instead of Guava's VisibleForTesting"/>
 		</module>
 		<module name="Regexp">
 			<property name="format" value="import static com\.google\.common\.base\.Preconditions"/>
 			<property name="illegalPattern" value="true"/>
 			<property name="message"
-			          value="Use Flink's Preconditions instead of Guava's Preconditions"/>
+					  value="Use Flink's Preconditions instead of Guava's Preconditions"/>
 		</module>
 		<!-- forbid the use of org.apache.commons.lang.SerializationUtils -->
 		<module name="Regexp">
 			<property name="format" value="org\.apache\.commons\.lang\.SerializationUtils"/>
 			<property name="illegalPattern" value="true"/>
 			<property name="message"
-			          value="Use Flink's InstantiationUtil instead of common's SerializationUtils"/>
+					  value="Use Flink's InstantiationUtil instead of common's SerializationUtils"/>
 		</module>
 		<module name="Regexp">
 			<property name="format" value="org\.apache\.commons\.lang3\.SerializationUtils"/>
 			<property name="illegalPattern" value="true"/>
 			<property name="message"
-			          value="Use Flink's InstantiationUtil instead of common's SerializationUtils"/>
+					  value="Use Flink's InstantiationUtil instead of common's SerializationUtils"/>
 		</module>
 		<module name="Regexp">
 			<property name="format" value="org\.apache\.commons\.lang\."/>
@@ -199,20 +188,20 @@ This file is based on the checkstyle file of Apache Beam.
 			<!-- Checks for redundant import statements. -->
 			<property name="severity" value="error"/>
 			<message key="import.redundancy"
-			         value="Redundant import {0}."/>
+					 value="Redundant import {0}."/>
 		</module>
 
 		<module name="ImportOrder">
 			<!-- Checks for out of order import statements. -->
 			<property name="severity" value="error"/>
 			<property name="groups"
-			          value="org.apache.flink,org.apache.flink.shaded,*,javax,java,scala"/>
+					  value="org.apache.flink,org.apache.flink.shaded,*,javax,java,scala"/>
 			<property name="separated" value="true"/>
 			<property name="sortStaticImportsAlphabetically" value="true"/>
 			<property name="option" value="bottom"/>
 			<property name="tokens" value="STATIC_IMPORT, IMPORT"/>
 			<message key="import.ordering"
-			         value="Import {0} appears after other imports that it should precede"/>
+					 value="Import {0} appears after other imports that it should precede"/>
 		</module>
 
 		<module name="AvoidStarImport">
@@ -221,7 +210,23 @@ This file is based on the checkstyle file of Apache Beam.
 
 		<module name="IllegalImport">
 			<property name="illegalPkgs"
-			          value="autovalue.shaded, avro.shaded, com.google.api.client.repackaged, com.google.appengine.repackaged, org.codehaus.jackson, io.netty, org.objectweb.asm, com.google.common"/>
+					  value="autovalue.shaded, avro.shaded, com.google.api.client.repackaged, com.google.appengine.repackaged"/>
+		</module>
+		<module name="IllegalImport">
+			<property name="illegalPkgs" value="org.codehaus.jackson"/>
+			<message key="import.illegal" value="{0}; Use flink-shaded-jackson instead."/>
+		</module>
+		<module name="IllegalImport">
+			<property name="illegalPkgs" value="org.objectweb.asm"/>
+			<message key="import.illegal" value="{0}; Use flink-shaded-asm instead."/>
+		</module>
+		<module name="IllegalImport">
+			<property name="illegalPkgs" value="io.netty"/>
+			<message key="import.illegal" value="{0}; Use flink-shaded-netty instead."/>
+		</module>
+		<module name="IllegalImport">
+			<property name="illegalPkgs" value="com.google.common"/>
+			<message key="import.illegal" value="{0}; Use flink-shaded-guava instead."/>
 		</module>
 
 		<module name="RedundantModifier">
@@ -231,7 +236,7 @@ This file is based on the checkstyle file of Apache Beam.
 			  We exclude METHOD_DEF to allow final methods in final classes to make them more future-proof.
 			-->
 			<property name="tokens"
-			          value="VARIABLE_DEF, ANNOTATION_FIELD_DEF, INTERFACE_DEF, CLASS_DEF, ENUM_DEF"/>
+					  value="VARIABLE_DEF, ANNOTATION_FIELD_DEF, INTERFACE_DEF, CLASS_DEF, ENUM_DEF"/>
 		</module>
 
 		<!--
@@ -254,7 +259,7 @@ This file is based on the checkstyle file of Apache Beam.
 			<property name="severity" value="error"/>
 			<property name="processJavadoc" value="true"/>
 			<message key="import.unused"
-			         value="Unused import: {0}."/>
+					 value="Unused import: {0}."/>
 		</module>
 
 		<!--
@@ -327,7 +332,7 @@ This file is based on the checkstyle file of Apache Beam.
 			<property name="applyToPrivate" value="false"/>
 			<property name="format" value="^([A-Z][A-Z0-9]*(_[A-Z0-9]+)*|FLAG_.*)$"/>
 			<message key="name.invalidPattern"
-			         value="Variable ''{0}'' should be in ALL_CAPS (if it is a constant) or be private (otherwise)."/>
+					 value="Variable ''{0}'' should be in ALL_CAPS (if it is a constant) or be private (otherwise)."/>
 			<property name="severity" value="error"/>
 		</module>
 
@@ -418,37 +423,11 @@ This file is based on the checkstyle file of Apache Beam.
 		<!--value="^(package .*;\s*)|(import .*;\s*)|( *\* .*https?://.*)$"/>-->
 		<!--</module>-->
 
-		<module name="LeftCurly">
-			<!-- Checks for placement of the left curly brace ('{'). -->
-			<property name="severity" value="error"/>
-		</module>
-
-		<!--<module name="RightCurly">-->
-		<!--&lt;!&ndash; Checks right curlies on CATCH, ELSE, and TRY blocks are on-->
-		<!--the same line. e.g., the following example is fine:-->
-		<!--<pre>-->
-		<!--if {-->
-		<!--...-->
-		<!--} else-->
-		<!--</pre>-->
-		<!--&ndash;&gt;-->
-		<!--&lt;!&ndash; This next example is not fine:-->
-		<!--<pre>-->
-		<!--if {-->
-		<!--...-->
-		<!--}-->
-		<!--else-->
-		<!--</pre>-->
-		<!--&ndash;&gt;-->
-		<!--<property name="option" value="same"/>-->
-		<!--<property name="severity" value="error"/>-->
-		<!--</module>-->
-
 		<!-- Checks for braces around if and else blocks -->
 		<module name="NeedBraces">
 			<property name="severity" value="error"/>
 			<property name="tokens"
-			          value="LITERAL_IF, LITERAL_ELSE, LITERAL_FOR, LITERAL_WHILE, LITERAL_DO"/>
+					  value="LITERAL_IF, LITERAL_ELSE, LITERAL_FOR, LITERAL_WHILE, LITERAL_DO"/>
 		</module>
 
 		<module name="UpperEll">
@@ -463,7 +442,7 @@ This file is based on the checkstyle file of Apache Beam.
 			some other variants that we don't publicized to promote consistency).
 			-->
 			<property name="reliefPattern"
-			          value="fall through|Fall through|fallthru|Fallthru|falls through|Falls through|fallthrough|Fallthrough|No break|NO break|no break|continue on"/>
+					  value="fall through|Fall through|fallthru|Fallthru|falls through|Falls through|fallthrough|Fallthrough|No break|NO break|no break|continue on"/>
 			<property name="severity" value="error"/>
 		</module>
 

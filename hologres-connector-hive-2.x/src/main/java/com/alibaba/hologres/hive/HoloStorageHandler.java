@@ -33,91 +33,90 @@ import org.slf4j.LoggerFactory;
 import java.util.Map;
 import java.util.Properties;
 
-/**
- * HoloStorageHandler.
- */
+/** HoloStorageHandler. */
 public class HoloStorageHandler implements HiveStorageHandler {
 
-	private static final Logger LOGGER = LoggerFactory.getLogger(HoloStorageHandler.class);
-	private Configuration conf;
+    private static final Logger LOGGER = LoggerFactory.getLogger(HoloStorageHandler.class);
+    private Configuration conf;
 
-	@Override
-	public void setConf(Configuration conf) {
-		this.conf = conf;
-	}
+    @Override
+    public void setConf(Configuration conf) {
+        this.conf = conf;
+    }
 
-	@Override
-	public Configuration getConf() {
-		return this.conf;
-	}
+    @Override
+    public Configuration getConf() {
+        return this.conf;
+    }
 
-	@SuppressWarnings("rawtypes")
-	@Override
-	public Class<? extends InputFormat> getInputFormatClass() {
-		return HoloInputFormat.class;
-	}
+    @SuppressWarnings("rawtypes")
+    @Override
+    public Class<? extends InputFormat> getInputFormatClass() {
+        return HoloInputFormat.class;
+    }
 
-	@SuppressWarnings("rawtypes")
-	@Override
-	public Class<? extends OutputFormat> getOutputFormatClass() {
-		return HoloOutputFormat.class;
-	}
+    @SuppressWarnings("rawtypes")
+    @Override
+    public Class<? extends OutputFormat> getOutputFormatClass() {
+        return HoloOutputFormat.class;
+    }
 
-	@Override
-	public Class<? extends AbstractSerDe> getSerDeClass() {
-		return HoloSerDe.class;
-	}
+    @Override
+    public Class<? extends AbstractSerDe> getSerDeClass() {
+        return HoloSerDe.class;
+    }
 
-	@Override
-	public HiveMetaHook getMetaHook() {
-		return null;
-	}
+    @Override
+    public HiveMetaHook getMetaHook() {
+        return null;
+    }
 
-	@Override
-	public void configureInputJobProperties(TableDesc tableDesc, Map<String, String> jobProperties) {
-		try {
-			LOGGER.debug("Adding properties to input job conf");
-			Properties properties = tableDesc.getProperties();
-			HoloStorageConfigManager.copyConfigurationToJob(properties, jobProperties);
-		} catch (Exception e) {
-			throw new IllegalArgumentException(e);
-		}
-	}
+    @Override
+    public void configureInputJobProperties(
+            TableDesc tableDesc, Map<String, String> jobProperties) {
+        try {
+            LOGGER.debug("Adding properties to input job conf");
+            Properties properties = tableDesc.getProperties();
+            HoloStorageConfigManager.copyConfigurationToJob(properties, jobProperties);
+        } catch (Exception e) {
+            throw new IllegalArgumentException(e);
+        }
+    }
 
-	@Override
-	public void configureTableJobProperties(TableDesc tableDesc, Map<String, String> jobProperties) {
-		try {
-			LOGGER.debug("Adding properties to job conf");
-			Properties properties = tableDesc.getProperties();
-			HoloStorageConfigManager.copyConfigurationToJob(properties, jobProperties);
-		} catch (Exception e) {
-			throw new IllegalArgumentException(e);
-		}
-	}
+    @Override
+    public void configureTableJobProperties(
+            TableDesc tableDesc, Map<String, String> jobProperties) {
+        try {
+            LOGGER.debug("Adding properties to job conf");
+            Properties properties = tableDesc.getProperties();
+            HoloStorageConfigManager.copyConfigurationToJob(properties, jobProperties);
+        } catch (Exception e) {
+            throw new IllegalArgumentException(e);
+        }
+    }
 
-	@Override
-	public void configureOutputJobProperties(TableDesc tableDesc, Map<String, String> jobProperties) {
-		try {
-			LOGGER.debug("Adding properties to output job conf");
-			Properties properties = tableDesc.getProperties();
-			HoloStorageConfigManager.copyConfigurationToJob(properties, jobProperties);
-		} catch (Exception e) {
-			throw new IllegalArgumentException(e);
-		}
-	}
+    @Override
+    public void configureOutputJobProperties(
+            TableDesc tableDesc, Map<String, String> jobProperties) {
+        try {
+            LOGGER.debug("Adding properties to output job conf");
+            Properties properties = tableDesc.getProperties();
+            HoloStorageConfigManager.copyConfigurationToJob(properties, jobProperties);
+        } catch (Exception e) {
+            throw new IllegalArgumentException(e);
+        }
+    }
 
-	@Override
-	public HiveAuthorizationProvider getAuthorizationProvider() {
-		return null;
-	}
+    @Override
+    public HiveAuthorizationProvider getAuthorizationProvider() {
+        return null;
+    }
 
-	@Override
-	public void configureJobConf(TableDesc tableDesc, JobConf jobConf) {
+    @Override
+    public void configureJobConf(TableDesc tableDesc, JobConf jobConf) {}
 
-	}
-
-	@Override
-	public String toString() {
-		return "Holo JDBC Handler";
-	}
+    @Override
+    public String toString() {
+        return "Holo JDBC Handler";
+    }
 }
