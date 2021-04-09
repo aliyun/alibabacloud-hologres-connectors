@@ -17,12 +17,15 @@ Connectors for Hologres
 * hologres-connector-hive-2.x 
   
     Hive的Hologres Connector
-* hologres-connector-spark-2.x 
-  
-    暂未实现
+* hologres-connector-spark-base
+
+    该模块实现了Hologres spark Connector的通用核心代码
+* hologres-connector-spark-2.x
+
+    依赖hologres-connector-spark-base，实现了spark2.x版本的Connector
 * hologres-connector-spark-3.x 
-  
-    暂未实现
+
+    依赖hologres-connector-spark-base，实现了spark3.x版本的Connector
 
 # 编译
 在项目根目录执行

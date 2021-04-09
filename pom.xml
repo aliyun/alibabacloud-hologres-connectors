@@ -11,7 +11,7 @@
     <packaging>pom</packaging>
 
     <properties>
-        <hologres.client.version>1.2.9-SNAPSHOT</hologres.client.version>
+        <hologres.client.version>1.2.10.3</hologres.client.version>
         <java.version>1.8</java.version>
         <maven.compiler.source>${java.version}</maven.compiler.source>
         <maven.compiler.target>${java.version}</maven.compiler.target>
@@ -31,6 +31,7 @@
         <module>hologres-connector-flink-base</module>
         <module>hologres-connector-flink-1.11</module>
         <module>hologres-connector-flink-1.12</module>
+        <module>hologres-connector-spark-base</module>
         <module>hologres-connector-spark-2.x</module>
         <module>hologres-connector-spark-3.x</module>
         <module>hologres-connector-hive-2.x</module>
@@ -115,6 +116,29 @@
                     <execution>
                         <id>validate</id>
                         <phase>validate</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.scalastyle</groupId>
+                <artifactId>scalastyle-maven-plugin</artifactId>
+                <version>1.0.0</version>
+                <configuration>
+                    <verbose>false</verbose>
+                    <failOnViolation>true</failOnViolation>
+                    <includeTestSourceDirectory>true</includeTestSourceDirectory>
+                    <failOnWarning>true</failOnWarning>
+                    <sourceDirectory>${basedir}/src/main/scala</sourceDirectory>
+                    <testSourceDirectory>${basedir}/src/test/scala</testSourceDirectory>
+                    <configLocation>tools/maven/scalastyle-config.xml</configLocation>
+                    <outputFile>${basedir}/target/scalastyle-output.xml</outputFile>
+                </configuration>
+                <executions>
+                    <execution>
                         <goals>
                             <goal>check</goal>
                         </goals>
