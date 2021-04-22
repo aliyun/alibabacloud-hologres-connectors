@@ -143,8 +143,14 @@ public class HologresRowDataConverter<T> implements HologresRecordConverter<RowD
             switch (hologresColumn.getType()) {
                 case Types.CHAR:
                 case Types.VARCHAR:
-                case Types.OTHER:
                     matched = flinkType.getTypeRoot().equals(LogicalTypeRoot.VARCHAR);
+                    break;
+                case Types.OTHER:
+                    if ("roaringbitmap".equals(hologresColumn.getTypeName())) {
+                        matched = flinkType.getTypeRoot().equals(LogicalTypeRoot.VARBINARY);
+                    } else {
+                        matched = flinkType.getTypeRoot().equals(LogicalTypeRoot.VARCHAR);
+                    }
                     break;
                 case Types.BIT:
                 case Types.BOOLEAN:
