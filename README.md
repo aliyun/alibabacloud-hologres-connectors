@@ -66,6 +66,7 @@ Connectors for Hologres
 * FlinkSQLToHoloExample 一个使用纯Flink SQL接口实现的应用，将数据写入至Hologres
 * FlinkDSAndSQLToHoloExample 一个混合Flink DataStream 以及SQL 接口实现的应用，写入Hologres前，将DataStream转换成Table，之后再用Flink SQL写入Hologres
 * FlinkDataStreamToHoloExample 一个使用纯Flink DataStream接口实现的应用，将数据写入至Hologres
+* FlinkRoaringBitmapAggJob 一个使用FLink及RoaringBitmap，结合Hologres维表，实现实时去重统计UV的应用，并将统计结果写入Hologres，详见example子项目README
 
 ## 运行Example
 

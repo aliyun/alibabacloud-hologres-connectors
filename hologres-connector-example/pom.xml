@@ -71,6 +71,11 @@
             <version>${flink.version}</version>
             <scope>provided</scope>
         </dependency>
+        <dependency>
+            <groupId>org.roaringbitmap</groupId>
+            <artifactId>RoaringBitmap</artifactId>
+            <version>0.8.13</version>
+        </dependency>
     </dependencies>
 
     <build>
