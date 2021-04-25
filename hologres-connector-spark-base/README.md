@@ -1,4 +1,7 @@
-# build jar
+
+## Hologres spark Connector的通用核心代码
+
+## build jar
   
 - 结合使用环境的scala及spark版本进行打包，使用-P指定版本参数
 

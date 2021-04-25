@@ -1,7 +1,41 @@
+# Flink-connector-Examples
+在Examples模块下，有如下几个示例：
 
-# FlinkRoaringBitmapAggJob Example 说明
+* 1.FlinkSQLToHoloExample
+  
+    一个使用纯Flink SQL接口实现的应用，将数据写入至Hologres
+* 2.FlinkDSAndSQLToHoloExample
+  
+    一个混合Flink DataStream 以及SQL 接口实现的应用，写入Hologres前，将DataStream转换成Table，之后再用Flink SQL写入Hologres
+* 3.FlinkDataStreamToHoloExample
+  
+    一个使用纯Flink DataStream接口实现的应用，将数据写入至Hologres
+* 4.FlinkRoaringBitmapAggJob
 
-## 使用Flink+RoaringBitmap进行实时用户标签去重(UV)
+    一个使用FLink及RoaringBitmap，结合Hologres维表，实现实时去重统计UV的应用，并将统计结果写入Hologres
+
+## 运行Example 1,2,3
+
+### 编译
+在本项目根目录运行```mvn package -DskipTests```
+
+### 创建Hologres结果表用于接收数据
+在自己的Hologres实例，创建结果表:
+
+```create table sink_table(user_id bigint, user_name text, price decimal(38,2), sale_timestamp timestamptz);```
+
+### 提交Flink Example作业
+当前的Flink example默认使用Flink 1.11版本进行编译，测试的时候请使用Flink 1.11版本实例
+
+```
+flink run -c com.alibaba.ververica.connectors.hologres.example.FlinkDSAndSQLToHoloExample hologres-connectors/hologres-connector-example/target/hologres-connector-example-1.0-SNAPSHOT-jar-with-dependencies.jar --endpoint ${ip:port} --username ${user_name} --password ${password} --database {database} --tablename sink_table
+```
+
+其中需要替换对应的endpoint、username、password、database参数
+
+## 运行Example 4 
+
+### 使用Flink+RoaringBitmap进行实时用户标签去重(UV)
 
 ### 案例介绍
 
@@ -31,7 +65,7 @@ CALL set_table_property('public.uid_mapping', 'orientation', 'row');
 COMMIT;
 ```
 * 表dws_app为基础聚合表。用于存放在基础维度上聚合后的结果。
-    * 使用roaringbitmap前需要创建roaringbitmap extention，需要Hologres 0.10版本
+    * 使用roaringbitmap前需要创建roaringbitmap extention，需要**Hologres 0.10**版本
 
 ```
 CREATE EXTENSION IF NOT EXISTS roaringbitmap_hqe;

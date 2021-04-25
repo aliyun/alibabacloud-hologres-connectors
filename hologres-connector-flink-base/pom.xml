@@ -103,7 +103,7 @@
                 <activeByDefault>true</activeByDefault>
             </activation>
             <properties>
-                <flinkVersion>1.11-vvr-2.1.3-SNAPSHOT</flinkVersion>
+                <flinkVersion>1.11-vvr-2.1.2-SNAPSHOT</flinkVersion>
             </properties>
         </profile>
         <profile>
