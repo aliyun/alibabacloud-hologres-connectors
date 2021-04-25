@@ -16,7 +16,7 @@ import java.sql.Timestamp;
 
 import static org.apache.flink.table.api.Expressions.$;
 
-/** A Flink data streak example and SQL sinking data to Hologres. */
+/** A Flink data stream example and SQL sinking data to Hologres. */
 public class FlinkDSAndSQLToHoloExample {
 
     /**
