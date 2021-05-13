@@ -13,7 +13,7 @@
     - [Scan查询](#scan查询)
   - [异常处理](#异常处理)
   - [自定义操作](#自定义操作)
-  - [已知问题](#已知问题)
+  - [版本已知问题](#版本已知问题)
   - [附录](#附录)
     - [HoloConfig参数说明](#holoconfig参数说明)
       - [基础配置](#基础配置)
@@ -39,13 +39,13 @@ select count(*) from pg_stat_activity where backend_type='client backend';
 <dependency>
   <groupId>com.alibaba.hologres</groupId>
   <artifactId>holo-client</artifactId>
-  <version>1.2.13.1</version>
+  <version>1.2.13.4</version>
 </dependency>
 ```
 
 - Gradle
 ```
-implementation 'com.alibaba.hologres:holo-client:1.2.10.3'
+implementation 'com.alibaba.hologres:holo-client:1.2.13.4'
 ```
 
 ## 连接数说明
@@ -174,6 +174,8 @@ catch(HoloClientException e){
 ```
 
 ### Scan查询
+```sql
+```
 ```java
 // 配置参数,url格式为 jdbc:postgresql://host:port/db
 HoloConfig config = new HoloConfig();
@@ -185,8 +187,18 @@ try (HoloClient client = new HoloClient(config)) {
     TableSchema schema0 = client.getTableSchema("t0");
     
     Scan scan = Scan.newBuilder(schema).addEqualFilter("id", 102).addRangeFilter("name", "3", "4").withSelectedColumn("address").build();
-    //等同于select address from t0 where id=102 and name>=3 and name<4; 
+    //等同于select address from t0 where id=102 and name>=3 and name<4 order by id; 
     int size = 0;
+    try (RecordScanner rs = client.scan(scan)) {
+        while (rs.next()) {
+            Record record = rs.getRecord();
+            //handle record
+        }
+    }
+    //不排序
+    scan = Scan.newBuilder(schema).addEqualFilter("id", 102).addRangeFilter("name", "3", "4").withSelectedColumn("address").setSortKeys(SortKeys.NONE).build();
+    //等同于select address from t0 where id=102 and name>=3 and name<4; 
+    size = 0;
     try (RecordScanner rs = client.scan(scan)) {
         while (rs.next()) {
             Record record = rs.getRecord();
@@ -247,12 +259,16 @@ try (HoloClient client = new HoloClient(config)) {
 				}
 				return null;
 			}).get();
-catch(HoloClientException e){
+} catch (HoloClientException e) {
 }
 ```
 
-## 已知问题
-- INSERT_OR_IGNORE和INSERT_OR_UPDATE模式下，insert和delete不保序  bug引入版本1.2.8，bug修复版本1.2.10.3
+## 版本已知问题
+- INSERT_OR_IGNORE和INSERT_OR_UPDATE模式下，insert和delete不保序。 bug引入版本1.2.8，bug修复版本1.2.10.3
+- GetBuilder.withSelectedColumns不生效，每次仍会获取所有列。 bug引入版本1.2.6，bug修复版本1.2.12.1
+- Scan如果设置了withSelectedColumn无法查询。 bug引入版本1.2.9.1，bug修复版本1.2.12.1
+- 当主键包含bytea列时，get请求无法返回结果，put请求无法保序。 bug引入版本1.2.0, bug修复版本1.2.12.1
+- 当pk的hash为Integer.MIN_VALUE时将写入失败。 bug引入版本1,2,0, bug修复版本1.2.12.1
 
 ## 附录
 ### HoloConfig参数说明
@@ -281,6 +297,7 @@ catch(HoloClientException e){
 | removeU0000InTextColumnValue | true | 当写入Text/Varchar列时，若为true，剔除字符串中的\u0000 | 1.2.10.1 |
 | enableDefaultForNotNullColumn | true | 启用时，not null且未在表上设置default的字段传入null时，将以默认值写入. String 默认“”,Number 默认0,Date/timestamp/timestamptz 默认1970-01-01 00:00:00 | 1.2.6 |
 | defaultTimeStampText | null | enableDefaultForNotNullColumn=true时，Date/timestamp/timestamptz的默认值 | 1.2.6 |
+| reWriteBatchedDeletes | true | true时将多条delete请求合并为一条sql语句提升性能 | 1.2.12.1 |
 
 
 #### 查询配置
