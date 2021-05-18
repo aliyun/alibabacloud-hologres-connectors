@@ -11,19 +11,13 @@
         <version>1.0-SNAPSHOT</version>
     </parent>
 
-    <artifactId>hologres-connector-hive-2.x</artifactId>
+    <artifactId>hologres-connector-hive-base</artifactId>
 
     <properties>
-        <hive.version>2.3.8</hive.version>
         <hadoop.version>2.7.7</hadoop.version>
     </properties>
 
     <dependencies>
-        <dependency>
-            <groupId>com.alibaba.hologres</groupId>
-            <artifactId>hologres-connector-hive-base</artifactId>
-            <version>${project.version}</version>
-        </dependency>
         <dependency>
             <groupId>org.apache.hive</groupId>
             <artifactId>hive-exec</artifactId>
@@ -36,7 +30,34 @@
             <version>${hadoop.version}</version>
             <scope>provided</scope>
         </dependency>
+        <dependency>
+            <groupId>com.alibaba.hologres</groupId>
+            <artifactId>holo-client</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <version>42.2.6</version>
+        </dependency>
     </dependencies>
+
+    <profiles>
+        <profile>
+            <id>hive-2</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <properties>
+                <hive.version>2.3.8</hive.version>
+            </properties>
+        </profile>
+        <profile>
+            <id>hive-3</id>
+            <properties>
+                <hive.version>3.1.2</hive.version>
+            </properties>
+        </profile>
+    </profiles>
 
     <build>
         <plugins>

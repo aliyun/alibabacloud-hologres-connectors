@@ -14,7 +14,8 @@
     <artifactId>hologres-connector-flink-1.12</artifactId>
 
     <properties>
-        <flink.version>1.12-vvr-3.0-SNAPSHOT</flink.version>
+        <flink.vvr.version>1.12-vvr-3.0-SNAPSHOT</flink.vvr.version>
+        <flink.version>1.12.2</flink.version>
         <scala.binary.version>2.11</scala.binary.version>
     </properties>
 
@@ -33,12 +34,12 @@
         <dependency>
             <groupId>com.alibaba.ververica</groupId>
             <artifactId>ververica-connector-common</artifactId>
-            <version>${flink.version}</version>
+            <version>${flink.vvr.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.flink</groupId>
             <artifactId>flink-table-common</artifactId>
-            <version>${flink.version}</version>
+            <version>${flink.vvr.version}</version>
             <scope>provided</scope>
         </dependency>
         <dependency>

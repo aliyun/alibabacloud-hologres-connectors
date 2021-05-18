@@ -1,7 +1,10 @@
-# 准备工作
+## 依赖hologres-connector-spark-base，实现了Spark 2.x版本的Connector
+
+## 准备工作
 - 需要**Hologres 0.9**及以上版本。
 - 需要**spark2.4.x**以及**scala2.11.x**
-- build base jar 并 install 到本地maven仓库
+
+#### build base jar 并 install 到本地maven仓库
   - -P指定相关版本参数，本项目使用scala2.11以及spark2.4，详情请查看hologres-connector-spark-base子项目README
 
   ```
@@ -10,15 +13,15 @@
 
   打包结果名称为 hologres-connector-spark-base_2.11_spark2-1.0-SNAPSHOT.jar
 
-- build jar
+#### build jar
 
   ```
   mvn -pl hologres-connector-spark-2.x clean package -DskipTests
   ```
 
-# 使用示例
-## 1.手动创建Hologres表并组织数据进行写入
-### 1.1 创建holo表
+## 使用示例
+### 1.手动创建Hologres表并组织数据进行写入
+#### 1.1 创建holo表
 
 ```sql
 CREATE TABLE tb008 (
@@ -41,7 +44,7 @@ CREATE TABLE tb008 (
 );
 ```
 
-### 1.2 组织数据并存入Holo
+#### 1.2 组织数据并存入Holo
 
 - 可以 spark-shell --jars hologres-connector-spark-2.x-1.0-SNAPSHOT-jar-with-dependencies.jar，然后spark-shell里执行测试
 - 可以使用 :load spark-test.scala 执行测试文件
@@ -117,7 +120,7 @@ df.write.format("hologres") //必须配置为hologres
 .option(SourceProvider.jdbcUrl, "jdbc:postgresql://Ip:Port/test_database")//Hologres实时数据API的jdbcUrl,与endpoint+database的设置二选一
 ```
 
-## 2. 使用Spark sql从其他数据源读取数据并存入Holo
+### 2. 使用Spark sql从其他数据源读取数据并存入Holo
 - 以Hive、postgressql为例，也可以是spark支持的其他数据源（如parquet格式的文件等）
  
   使用Spark从Hive中读取数据
@@ -171,7 +174,7 @@ df.write
   .save()
 ```
 
-# 参数说明
+## 参数说明
 
 | 参数名 | 默认值 | 是否必填 | 说明 |
 | :---: | :---: | :---: |:---: |
@@ -192,7 +195,7 @@ df.write
 | RETRY_SLEEP_STEP_MS | 10*1000 ms | 否 | 每次重试的等待时间=retrySleepInitMs+retry*retrySleepStepMs|
 | CONNECTION_MAX_IDLE_MS| 60000 ms | 否 | 写入线程和点查线程数据库连接的最大Idle时间，超过连接将被释放|
 
-# 类型映射
+## 类型映射
 |spark|holo|
 |:---:|:---:|
 | IntegerType | INT |

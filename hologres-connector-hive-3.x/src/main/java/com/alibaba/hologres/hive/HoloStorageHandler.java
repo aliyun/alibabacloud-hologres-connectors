@@ -15,5 +15,14 @@
 
 package com.alibaba.hologres.hive;
 
-/** Hive2 HoloStorageHandler. */
-public class HoloStorageHandler extends BaseHoloStorageHandler {}
+import org.apache.hadoop.hive.ql.plan.TableDesc;
+
+import java.util.Map;
+
+/** Hive3 HoloStorageHandler. */
+public class HoloStorageHandler extends BaseHoloStorageHandler {
+    /** credentials already included in properties. */
+    @Override
+    public void configureInputJobCredentials(
+            TableDesc tableDesc, Map<String, String> jobCredentials) {}
+}
