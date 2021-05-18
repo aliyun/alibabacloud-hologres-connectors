@@ -30,6 +30,10 @@ Connectors for Hologres
 
     依赖hologres-connector-spark-base，实现了spark3.x版本的Connector
 
+* [hologres-connector-datax-writer](./hologres-connector-datax-writer)
+
+    依赖[DataX框架](https://github.com/alibaba/DataX)，实现了写hologres插件
+    
 # 编译
 在根目录执行
 ```mvn install -DskipTests``` 即可，各模块的maven依赖，可参考各自的pom.xml文件

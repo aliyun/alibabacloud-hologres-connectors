@@ -182,7 +182,7 @@ df.write
 | DATABASE | 无 | 与jdbcUrl二选一| Hologres接收数据的表所在数据库名称 |
 | JDBCURL | 无 | 与endpoint+database组合设置二选一| Hologres实时数据API的jdbcUrl |
 | WRITE_MODE | INSERT_OR_REPLACE | 否 | 当INSERT目标表为有主键的表时采用不同策略:<br>INSERT_OR_IGNORE 当主键冲突时，不写入<br>INSERT_OR_UPDATE 当主键冲突时，更新相应列<br>INSERT_OR_REPLACE 当主键冲突时，更新所有列|
-| WRITE_BUFFER_SIZE | 512 | 否 | 每个写入线程的最大批次大小，<br>在经过WriteMode合并后的Put数量达到writeBatchSize时进行一次批量提交 |
+| WRITE_BATCH_SIZE | 512 | 否 | 每个写入线程的最大批次大小，<br>在经过WriteMode合并后的Put数量达到writeBatchSize时进行一次批量提交 |
 | WRITE_BATCH_BYTE_SIZE | 2MB | 否 | 每个写入线程的最大批次bytes大小，<br>在经过WriteMode合并后的Put数据字节数达到writeBatchByteSize时进行一次批量提交 |
 | WRITE_MAX_INTERVAL_MS | 10000 ms | 否 | 距离上次提交超过writeMaxIntervalMs会触发一次批量提交 |
 | WRITE_FAIL_STRATEGY | TYR_ONE_BY_ONE | 否 | 当某一批次提交失败时，会将批次内的记录逐条提交（保序），单条提交失败的记录将会跟随异常被抛出|
