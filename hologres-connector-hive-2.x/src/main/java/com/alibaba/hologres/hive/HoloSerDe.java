@@ -226,13 +226,10 @@ public class HoloSerDe extends AbstractSerDe {
                         rowData = Double.valueOf(rowData.toString());
                         break;
                     case DECIMAL:
-                        int scale = ((HiveDecimalWritable) rowData).getScale();
-                        long value =
-                                ((HiveDecimalWritable) rowData)
+                        rowData =
+                                new HiveDecimalWritable(rowData.toString())
                                         .getHiveDecimal()
-                                        .unscaledValue()
-                                        .longValue();
-                        rowData = java.math.BigDecimal.valueOf(value, scale);
+                                        .bigDecimalValue();
                         break;
                     case BOOLEAN:
                         rowData = Boolean.valueOf(rowData.toString());

@@ -1,0 +1,20 @@
+{
+    "name": "hologresjdbcwriter",
+    "parameter": {
+        "username": "",
+        "password": "",
+        "column": [],
+        "connection": [
+            {
+                "jdbcUrl": "",
+                "table": []
+            }
+        ],
+        "preSql": [],
+        "postSql": [],
+        "batchByteSize": 52428800,
+        "client": {
+            "writeThreadSize": 3
+        }
+    }
+}

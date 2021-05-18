@@ -14,11 +14,11 @@
     <artifactId>hologres-connector-hive-2.x</artifactId>
 
     <properties>
-        <hive.version>2.0.1</hive.version>
-        <hadoop.version>2.7.2</hadoop.version>
+        <hive.version>2.3.8</hive.version>
+        <hadoop.version>2.7.7</hadoop.version>
     </properties>
-    <dependencies>
 
+    <dependencies>
         <dependency>
             <groupId>org.apache.hive</groupId>
             <artifactId>hive-exec</artifactId>
@@ -35,7 +35,13 @@
             <groupId>com.alibaba.hologres</groupId>
             <artifactId>holo-client</artifactId>
         </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <version>42.2.6</version>
+        </dependency>
     </dependencies>
+
     <build>
         <plugins>
             <plugin>

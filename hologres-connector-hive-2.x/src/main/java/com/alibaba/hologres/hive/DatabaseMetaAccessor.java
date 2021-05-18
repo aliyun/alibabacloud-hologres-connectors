@@ -32,6 +32,7 @@ public class DatabaseMetaAccessor {
 
     public List<Column> getColumns() throws SQLException {
         LOGGER.info("getColumns,url:{},props:{}", url, props);
+        DriverManager.registerDriver(new org.postgresql.Driver());
         try (Connection conn = DriverManager.getConnection(url, props)) {
             try (Statement stat = conn.createStatement()) {
                 try (ResultSet rs =

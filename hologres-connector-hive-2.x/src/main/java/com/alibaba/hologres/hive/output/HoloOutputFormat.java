@@ -37,6 +37,7 @@ public class HoloOutputFormat
         implements OutputFormat<NullWritable, MapWritable>,
                 HiveOutputFormat<NullWritable, MapWritable> {
 
+    @Override
     public FileSinkOperator.RecordWriter getHiveRecordWriter(
             JobConf jobConf,
             Path path,
@@ -50,11 +51,13 @@ public class HoloOutputFormat
         return new HoloRecordWriter(taskAttemptContext);
     }
 
+    @Override
     public RecordWriter<NullWritable, MapWritable> getRecordWriter(
             FileSystem fileSystem, JobConf jobConf, String s, Progressable progressable)
             throws IOException {
         throw new UnsupportedOperationException("Write operations are not allowed.");
     }
 
+    @Override
     public void checkOutputSpecs(FileSystem fileSystem, JobConf jobConf) throws IOException {}
 }
