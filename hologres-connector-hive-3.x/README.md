@@ -1,28 +1,28 @@
-## 依赖hologres-connector-hive-base，实现了Hive 2.x版本的Connector
+## 依赖hologres-connector-hive-base，实现了Hive 3.x版本的Connector
 
 ## 准备工作
 - 需要**Hologres 0.9**及以上版本。
-- 需要Hive2
+- 需要Hive3
 
 #### build base jar 并 install 到本地maven仓库
   - -P指定相关版本参数
 
   ```
-  mvn install -pl hologres-connector-hive-base clean package -DskipTests -Phive-2
+  mvn install -pl hologres-connector-hive-base clean package -DskipTests -Phive-3
   ```
 
 #### build jar
 
   ```
-  mvn -pl hologres-connector-hive-2.x clean package -DskipTests
+  mvn -pl hologres-connector-hive-3.x clean package -DskipTests
   ```
 
 #### 加载jar包
 
 * 永久：
-    * 将hologres-connector-hive-2.x-1.0-SNAPSHOT-jar-with-dependencies.jar放在HiveServer2所在节点的$HIVE_HOME/auxlib目录下（目录不存在就新建）
+    * 将hologres-connector-hive-3.x-1.0-SNAPSHOT-jar-with-dependencies.jar放在HiveServer2所在节点的$HIVE_HOME/auxlib目录下（目录不存在就新建）
 * session级
-    1. 将hologres-connector-hive-2.x-1.0-SNAPSHOT-jar-with-dependencies.jar上传至hdfs
+    1. 将hologres-connector-hive-3.x-1.0-SNAPSHOT-jar-with-dependencies.jar上传至hdfs
     2. 在hive session中，使用add jar引入jar包。add jar hdfs:....
 
 ## 使用示例
