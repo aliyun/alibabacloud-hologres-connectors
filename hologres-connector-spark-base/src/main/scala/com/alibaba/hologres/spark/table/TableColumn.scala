@@ -1,6 +1,7 @@
 package com.alibaba.hologres.spark.table
 
 import com.alibaba.hologres.client.model.Record
+import com.alibaba.hologres.spark.exception.SparkHoloException
 import org.apache.spark.sql.types.StructType
 import org.postgresql.model.TableSchema
 
@@ -25,7 +26,12 @@ class TableColumn(sparkSchema: StructType, holoSchema: TableSchema) {
     }
     else {
       this.columns(idx) = column
-      this.columnIdToHoloId(idx) = record.getSchema.getColumnIndex(column.getColumnName)
+      try{
+        this.columnIdToHoloId(idx) = record.getSchema.getColumnIndex(column.getColumnName)
+      } catch {
+        case e: NullPointerException =>
+        throw new SparkHoloException("Column name <" + column.getColumnName + "> is different with hologres")
+      }
     }
   }
 
