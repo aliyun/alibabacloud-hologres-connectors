@@ -73,7 +73,7 @@ val data = Seq(
 
 val schema = StructType(Array(
   StructField("id", LongType),
-  StructField("count", IntegerType),
+  StructField("counts", IntegerType),
   StructField("name", StringType, false), //false表示此Field不允许为null
   StructField("price", DecimalType(38, 12)),
   StructField("out_of_stock", BooleanType),
@@ -186,14 +186,14 @@ df.write
 | JDBCURL | 无 | 与endpoint+database组合设置二选一| Hologres实时数据API的jdbcUrl |
 | WRITE_MODE | INSERT_OR_REPLACE | 否 | 当INSERT目标表为有主键的表时采用不同策略:<br>INSERT_OR_IGNORE 当主键冲突时，不写入<br>INSERT_OR_UPDATE 当主键冲突时，更新相应列<br>INSERT_OR_REPLACE 当主键冲突时，更新所有列|
 | WRITE_BATCH_SIZE | 512 | 否 | 每个写入线程的最大批次大小，<br>在经过WriteMode合并后的Put数量达到writeBatchSize时进行一次批量提交 |
-| WRITE_BATCH_BYTE_SIZE | 2MB | 否 | 每个写入线程的最大批次bytes大小，<br>在经过WriteMode合并后的Put数据字节数达到writeBatchByteSize时进行一次批量提交 |
-| WRITE_MAX_INTERVAL_MS | 10000 ms | 否 | 距离上次提交超过writeMaxIntervalMs会触发一次批量提交 |
-| WRITE_FAIL_STRATEGY | TYR_ONE_BY_ONE | 否 | 当某一批次提交失败时，会将批次内的记录逐条提交（保序），单条提交失败的记录将会跟随异常被抛出|
+| WRITE_BATCH_BYTE_SIZE | 2097152（2 * 1024 * 1024） | 否 | 每个写入线程的最大批次bytes大小，单位为Byte，默认2MB，<br>在经过WriteMode合并后的Put数据字节数达到writeBatchByteSize时进行一次批量提交 |
+| WRITE_MAX_INTERVAL_MS | 10000 | 否 | 距离上次提交超过writeMaxIntervalMs会触发一次批量提交 |
+| WRITE_FAIL_STRATEGY | TYR_ONE_BY_ONE | 否 | 当发生写失败时的重试策略:<br>TYR_ONE_BY_ONE 当某一批次提交失败时，会将批次内的记录逐条提交（保序），其中某单条提交失败的记录将会跟随异常被抛出<br> NONE 直接抛出异常 |
 | WRITE_THREAD_SIZE | 1 | 否 | 写入并发线程数（每个并发占用1个数据库连接） |
 | RETRY_COUNT | 3 | 否 | 当连接故障时，写入和查询的重试次数 |
-| RETRY_SLEEP_INIT_MS | 1000 ms | 否 | 每次重试的等待时间=retrySleepInitMs+retry*retrySleepStepMs |
-| RETRY_SLEEP_STEP_MS | 10*1000 ms | 否 | 每次重试的等待时间=retrySleepInitMs+retry*retrySleepStepMs|
-| CONNECTION_MAX_IDLE_MS| 60000 ms | 否 | 写入线程和点查线程数据库连接的最大Idle时间，超过连接将被释放|
+| RETRY_SLEEP_INIT_MS | 1000 | 否 | 每次重试的等待时间=retrySleepInitMs+retry*retrySleepStepMs |
+| RETRY_SLEEP_STEP_MS | 10000 | 否 | 每次重试的等待时间=retrySleepInitMs+retry*retrySleepStepMs|
+| CONNECTION_MAX_IDLE_MS| 60000 | 否 | 写入线程和点查线程数据库连接的最大Idle时间，超过连接将被释放|
 
 ## 类型映射
 |spark|holo|
