@@ -9,6 +9,9 @@
 运行Example 1
 
 ### 编译
+
+需要提前在本地编译安装 hologres-connector-spark-2.x
+
 运行```mvn package -DskipTests```
 
 ### 创建Hologres结果表用于接收数据
