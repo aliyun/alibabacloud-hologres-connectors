@@ -17,6 +17,9 @@
 ## 运行Example 1,2,3
 
 ### 编译
+
+需要提前在本地编译安装 hologres-connector-flink-1.11
+
 在本项目根目录运行```mvn package -DskipTests```
 
 ### 创建Hologres结果表用于接收数据
@@ -28,7 +31,7 @@
 当前的Flink example默认使用Flink 1.11版本进行编译，测试的时候请使用Flink 1.11版本实例
 
 ```
-flink run -c com.alibaba.ververica.connectors.hologres.example.FlinkDSAndSQLToHoloExample hologres-connectors/hologres-connector-example/target/hologres-connector-example-1.0-SNAPSHOT-jar-with-dependencies.jar --endpoint ${ip:port} --username ${user_name} --password ${password} --database {database} --tablename sink_table
+flink run -c com.alibaba.ververica.connectors.hologres.example.FlinkDSAndSQLToHoloExample target/hologres-connector-flink-examples-1.0-SNAPSHOT-jar-with-dependencies.jar --endpoint ${ip:port} --username ${user_name} --password ${password} --database {database} --tablename sink_table
 ```
 
 其中需要替换对应的endpoint、username、password、database参数
@@ -118,7 +121,7 @@ mvn package -DskipTests
 当前的Flink example默认使用Flink 1.11版本进行编译，测试的时候请使用Flink 1.11版本实例
 
 ```
-flink run -c com.alibaba.ververica.connectors.hologres.example.FlinkRoaringBitmapAggJob target/hologres-connector-example-1.0-SNAPSHOT-jar-with-dependencies.jar --propsFilePath src/main/resources/setting.properties --sourceFilePath ods_app_example.csv
+flink run -c com.alibaba.ververica.connectors.hologres.example.FlinkRoaringBitmapAggJob target/hologres-connector-flink-examples-1.0-SNAPSHOT-jar-with-dependencies.jar --propsFilePath src/main/resources/setting.properties --sourceFilePath ods_app_example.csv
 ```
 
 其中需要在```src/main/resources/setting.properties```文件中替换对应的endpoint、username、password、database等参数
