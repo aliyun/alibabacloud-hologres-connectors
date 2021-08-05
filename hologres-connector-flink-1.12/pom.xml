@@ -14,7 +14,7 @@
     <artifactId>hologres-connector-flink-1.12</artifactId>
 
     <properties>
-        <flink.vvr.version>1.12-vvr-3.0-SNAPSHOT</flink.vvr.version>
+        <flink.vvr.version>1.12-vvr-3.0.2</flink.vvr.version>
         <flink.version>1.12.2</flink.version>
         <scala.binary.version>2.11</scala.binary.version>
     </properties>
@@ -39,7 +39,7 @@
         <dependency>
             <groupId>org.apache.flink</groupId>
             <artifactId>flink-table-common</artifactId>
-            <version>${flink.vvr.version}</version>
+            <version>${flink.version}</version>
             <scope>provided</scope>
         </dependency>
         <dependency>

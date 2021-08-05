@@ -112,7 +112,7 @@
         <profile>
             <id>flink-1.12</id>
             <properties>
-                <flinkVvrVersion>1.12-vvr-3.0-SNAPSHOT</flinkVvrVersion>
+                <flinkVvrVersion>1.12-vvr-3.0.2</flinkVvrVersion>
                 <flinkVersion>1.12.2</flinkVersion>
             </properties>
         </profile>
