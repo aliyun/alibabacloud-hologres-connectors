@@ -8,7 +8,6 @@ import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
 import org.apache.flink.table.types.logical.RowType;
 
-import com.alibaba.ververica.connectors.common.dim.DimJoinFetcher;
 import com.alibaba.ververica.connectors.common.dim.cache.CacheStrategy;
 import com.alibaba.ververica.connectors.hologres.api.HologresReader;
 
