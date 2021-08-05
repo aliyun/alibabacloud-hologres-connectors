@@ -19,7 +19,7 @@
   mvn -pl hologres-connector-spark-2.x clean package -DskipTests
   ```
 
-## 使用示例
+## 使用示例-批量导入
 ### 1.手动创建Hologres表并组织数据进行写入
 #### 1.1 创建holo表
 
@@ -172,6 +172,55 @@ df.write
   .option(SourceProvider.DATABASE, "test_database")
   .option(SourceProvider.TABLE, table)
   .save()
+```
+
+## 使用示例-实时写入
+#### 1.1 创建holo表
+
+```sql
+CREATE TABLE test_table_stream
+(
+    value text,
+    count bigint
+);
+```
+
+#### 1.2 读取本地端口输入行，进行词频统计并写入hologres中
+
+```scala
+ val spark = SparkSession
+      .builder
+      .appName("StreamToHologres")
+      .master("local[*]")
+      .getOrCreate()
+
+    spark.sparkContext.setLogLevel("WARN")
+    import spark.implicits._
+
+    val lines = spark.readStream
+      .format("socket")
+      .option("host", "localhost")
+      .option("port", 9999)
+      .load()
+
+    // Split the lines into words
+    val words = lines.as[String].flatMap(_.split(" "))
+
+    // Generate running word count
+    val wordCounts = words.groupBy("value").count()
+
+    wordCounts.writeStream
+        .outputMode(OutputMode.Complete())
+        .format("hologres")
+        .option(SourceProvider.USERNAME, "your_username")
+        .option(SourceProvider.PASSWORD, "your_password")
+        .option(SourceProvider.JDBCURL, "jdbc:postgresql://Ip:Port/test_db")
+        .option(SourceProvider.TABLE, "test_table_stream")
+        .option("batchsize", 1)
+        .option("isolationLevel", "NONE")
+        .option("checkpointLocation", checkpointLocation)
+        .start()
+        .awaitTermination()
 ```
 
 ## 参数说明
