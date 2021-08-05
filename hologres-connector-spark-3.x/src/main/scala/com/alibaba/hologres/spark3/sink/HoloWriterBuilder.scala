@@ -37,6 +37,6 @@ case class HoloWriterFactory(
   override def createWriter(
                              partitionId: Int,
                              taskId: Long): DataWriter[InternalRow] = {
-    new HoloDataWriter(table, sourceOptions, schema)
+    new HoloDataWriter(table, sourceOptions, schema, null)
   }
 }

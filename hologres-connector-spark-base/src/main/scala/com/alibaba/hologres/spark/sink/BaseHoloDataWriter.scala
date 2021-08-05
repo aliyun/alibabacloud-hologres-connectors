@@ -1,6 +1,6 @@
 package com.alibaba.hologres.spark.sink
 
-import com.alibaba.hologres.client.Put
+import com.alibaba.hologres.client.{HoloClient, Put}
 import com.alibaba.hologres.client.exception.{HoloClientException, HoloClientWithDetailsException}
 import com.alibaba.hologres.client.model.Record
 import com.alibaba.hologres.spark.exception.SparkHoloException
@@ -17,16 +17,26 @@ import scala.collection.immutable
 abstract class BaseHoloDataWriter(
                                    table: String,
                                    sourceOptions: immutable.Map[String, String],
-                                   sparkSchema: Option[StructType]) extends Logging {
+                                   sparkSchema: Option[StructType],
+                                   clientInstance: HoloClient) extends Logging {
   private val logger = LoggerFactory.getLogger(getClass)
 
-  private val client = new BaseSourceProvider().getOrCreateHoloClient(sourceOptions)
+  // StreamWriter's Complete OutputMode always create new writer, if not reuse holo-client, it will exceed the number of connections.
+  private var client: HoloClient = _
+  if (clientInstance == null) {
+    logger.debug("create new holo client")
+    client = new BaseSourceProvider().getOrCreateHoloClient(sourceOptions)
+  }else{
+    logger.debug("reuse holo client instance")
+    client = clientInstance
+  }
   private val holoSchema: TableSchema = client.getTableSchema(TableName.valueOf(table))
   private val tableColumn: TableColumn = new TableColumn(sparkSchema.get, holoSchema)
   private val columns: Array[Column] = tableColumn.getColumns
   private val columnIdToHoloId: Array[Int] = tableColumn.getColumnIdToHoloId
 
   def commit(): Null = {
+    logger.debug("Commit....")
     try {
       client.flush()
     }
@@ -70,6 +80,7 @@ abstract class BaseHoloDataWriter(
   }
 
   def abort(): Unit = {
+    logger.debug("Abort....")
     close()
   }
 
@@ -113,6 +124,6 @@ abstract class BaseHoloDataWriter(
         client.close()
       }
     }
-    logger.info("Close....")
+    logger.debug("Close....")
   }
 }

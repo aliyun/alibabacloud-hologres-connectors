@@ -26,12 +26,10 @@ class TableColumn(sparkSchema: StructType, holoSchema: TableSchema) {
     }
     else {
       this.columns(idx) = column
-      try{
-        this.columnIdToHoloId(idx) = record.getSchema.getColumnIndex(column.getColumnName)
-      } catch {
-        case e: NullPointerException =>
-        throw new SparkHoloException("Column name <" + column.getColumnName + "> is different with hologres")
+      if (record.getSchema.getColumnIndex(column.getColumnName) == null) {
+        throw new SparkHoloException("Column name <" + column.getColumnName + "> not exist in hologres")
       }
+      this.columnIdToHoloId(idx) = record.getSchema.getColumnIndex(column.getColumnName)
     }
   }
 
