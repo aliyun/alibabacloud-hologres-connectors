@@ -1,0 +1,332 @@
+# 通过holo-client 写入Hologres
+
+## 功能介绍
+holo-client适用于大批量数据写入。holo-client基于libpq实现，使用时请确认实例剩余可用连接数。
+
+-查看最大连接数
+```sql
+show max_connections;
+```
+- 查看已使用连接数
+```sql
+select count(*) from pg_stat_activity;
+```
+
+## holo-client 引入
+引入holo-client的[头文件](./include)和[动态库](./lib)  
+lib中的libholo-client.so是在 Alibaba Cloud Linux  3.2104 64位中编译的
+### 需要安装的依赖库
+安装libpq log4c jemalloc  
+libpq: 
+```
+yum install postgresql postgresql-devel  
+```
+log4c:
+```
+yum install log4c
+```
+jemalloc: 
+```
+yum install jemalloc
+```
+
+## 数据写入
+建议项目中创建HoloClient单例，通过threadSize控制并发（每并发占用1个连接，空闲超过connectionMaxIdleMs将被自动回收)
+
+### 写入普通表
+```c
+holo_client_logger_open();
+char* connInfo = "host=xxxx.hologres.aliyuncs.com port=xxx dbname=xxxxx user=xxxxxxxxxx password=xxxxxxxxxx";
+HoloConfig config = holo_client_new_config(connInfo);
+
+HoloClient* client = holo_client_new_client(config);
+//create table schema_name.table_name (id int, name text, address text)
+TableSchema* schema = holo_client_get_tableschema(client, "schema_name", "table_name", true);
+Mutation mutation = holo_client_new_mutation_request(schema);
+holo_client_set_req_int32_val_by_colindex(mutation, 0, 0);
+holo_client_set_req_val_with_text_by_colindex(mutation, 1, "name0");
+holo_client_set_req_val_with_text_by_colindex(mutation, 2, "address0");
+holo_client_submit(client, mutation);
+
+mutation = holo_client_new_mutation_request(schema);
+holo_client_set_req_int32_val_by_colindex(mutation, 0, 1);
+holo_client_set_req_val_with_text_by_colindex(mutation, 1, "name1");
+holo_client_set_req_val_with_text_by_colindex(mutation, 2, "address1");
+holo_client_submit(client, mutation);
+
+holo_client_flush_client(client);
+
+holo_client_close_client(client);
+holo_client_logger_close();
+```
+
+### 写入分区表
+若分区已存在，不论dynamicPartition为何值，写入数据都将插入到正确的分区表中；若分区不存在，dynamicPartition设置为true时，将会自动创建不存在的分区，否则插入失败
+```c
+holo_client_logger_open();
+char* connInfo = "host=xxxx.hologres.aliyuncs.com port=xxx dbname=xxxxx user=xxxxxxxxxx password=xxxxxxxxxx";
+HoloConfig config = holo_client_new_config(connInfo);
+config.dynamicPartition = true;
+
+HoloClient* client = holo_client_new_client(config);
+//create table schema_name.table_name (id int, name text, address text) partition by list(name)
+TableSchema* schema = holo_client_get_tableschema(client, "schema_name", "table_name", true);
+Mutation mutation = holo_client_new_mutation_request(schema);
+holo_client_set_req_int32_val_by_colindex(mutation, 0, 0);
+holo_client_set_req_val_with_text_by_colindex(mutation, 1, "name0");
+holo_client_set_req_val_with_text_by_colindex(mutation, 2, "address0");
+holo_client_submit(client, mutation);
+
+mutation = holo_client_new_mutation_request(schema);
+holo_client_set_req_int32_val_by_colindex(mutation, 0, 1);
+holo_client_set_req_val_with_text_by_colindex(mutation, 1, "name1");
+holo_client_set_req_val_with_text_by_colindex(mutation, 2, "address1");
+holo_client_submit(client, mutation);
+
+holo_client_flush_client(client);
+
+holo_client_close_client(client);
+holo_client_logger_close();
+```
+
+### 写入含主键表
+```c
+holo_client_logger_open();
+char* connInfo = "host=xxxx.hologres.aliyuncs.com port=xxx dbname=xxxxx user=xxxxxxxxxx password=xxxxxxxxxx";
+HoloConfig config = holo_client_new_config(connInfo);
+config.writeMode = INSERT_OR_UPDATE;//配置主键冲突时策略
+
+HoloClient* client = holo_client_new_client(config);
+//create table schema_name.table_name (id int, name text, address text, primary key(id))
+TableSchema* schema = holo_client_get_tableschema(client, "schema_name", "table_name", true);
+Mutation mutation = holo_client_new_mutation_request(schema);
+holo_client_set_req_int32_val_by_colindex(mutation, 0, 0);
+holo_client_set_req_val_with_text_by_colindex(mutation, 1, "name0");
+holo_client_set_req_val_with_text_by_colindex(mutation, 2, "address0");
+holo_client_submit(client, mutation);
+
+mutation = holo_client_new_mutation_request(schema);
+holo_client_set_req_int32_val_by_colindex(mutation, 0, 1);
+holo_client_set_req_val_with_text_by_colindex(mutation, 1, "name1");
+holo_client_set_req_val_with_text_by_colindex(mutation, 2, "address1");
+holo_client_submit(client, mutation);
+
+holo_client_flush_client(client);
+
+holo_client_close_client(client);
+holo_client_logger_close();
+```
+### 根据主键删除
+```c
+holo_client_logger_open();
+char* connInfo = "host=xxxx.hologres.aliyuncs.com port=xxx dbname=xxxxx user=xxxxxxxxxx password=xxxxxxxxxx";
+HoloConfig config = holo_client_new_config(connInfo);
+
+HoloClient* client = holo_client_new_client(config);
+//create table schema_name.table_name (id int, name text, address text, primary key(id))
+TableSchema* schema = holo_client_get_tableschema(client, "schema_name", "table_name", true);
+Mutation mutation = holo_client_new_mutation_request(schema);
+holo_client_set_request_mode(mutation, DELETE);
+holo_client_set_req_int32_val_by_colindex(mutation, 0, 0);
+holo_client_submit(client, mutation); //删除必须设置所有的主键
+
+mutation = holo_client_new_mutation_request(schema);
+holo_client_set_request_mode(mutation, DELETE);
+holo_client_set_req_int32_val_by_colindex(mutation, 0, 1);
+holo_client_submit(client, mutation);
+
+holo_client_flush_client(client);
+
+holo_client_close_client(client);
+holo_client_logger_close();
+```
+
+### 写入失败的处理
+```c
+holo_client_logger_open();
+char* connInfo = "host=xxxx.hologres.aliyuncs.com port=xxx dbname=xxxxx user=xxxxxxxxxx password=xxxxxxxxxx";
+HoloConfig config = holo_client_new_config(connInfo);
+config.exceptionHandler = handle_failed_record; //每条插入失败的record都会调用这个函数
+HoloClient* client = holo_client_new_client(config);
+
+TableSchema* schema = holo_client_get_tableschema(client, "schema_name", "table_name", true);
+Mutation mutation = holo_client_new_mutation_request(schema);
+holo_client_set_req_int32_val_by_colindex(mutation, 0, 0);
+holo_client_submit(client, mutation); 
+
+mutation = holo_client_new_mutation_request(schema);
+holo_client_set_req_int32_val_by_colindex(mutation, 0, 1);
+holo_client_submit(client, mutation);
+
+holo_client_flush_client(client);
+
+holo_client_close_client(client);
+holo_client_logger_close();
+```
+
+### 根据主键点查
+```c
+holo_client_logger_open();
+char* connInfo = "host=xxxx.hologres.aliyuncs.com port=xxx dbname=xxxxx user=xxxxxxxxxx password=xxxxxxxxxx";
+HoloConfig config = holo_client_new_config(connInfo);
+
+HoloClient* client = holo_client_new_client(config);
+//create table schema_name.table_name (id int, name text, address text, primary key(id))
+TableSchema* schema = holo_client_get_tableschema(client, "schema_name", "table_name", true);
+Get get = holo_client_new_get_request(schema);
+holo_client_set_get_val_with_text_by_colindex(get, 0, "0");
+
+holo_client_get(client, get); //点查必须设置所有的主键
+
+Record* res = holo_client_get_record(get); //异步得到结果
+
+if (res == NULL) { //查不到记录或者发生异常
+    printf("No record\n");
+}
+else {
+    for (int i = 0; i < schema->nColumns; i++) {
+        printf("%s\n", holo_client_get_record_val(res,i)); //第i列的结果， text的形式
+    }
+}
+
+holo_client_destroy_get_request(get); //得到结果后需要手动释放
+
+holo_client_flush_client(client);
+
+holo_client_close_client(client);
+holo_client_logger_close();
+```
+
+## 附录
+### HoloConfig参数说明
+| 参数名 | 默认值 | 说明 |
+| --- | --- | --- |
+| connInfo| 无 | 必填, 格式:“host=xxxxxxxxx port=xxx dbname=xxxxx user=xxxxxxxxxx password=xxxxxxxxxx”| 
+| dynamicPartition | false | 若为true，当分区不存在时自动创建分区 |
+| writeMode | INSERT_OR_REPLACE | 当INSERT目标表为有主键的表时采用不同策略<br>INSERT_OR_IGNORE 当主键冲突时，不写入<br>INSERT_OR_UPDATE 当主键冲突时，更新相应列<br>INSERT_OR_REPLACE当主键冲突时，更新所有列|
+| batchSize | 512 | 每个写入线程的最大批次大小，在经过WriteMode合并后的插入数量达到batchSize时进行一次批量提交 |
+| threadSize | 3 | 写入并发线程数（每个并发占用1个数据库连接） |
+| shardCollectorSize | 6 | 每个表的缓冲区个数，建议shardCollectorSize大于threadSize |
+| writeBatchByteSize | 2MB | 每个写入线程的最大批次bytes大小，在经过WriteMode合并后的插入数据字节数达到writeBatchByteSize时进行一次批量提交 |
+| writeBatchTotalByteSize | writeBatchByteSize * shardCollectorSize | 所有表所有缓冲区所有数据总和最大bytes大小，达到writeBatchTotalByteSize时全部提交 |
+| writeMaxIntervalMs | 10000 ms | 距离上次提交超过writeMaxIntervalMs会触发一次批量提交 |
+| exceptionHandler | handle_exception_by_doing_nothing | 对于写入失败的数据的处理函数 |
+| retryCount | 3 | 当连接故障时的重试次数 |
+| retrySleepInitMs | 1000 ms | 每次重试的等待时间=retrySleepInitMs+retry*retrySleepStepMs |
+| retrySleepStepMs | 10*1000 ms | 每次重试的等待时间=retrySleepInitMs+retry*retrySleepStepMs |
+| connectionMaxIdleMs| 60000 ms | 写入线程数据库连接的最大Idle时间，超过连接将被释放|
+
+
+### LOG说明
+holo client用的是log库是log4c
+
+在所有跟holo client有关的代码开始前需要调用 holo_client_logger_open();
+结束后需要调用 holo_client_logger_close();
+
+注意
+
+holo_client_logger_open()和holo_client_logger_close()在整个代码里分别只能调用一次，建议在所有和holo client有关的代码的开始前和结束后调用。
+将log4crc文件复制到最终生成的可执行文件的同一文件夹下。如果要修改log的level和打印到的地点，就修改log4crc
+
+log4crc example1(打印到stdout):
+```xml
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<!DOCTYPE log4c SYSTEM "">
+
+<log4c version="1.2.4">
+
+	<config>
+		<bufsize>0</bufsize>
+		<debug level="2"/>
+		<nocleanup>0</nocleanup>
+		<reread>1</reread>
+	</config>
+
+	<category name="root" priority="notice"/>
+        <category name="holo-client" priority="debug" appender="stdout"/>
+             <!--priority 及以上的日志会打印
+         -->
+	
+	<appender name="stdout" type="stream" layout="basic"/>
+	<appender name="stderr" type="stream" layout="dated"/>
+	<appender name="syslog" type="syslog" layout="basic"/>
+
+	<layout name="basic" type="basic"/>
+	<layout name="dated" type="dated"/>
+
+</log4c>
+```
+
+log4crc example2(打印到文件mylogfile):
+```xml
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<!DOCTYPE log4c SYSTEM "">
+
+<log4c version="1.2.4">
+
+	<config>
+		<bufsize>0</bufsize>
+		<debug level="2"/>
+		<nocleanup>0</nocleanup>
+		<reread>1</reread>
+	</config>
+
+	<category name="root" priority="notice"/>
+        <category name="holo-client" priority="debug" appender="myrollingfileappender"/>
+
+    <rollingpolicy name="myrollingpolicy" type="sizewin" maxsize="104857600" maxnum="10" />    
+     <!--sizewin 表示达到最大值后新建日志文件  值由maxsize设定
+            maxnum  最大文件数目 
+         -->
+ 
+    <appender name="myrollingfileappender" type="rollingfile" logdir="./" prefix="mylogfile" layout="basic" rollingpolicy="myrollingpolicy" />
+    <!--logdir 日志输出路径
+           prefix  文件名
+           layout 输出格式 （与下方layout对应）
+              例如dated为:
+                  20110727 09:21:10.167 WARN     log4ctest- [    main.c][  57][      main()]: shit!-99947
+                  20110727 09:21:10.167 WARN     log4ctest- [    main.c][  57][      main()]: shit!-99948
+                  20110727 09:21:10.167 WARN     log4ctest- [    main.c][  57][      main()]: shit!-99949
+              basic为:
+                  WARN     log4ctest - [    main.c][  57][      main()]: shit!-99982
+                  WARN     log4ctest - [    main.c][  57][      main()]: shit!-99983
+                  WARN     log4ctest - [    main.c][  57][      main()]: shit!-99984
+                  WARN     log4ctest - [    main.c][  57][      main()]: shit!-99985              
+        -->
+	
+	<appender name="stdout" type="stream" layout="basic"/>
+	<appender name="stderr" type="stream" layout="dated"/>
+	<appender name="syslog" type="syslog" layout="basic"/>
+
+	<layout name="basic" type="basic"/>
+	<layout name="dated" type="dated"/>
+
+</log4c>
+```
+
+### 为每一行数据赋值的具体函数
+具体函数定义见include/request.h
+
+为每一个mutation(每一行数据赋值)可以用column index或者column name, 但是推荐尽量用column index, 因为column name效率比较低
+
+smallint, int, bigint, bool, float4, float8, text, timestamp, timestamptz, int[], bigint[], bool[], float4[], float8[], text[]类型的列有对应的赋值函数
+
+其他类型的列（包括上面的类型）都可以用holo_client_set_req_val_with_text_by_colindex 和 holo_client_set_req_val_with_text_by_colname 以字符串的形式插入
+| holo类型 | 赋值函数 | 说明 |
+| --- | --- | --- |
+| smallint| int holo_client_set_req_int16_val_by_colindex(Mutation mutation, int colIndex, int16_t value)<br>int holo_client_set_req_int16_val_by_colname(Mutation mutation, char* colname, int16_t value)<br>int holo_client_set_req_val_with_text_by_colindex(Mutation mutation, int colIndex, char* value)<br>int holo_client_set_req_val_with_text_by_colname(Mutation mutation, char* colName, char* value) | 成功则返回0 | 
+| integer | int holo_client_set_req_int32_val_by_colindex(Mutation mutation, int colIndex, int32_t value)<br>int holo_client_set_req_int32_val_by_colname(Mutation mutation, char* colName, int32_t value)<br>int holo_client_set_req_val_with_text_by_colindex(Mutation mutation, int colIndex, char* value)<br>int holo_client_set_req_val_with_text_by_colname(Mutation mutation, char* colName, char* value) | |
+| bigint | int holo_client_set_req_int64_val_by_colindex(Mutation mutation, int colIndex, int64_t value)<br>int holo_client_set_req_int64_val_by_colname(Mutation mutation, char* colName, int64_t value)<br>int holo_client_set_req_val_with_text_by_colindex(Mutation mutation, int colIndex, char* value)<br>int holo_client_set_req_val_with_text_by_colname(Mutation mutation, char* colName, char* value) | |
+| boolean | int holo_client_set_req_bool_val_by_colindex(Mutation mutation, int colIndex, bool value)<br>int holo_client_set_req_bool_val_by_colname(Mutation mutation, char* colName, bool value)<br>int holo_client_set_req_val_with_text_by_colindex(Mutation mutation, int colIndex, char* value)<br>int holo_client_set_req_val_with_text_by_colname(Mutation mutation, char* colName, char* value) | |
+| real/float4 | int holo_client_set_req_float_val_by_colindex(Mutation mutation, int colIndex, float value)<br>int holo_client_set_req_float_val_by_colname(Mutation mutation, char* colName, float value)<br>int holo_client_set_req_val_with_text_by_colindex(Mutation mutation, int colIndex, char* value)<br>int holo_client_set_req_val_with_text_by_colname(Mutation mutation, char* colName, char* value) | |
+| float/float8/double precision | int holo_client_set_req_double_val_by_colindex(Mutation mutation, int colIndex, double value)<br>int holo_client_set_req_double_val_by_colname(Mutation mutation, char* colName, double value)<br>int holo_client_set_req_val_with_text_by_colindex(Mutation mutation, int colIndex, char* value)<br>int holo_client_set_req_val_with_text_by_colname(Mutation mutation, char* colName, char* value) | |
+| text | int holo_client_set_req_text_val_by_colindex(Mutation mutation, int colIndex, char* value)<br>int holo_client_set_req_text_val_by_colname(Mutation mutation, char* colName, char* value)<br>int holo_client_set_req_val_with_text_by_colindex(Mutation mutation, int colIndex, char* value)<br>int holo_client_set_req_val_with_text_by_colname(Mutation mutation, char* colName, char* value) | |
+| timestamp | int holo_client_set_req_timestamp_val_by_colindex(Mutation mutation, int colIndex, int64_t value)<br>int holo_client_set_req_timestamp_val_by_colname(Mutation mutation, char* colName, int64_t value) | 不带time zone的， 以int64的形式插入(值代表从2000-01-01 00:00:00起的微秒数) |
+| timestamptz | int holo_client_set_req_timestamptz_val_by_colindex(Mutation mutation, int colIndex, int64_t value)<br>int holo_client_set_req_timestamptz_val_by_colname(Mutation mutation, char* colName, int64_t value) | 带time zone的， 以int64的形式插入(值代表从2000-01-01 00:00:00起的微秒数) |
+| int[] | int holo_client_set_req_int32_array_val_by_colindex(Mutation mutation, int colIndex, int32_t* values, int nValues)<br>int holo_client_set_req_int32_array_val_by_colname(Mutation mutation, char* colName, int32_t* values, int nValues) | |
+| bigint[] | int holo_client_set_req_int64_array_val_by_colindex(Mutation mutation, int colIndex, int64_t* values, int nValues)<br>int holo_client_set_req_int64_array_val_by_colname(Mutation mutation, char* colName, int64_t* values, int nValues) | |
+| boolean[] | int holo_client_set_req_bool_array_val_by_colindex(Mutation mutation, int colIndex, bool* values, int nValues)<br>int holo_client_set_req_bool_array_val_by_colname(Mutation mutation, char* colName, bool* values, int nValues) | |
+| real[] /float4[] | int holo_client_set_req_float_array_val_by_colindex(Mutation mutation, int colIndex, float* values, int nValues)<br>int holo_client_set_req_float_array_val_by_colname(Mutation mutation, char* colName, float* values, int nValues) | |
+| float[] /float8[] | int holo_client_set_req_double_array_val_by_colindex(Mutation mutation, int colIndex, double* values, int nValues)<br>int holo_client_set_req_double_array_val_by_colname(Mutation mutation, char* colName, double* values, int nValues) | |
+| text[] | int holo_client_set_req_text_array_val_by_colindex(Mutation mutation, int colIndex, char** values, int nValues)<br>int holo_client_set_req_text_array_val_by_colname(Mutation mutation, char* colName, char** values, int nValues) | |
+| 其他类型 | int holo_client_set_req_val_with_text_by_colindex(Mutation mutation, int colIndex, char* value)<br>int holo_client_set_req_val_with_text_by_colname(Mutation mutation, char* colName, char* value) | 所有类型都可以以text的形式插入 |

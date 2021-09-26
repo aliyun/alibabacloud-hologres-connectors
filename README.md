@@ -5,6 +5,12 @@ Connectors for Hologres
 * [holo-client-docs](./holo-client-docs)
 
     介绍如何通过holo-client读写Hologres的文档
+* [holo-client-c](./holo-client-c)
+    
+    介绍如何通过holo-client-c读写Hologres
+* [holo-client-go](./holo-client-go)
+
+    介绍golang使用holo-client-c读写Hologres
 * [hologres-connector-examples](hologres-connector-examples)
   
     该模块提供了若干使用该项目下Connector的各种实例代码<br/><br/>
