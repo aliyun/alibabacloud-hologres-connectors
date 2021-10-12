@@ -39,13 +39,13 @@ select count(*) from pg_stat_activity where backend_type='client backend';
 <dependency>
   <groupId>com.alibaba.hologres</groupId>
   <artifactId>holo-client</artifactId>
-  <version>1.2.14.2</version>
+  <version>1.2.16.3</version>
 </dependency>
 ```
 
 - Gradle
 ```
-implementation 'com.alibaba.hologres:holo-client:1.2.14.2'
+implementation 'com.alibaba.hologres:holo-client:1.2.16.3'
 ```
 
 ## 连接数说明
@@ -269,6 +269,9 @@ try (HoloClient client = new HoloClient(config)) {
 - Scan如果设置了withSelectedColumn无法查询。 bug引入版本1.2.9.1，bug修复版本1.2.12.1
 - 当主键包含bytea列时，get请求无法返回结果，put请求无法保序。 bug引入版本1.2.0, bug修复版本1.2.12.1
 - 当pk的hash为Integer.MIN_VALUE时将写入失败。 bug引入版本1,2,0, bug修复版本1.2.12.1
+- jdbc preferQueryMode=simple时，delete失败。 bug引入版本1.2.12.1, bug修复版本1.2.12.6
+- ExecutionPool对象内存泄漏，最后一个实例无法释放。bug引入版本1.2.7, bug修复版本1.2.12.6
+- 列名长度总和过长时，可能发生StackOverflow。 bug引入版本1.2.0, bug修复版本1.2.12.8
 
 ## 附录
 ### HoloConfig参数说明

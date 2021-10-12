@@ -3,6 +3,7 @@ package com.alibaba.hologres.spark.config
 import com.alibaba.hologres.client.HoloConfig
 import com.alibaba.hologres.client.model.{WriteFailStrategy, WriteMode}
 import com.alibaba.hologres.spark.utils.JDBCUtil._
+import com.esotericsoftware.minlog.Log.Logger
 import org.apache.commons.cli.MissingArgumentException
 
 /** Hologres config parameters process. */
@@ -43,6 +44,8 @@ class HologresConfigs(sourceOptions: Map[String, String]) {
 
   sourceOptions.get("write_batch_size").map(v => holoConfig.setWriteBatchSize(v.toInt))
   sourceOptions.get("write_batch_byte_size").map(v => holoConfig.setWriteBatchByteSize(v.toLong))
+  holoConfig.setRewriteSqlMaxBatchSize(1024)
+  sourceOptions.get("rewrite_sql_max_batch_size").map(v => holoConfig.setRewriteSqlMaxBatchSize(v.toInt))
   sourceOptions.get("write_max_interval_ms").map(v => holoConfig.setWriteMaxIntervalMs(v.toLong))
   sourceOptions.get("write_thread_size").map(v => holoConfig.setWriteThreadSize(v.toInt))
   sourceOptions.get("retry_count").map(v => holoConfig.setRetryCount(v.toInt))
