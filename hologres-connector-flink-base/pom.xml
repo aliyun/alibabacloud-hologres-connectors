@@ -101,9 +101,6 @@
     <profiles>
         <profile>
             <id>flink-1.11</id>
-            <activation>
-                <activeByDefault>true</activeByDefault>
-            </activation>
             <properties>
                 <flinkVvrVersion>1.11-vvr-2.1.3</flinkVvrVersion>
                 <flinkVersion>1.11.3</flinkVersion>
@@ -114,6 +111,16 @@
             <properties>
                 <flinkVvrVersion>1.12-vvr-3.0.2</flinkVvrVersion>
                 <flinkVersion>1.12.2</flinkVersion>
+            </properties>
+        </profile>
+        <profile>
+            <id>flink-1.13</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <properties>
+                <flinkVvrVersion>1.13-vvr-4.0.7</flinkVvrVersion>
+                <flinkVersion>1.13.2</flinkVersion>
             </properties>
         </profile>
     </profiles>

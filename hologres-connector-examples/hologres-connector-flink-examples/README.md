@@ -18,7 +18,7 @@
 
 ### 编译
 
-需要提前在本地编译安装 hologres-connector-flink-1.11
+需要提前在本地编译安装 hologres-connector-flink-1.13
 
 在本项目根目录运行```mvn package -DskipTests```
 

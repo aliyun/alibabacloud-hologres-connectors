@@ -30,6 +30,7 @@
         <module>hologres-connector-flink-base</module>
         <module>hologres-connector-flink-1.11</module>
         <module>hologres-connector-flink-1.12</module>
+        <module>hologres-connector-flink-1.13</module>
         <module>hologres-connector-spark-base</module>
         <module>hologres-connector-spark-2.x</module>
         <module>hologres-connector-spark-3.x</module>
@@ -234,6 +235,12 @@
         <repository>
             <id>snapshots-repo</id>
             <url>https://oss.sonatype.org/content/repositories/snapshots/</url>
+            <releases><enabled>false</enabled></releases>
+            <snapshots><enabled>true</enabled></snapshots>
+        </repository>
+        <repository>
+            <id>apache-snapshots-repo</id>
+            <url>https://repository.apache.org/content/repositories/snapshots/</url>
             <releases><enabled>false</enabled></releases>
             <snapshots><enabled>true</enabled></snapshots>
         </repository>

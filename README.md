@@ -24,7 +24,10 @@ Connectors for Hologres
     依赖hologres-connector-flink-base，实现了Flink 1.11版本的Connector
 * [hologres-connector-flink-1.12](./hologres-connector-flink-1.12)
   
-    依赖hologres-connector-flink-base，实现了Flink 1.12版本的Connector，相较于1.11，主要新增了维表场景一对多的实现<br/><br/>
+    依赖hologres-connector-flink-base，实现了Flink 1.12版本的Connector，相较于1.11，主要新增了维表场景一对多的实现
+* [hologres-connector-flink-1.13](./hologres-connector-flink-1.13)
+
+    依赖hologres-connector-flink-base，实现了Flink 1.13版本的Connector<br/><br/>
 
 
 * [hologres-connector-hive-base](./hologres-connector-hive-base)
