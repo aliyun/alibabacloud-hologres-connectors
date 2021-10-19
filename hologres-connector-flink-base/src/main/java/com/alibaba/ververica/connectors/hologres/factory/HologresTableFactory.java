@@ -21,12 +21,12 @@ import com.alibaba.ververica.connectors.hologres.utils.JDBCUtils;
 import java.util.HashSet;
 import java.util.Set;
 
-import static com.alibaba.ververica.connectors.common.util.ContextUtil.transformContext;
 import static com.alibaba.ververica.connectors.hologres.config.HologresConfigs.DATABASE;
 import static com.alibaba.ververica.connectors.hologres.config.HologresConfigs.ENDPOINT;
 import static com.alibaba.ververica.connectors.hologres.config.HologresConfigs.PASSWORD;
 import static com.alibaba.ververica.connectors.hologres.config.HologresConfigs.TABLE;
 import static com.alibaba.ververica.connectors.hologres.config.HologresConfigs.USERNAME;
+import static com.alibaba.ververica.connectors.hologres.utils.FlinkUtil.transformContext;
 import static org.apache.flink.table.factories.FactoryUtil.createTableFactoryHelper;
 
 /** Factory for sink. */

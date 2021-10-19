@@ -14,8 +14,8 @@
     <artifactId>hologres-connector-flink-1.13</artifactId>
 
     <properties>
-        <flink.vvr.version>1.13-vvr-4.0.2-SNAPSHOT</flink.vvr.version>
-        <flink.version>1.13.1</flink.version>
+        <flink.vvr.version>1.13-vvr-4.0.7</flink.vvr.version>
+        <flink.version>1.13.2</flink.version>
         <scala.binary.version>2.11</scala.binary.version>
     </properties>
 
