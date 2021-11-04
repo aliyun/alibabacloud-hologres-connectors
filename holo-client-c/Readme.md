@@ -13,13 +13,16 @@ select count(*) from pg_stat_activity;
 ```
 
 ## holo-client 引入
-引入holo-client的[头文件](./include)和[动态库](./lib)  
-lib中的libholo-client.so是在 Alibaba Cloud Linux  3.2104 64位中编译的
-### 需要安装的依赖库
-安装libpq log4c jemalloc  
+引入holo-client的头文件和动态库（libholo-client.so）
+### 生成动态库
+1. 安装libpq log4c jemalloc  
 libpq: 
 ```
 yum install postgresql postgresql-devel  
+```
+或 
+```
+yum install libpq libpq-dev  
 ```
 log4c:
 ```
@@ -29,6 +32,16 @@ jemalloc:
 ```
 yum install jemalloc
 ```
+
+2. 在holo-client-c文件夹下
+```
+mkdir build
+cd build
+cmake ..
+make install
+```
+头文件在holo-client-c/build/out/include  
+动态库在holo-client-c/build/out/lib
 
 ## 数据写入
 建议项目中创建HoloClient单例，通过threadSize控制并发（每并发占用1个连接，空闲超过connectionMaxIdleMs将被自动回收)
@@ -41,7 +54,7 @@ HoloConfig config = holo_client_new_config(connInfo);
 
 HoloClient* client = holo_client_new_client(config);
 //create table schema_name.table_name (id int, name text, address text)
-TableSchema* schema = holo_client_get_tableschema(client, "schema_name", "table_name", true);
+TableSchema* schema = holo_client_get_tableschema(client, “schema_name”, "table_name", true);
 Mutation mutation = holo_client_new_mutation_request(schema);
 holo_client_set_req_int32_val_by_colindex(mutation, 0, 0);
 holo_client_set_req_val_with_text_by_colindex(mutation, 1, "name0");
@@ -70,7 +83,7 @@ config.dynamicPartition = true;
 
 HoloClient* client = holo_client_new_client(config);
 //create table schema_name.table_name (id int, name text, address text) partition by list(name)
-TableSchema* schema = holo_client_get_tableschema(client, "schema_name", "table_name", true);
+TableSchema* schema = holo_client_get_tableschema(client, “schema_name”, "table_name", true);
 Mutation mutation = holo_client_new_mutation_request(schema);
 holo_client_set_req_int32_val_by_colindex(mutation, 0, 0);
 holo_client_set_req_val_with_text_by_colindex(mutation, 1, "name0");
@@ -98,7 +111,7 @@ config.writeMode = INSERT_OR_UPDATE;//配置主键冲突时策略
 
 HoloClient* client = holo_client_new_client(config);
 //create table schema_name.table_name (id int, name text, address text, primary key(id))
-TableSchema* schema = holo_client_get_tableschema(client, "schema_name", "table_name", true);
+TableSchema* schema = holo_client_get_tableschema(client, “schema_name”, "table_name", true);
 Mutation mutation = holo_client_new_mutation_request(schema);
 holo_client_set_req_int32_val_by_colindex(mutation, 0, 0);
 holo_client_set_req_val_with_text_by_colindex(mutation, 1, "name0");
@@ -124,7 +137,7 @@ HoloConfig config = holo_client_new_config(connInfo);
 
 HoloClient* client = holo_client_new_client(config);
 //create table schema_name.table_name (id int, name text, address text, primary key(id))
-TableSchema* schema = holo_client_get_tableschema(client, "schema_name", "table_name", true);
+TableSchema* schema = holo_client_get_tableschema(client, “schema_name”, "table_name", true);
 Mutation mutation = holo_client_new_mutation_request(schema);
 holo_client_set_request_mode(mutation, DELETE);
 holo_client_set_req_int32_val_by_colindex(mutation, 0, 0);
@@ -149,7 +162,7 @@ HoloConfig config = holo_client_new_config(connInfo);
 config.exceptionHandler = handle_failed_record; //每条插入失败的record都会调用这个函数
 HoloClient* client = holo_client_new_client(config);
 
-TableSchema* schema = holo_client_get_tableschema(client, "schema_name", "table_name", true);
+TableSchema* schema = holo_client_get_tableschema(client, “schema_name”, "table_name", true);
 Mutation mutation = holo_client_new_mutation_request(schema);
 holo_client_set_req_int32_val_by_colindex(mutation, 0, 0);
 holo_client_submit(client, mutation); 
@@ -172,7 +185,7 @@ HoloConfig config = holo_client_new_config(connInfo);
 
 HoloClient* client = holo_client_new_client(config);
 //create table schema_name.table_name (id int, name text, address text, primary key(id))
-TableSchema* schema = holo_client_get_tableschema(client, "schema_name", "table_name", true);
+TableSchema* schema = holo_client_get_tableschema(client, “schema_name”, "table_name", true);
 Get get = holo_client_new_get_request(schema);
 holo_client_set_get_val_with_text_by_colindex(get, 0, "0");
 
@@ -330,3 +343,121 @@ smallint, int, bigint, bool, float4, float8, text, timestamp, timestamptz, int[]
 | float[] /float8[] | int holo_client_set_req_double_array_val_by_colindex(Mutation mutation, int colIndex, double* values, int nValues)<br>int holo_client_set_req_double_array_val_by_colname(Mutation mutation, char* colName, double* values, int nValues) | |
 | text[] | int holo_client_set_req_text_array_val_by_colindex(Mutation mutation, int colIndex, char** values, int nValues)<br>int holo_client_set_req_text_array_val_by_colname(Mutation mutation, char* colName, char** values, int nValues) | |
 | 其他类型 | int holo_client_set_req_val_with_text_by_colindex(Mutation mutation, int colIndex, char* value)<br>int holo_client_set_req_val_with_text_by_colname(Mutation mutation, char* colName, char* value) | 所有类型都可以以text的形式插入 |
+
+### go 使用 holo-client
+使用cgo 调用 holo-client C 的动态库
+
+基本类型(int16 int32 int64 bool float(float32) double(float64))可直接使用
+
+基本数组类型(int[] int64[] bool[] float32[] float64[])可直接使用，切片不行
+
+字符串数组(外层数组，内层C.CString)可以
+
+timestamp, timestamptz以int64形式写入
+
+string 需要转换成C.CString (需要手动C.free释放)
+
+写入example:
+```go
+package main
+/*
+#cgo CFLAGS: -I./include
+#cgo LDFLAGS: -L./lib -lholo-client
+#include "holo_client.h"
+#include "holo_config.h"
+#include <stdlib.h>
+#include <stdbool.h>
+*/
+import "C"
+
+import "unsafe"
+
+func main() {
+	C.holo_client_logger_open()
+	connInfo := "host=xxxx port=xx dbname=xxx user=xxx password=xxxxx"
+	cInfo := C.CString(connInfo)
+	config := C.holo_client_new_config(cInfo)
+	config.writeMode = C.INSERT_OR_REPLACE;
+	cTableName := C.CString("table_name")
+	client := C.holo_client_new_client(config);
+	schema := C.holo_client_get_tableschema(client, nil, cTableName, false)
+
+	mutation := C.holo_client_new_mutation_request(schema);
+	C.holo_client_set_req_int32_val_by_colindex(mutation, 0, 123)
+	C.holo_client_set_req_bool_val_by_colindex(mutation, 1, true)
+	content := C.CString("text")
+	C.holo_client_set_req_text_val_by_colindex(mutation, 2, content)
+	C.holo_client_set_req_float_val_by_colindex(mutation, 3, 10.211)
+	C.holo_client_set_req_double_val_by_colindex(mutation, 4, 10.211)
+	intArray := [5] int32{1,2,3,4,5}
+	C.holo_client_set_req_int32_array_val_by_colindex(mutation, 1, (*C.int)(unsafe.Pointer(&intArray)) , 5)
+	decimal := C.CString("10.211")
+	C.holo_client_set_req_val_with_text_by_colindex(mutation, 3, decimal)
+	C.holo_client_submit(client, mutation)
+	C.free(unsafe.Pointer(content))
+	C.free(unsafe.Pointer(decimal))
+	
+	C.holo_client_flush_client(client)
+	C.holo_client_close_client(client)
+	C.holo_client_logger_close()
+	C.free(unsafe.Pointer(cInfo))
+	C.free(unsafe.Pointer(cTableName))
+}
+```
+
+点查example:
+```go
+package main
+
+/*
+#cgo CFLAGS: -I./include
+#cgo LDFLAGS: -L./lib -lholo-client
+#include "holo_client.h"
+#include "holo_config.h"
+#include "request.h"
+#include <stdlib.h>
+*/
+import "C"
+
+import (
+	"unsafe"
+	"fmt"
+	"strconv"
+)
+
+func main() {
+	C.holo_client_logger_open()
+	connInfo := "host=xxxxx port=xxx dbname=xxxxx user=xxxxx password=xxxxx"
+	cInfo := C.CString(connInfo)
+	config := C.holo_client_new_config(cInfo)
+	cSchemaName := C.CString("schema_name")
+	cTableName := C.CString("table_name")
+	client := C.holo_client_new_client(config);
+	schema := C.holo_client_get_tableschema(client, cSchemaName, cTableName, false)
+
+	for i := 0; i < 100; i++ {
+		get := C.holo_client_new_get_request(schema)
+		val := C.CString(strconv.Itoa(i)) //以string的方式设置pk
+		C.holo_client_set_get_val_with_text_by_colindex(get, 0, val)
+		C.holo_client_get(client, get);
+	    res := C.holo_client_get_record(get)
+		fmt.Printf("Record %d:\n", i)
+		if res == nil { //查不到记录或者发生异常
+			fmt.Println("No record")
+		} else {
+			for col := 0; col < int(schema.nColumns); col++ {
+				col_val := C.GoString(C.holo_client_get_record_val(res,C.int(col))) //第col列的结果， string的形式
+				fmt.Println(col_val) 
+			}
+		}
+	    C.holo_client_destroy_get_request(get);
+		C.free(unsafe.Pointer(val))
+	}
+	C.holo_client_flush_client(client)
+	C.holo_client_close_client(client)
+	C.holo_client_logger_close()
+	C.free(unsafe.Pointer(cInfo))
+	C.free(unsafe.Pointer(cTableName))
+	C.free(unsafe.Pointer(cSchemaName))
+}
+```
