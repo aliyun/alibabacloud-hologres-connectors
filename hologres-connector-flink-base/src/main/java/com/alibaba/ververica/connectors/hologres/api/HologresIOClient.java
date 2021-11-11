@@ -5,6 +5,7 @@ import org.apache.flink.table.api.TableSchema;
 import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.RowType;
 
+import com.alibaba.hologres.client.exception.HoloClientException;
 import com.alibaba.ververica.connectors.hologres.config.HologresConnectionParam;
 
 import java.io.IOException;
@@ -24,7 +25,7 @@ public abstract class HologresIOClient<T> implements Serializable {
 
     public abstract void open(RuntimeContext runtimeContext) throws IOException;
 
-    public abstract void close() throws IOException;
+    public abstract void close() throws IOException, HoloClientException;
 
     public static LogicalType[] getLogicalTypes(TableSchema tableSchema) {
         LogicalType[] logicalTypes = new LogicalType[tableSchema.getFieldCount()];

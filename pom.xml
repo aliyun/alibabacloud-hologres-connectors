@@ -11,7 +11,7 @@
     <packaging>pom</packaging>
 
     <properties>
-        <hologres.client.version>1.2.16.3</hologres.client.version>
+        <hologres.client.version>1.2.16.4</hologres.client.version>
         <java.version>1.8</java.version>
         <maven.compiler.source>${java.version}</maven.compiler.source>
         <maven.compiler.target>${java.version}</maven.compiler.target>
@@ -37,6 +37,7 @@
         <module>hologres-connector-hive-base</module>
         <module>hologres-connector-hive-2.x</module>
         <module>hologres-connector-hive-3.x</module>
+        <module>hologres-connector-kafka</module>
     </modules>
 
     <dependencyManagement>

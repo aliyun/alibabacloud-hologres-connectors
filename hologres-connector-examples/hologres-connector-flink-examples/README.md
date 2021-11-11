@@ -101,7 +101,7 @@ CALL set_table_property('public.dws_app', 'orientation', 'column');
 --clustering_key和event_time_column设为日期字段，便于过滤
 CALL set_table_property('public.dws_app', 'clustering_key', 'ymd');
 CALL set_table_property('public.dws_app', 'event_time_column', 'ymd');
---等价于将表放在shard数=96的table group
+--等价于将表放在shard数=16的table group
 call set_table_property('public.dws_app', 'colocate_with', 'tg16');
 --distribution_key设为group by字段
 CALL set_table_property('public.dws_app', 'distribution_key', 'country,prov,city');
@@ -113,7 +113,7 @@ end;
 #### 编译
 
 ```
-cd hologres-connector-example
+cd hologres-connector-flink-example
 mvn package -DskipTests
 ```
 

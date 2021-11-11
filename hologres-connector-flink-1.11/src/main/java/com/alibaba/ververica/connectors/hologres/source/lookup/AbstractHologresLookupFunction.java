@@ -8,6 +8,7 @@ import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.types.DataType;
 import org.apache.flink.table.types.logical.LogicalType;
 
+import com.alibaba.hologres.client.exception.HoloClientException;
 import com.alibaba.ververica.connectors.common.dim.DimJoinFetcher;
 import com.alibaba.ververica.connectors.common.dim.cache.CacheStrategy;
 import com.alibaba.ververica.connectors.hologres.api.HologresReader;
@@ -66,7 +67,7 @@ public abstract class AbstractHologresLookupFunction extends DimJoinFetcher
     public void closeConnection() {
         try {
             hologresReader.close();
-        } catch (IOException e) {
+        } catch (IOException | HoloClientException e) {
             throw new RuntimeException(e);
         }
     }
