@@ -1,5 +1,8 @@
 package com.alibaba.hologres.hive;
 
+import com.alibaba.hologres.hive.conf.HoloStorageConfig;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hive.ql.plan.TableScanDesc;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -21,10 +24,41 @@ public class DatabaseMetaAccessor {
     String url;
     String tableName;
     Properties props;
+    String filterStr;
 
     public DatabaseMetaAccessor(String url, String tableName, String username, String password) {
         this.url = url;
         this.tableName = tableName;
+        this.props = new Properties();
+        props.setProperty("user", username);
+        props.setProperty("password", password);
+    }
+
+    public DatabaseMetaAccessor(Configuration conf) {
+        this.tableName = conf.get(HoloStorageConfig.TABLE.getPropertyName());
+        this.url = conf.get(HoloStorageConfig.JDBC_URL.getPropertyName());
+
+        if (tableName == null || tableName.isEmpty()) {
+            throw new IllegalArgumentException("Table name should be defined");
+        }
+        if (url == null || url.isEmpty()) {
+            throw new IllegalArgumentException("Url should be defined");
+        }
+        String username = conf.get(HoloStorageConfig.USERNAME.getPropertyName());
+        if (username == null || username.isEmpty()) {
+            throw new IllegalArgumentException("username should be defined");
+        }
+        String password = conf.get(HoloStorageConfig.PASSWORD.getPropertyName());
+        if (password == null || password.isEmpty()) {
+            throw new IllegalArgumentException("password should be defined");
+        }
+        this.filterStr = conf.get(TableScanDesc.FILTER_TEXT_CONF_STR);
+        if (this.filterStr == null) {
+            this.filterStr = "";
+        } else {
+            this.filterStr = " where " + filterStr;
+        }
+
         this.props = new Properties();
         props.setProperty("user", username);
         props.setProperty("password", password);
