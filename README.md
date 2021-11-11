@@ -29,7 +29,6 @@ Connectors for Hologres
 
     依赖hologres-connector-flink-base，实现了Flink 1.13版本的Connector<br/><br/>
 
-
 * [hologres-connector-hive-base](./hologres-connector-hive-base)
 
     该模块实现了Hologres Hive Connector的通用核心代码
@@ -51,10 +50,19 @@ Connectors for Hologres
 
     依赖hologres-connector-spark-base，实现了Spark3.x版本的Connector<br/><br/>
 
+
+* [hologres-connector-kafka](./hologres-connector-kafka)
+
+    实现了kafka的Connector<br/><br/>
+
+
 * [hologres-connector-datax-writer](./hologres-connector-datax-writer)
 
-    依赖[DataX框架](https://github.com/alibaba/DataX)，实现了写hologres插件
-    
+    依赖[DataX框架](https://github.com/alibaba/DataX)，实现了写hologres插件<br/><br/>
+
 # 编译
 在根目录执行
 ```mvn install -DskipTests``` 即可，各模块的maven依赖，可参考各自的pom.xml文件
+
+# 下载
+在 Releases 中可以下载最新版本已经编译好的jar包
