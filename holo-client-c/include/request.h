@@ -60,6 +60,7 @@ typedef GetRequest* Get;
 Get holo_client_new_get_request(TableSchema*);
 int holo_client_set_get_val_with_text_by_colindex(Get get, int colIndex, char* value);
 
+
 void holo_client_destroy_get_request(Get); //同时会destroy 得到的result
 
 #endif
