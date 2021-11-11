@@ -25,16 +25,14 @@ import java.io.IOException;
 public class HoloRecordWriter implements FileSinkOperator.RecordWriter {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(HoloRecordWriter.class);
-    String url;
-    HoloClient client;
-    String tableName;
 
+    HoloClient client;
     TableSchema schema;
 
     public HoloRecordWriter(TaskAttemptContext context) throws IOException {
         Configuration conf = context.getConfiguration();
-        tableName = conf.get(HoloStorageConfig.TABLE.getPropertyName());
-        url = conf.get(HoloStorageConfig.JDBC_URL.getPropertyName());
+        String tableName = conf.get(HoloStorageConfig.TABLE.getPropertyName());
+        String url = conf.get(HoloStorageConfig.JDBC_URL.getPropertyName());
         if (tableName == null || tableName.isEmpty()) {
             throw new IllegalArgumentException("Table name should be defined");
         }
@@ -89,7 +87,10 @@ public class HoloRecordWriter implements FileSinkOperator.RecordWriter {
         long writeBatchByteSize =
                 conf.getLong(
                         HoloStorageConfig.WRITE_BATCH_BYTE_SIZE.getPropertyName(),
-                        100L * 1024L * 1024L);
+                        2L * 1024L * 1024L);
+        int rewriteSqlMaxBatchSize =
+                conf.getInt(HoloStorageConfig.REWRITE_SQL_MAX_BATCH_SIZE.getPropertyName(), 1024);
+
         long writeMaxIntervalMs =
                 conf.getLong(HoloStorageConfig.WRITE_MAX_INTERVAL_MS.getPropertyName(), 10000L);
         int writeThreadSize = conf.getInt(HoloStorageConfig.WRITE_THREAD_SIZE.getPropertyName(), 1);
@@ -107,6 +108,7 @@ public class HoloRecordWriter implements FileSinkOperator.RecordWriter {
             holoConfig.setWriteFailStrategy(writeFailStrategy);
             holoConfig.setWriteBatchSize(writeBatchSize);
             holoConfig.setWriteBatchByteSize(writeBatchByteSize);
+            holoConfig.setRewriteSqlMaxBatchSize(rewriteSqlMaxBatchSize);
             holoConfig.setWriteMaxIntervalMs(writeMaxIntervalMs);
             holoConfig.setWriteThreadSize(writeThreadSize);
             holoConfig.setRetryCount(retryCount);
