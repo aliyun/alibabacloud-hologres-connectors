@@ -5,14 +5,23 @@ public enum HoloStorageConfig {
     TABLE("table", true),
     USERNAME("username", false),
     PASSWORD("password", false),
-
     JDBC_URL("jdbc.url", true),
+
     WRITE_MODE("write_mode", false),
     WRITE_BATCH_SIZE("write_batch_size", false),
     WRITE_BATCH_BYTE_SIZE("write_batch_byte_size", false),
+    REWRITE_SQL_MAX_BATCH_SIZE("rewrite_sql_max_batch_size", false),
     WRITE_MAX_INTERVAL_MS("write_max_interval_ms", false),
     WRITE_FAIL_STRATEGY("write_fail_strategy", false),
     WRITE_THREAD_SIZE("write_thread_size", false),
+
+    READ_THREAD_SIZE("read_thread_size", false),
+    READ_BATCH_SIZE("read_batch_size", false),
+    READ_BATCH_QUEUE_SIZE("read_batch_queue_size", false),
+    SCAN_FETCH_SIZE("scan_fetch_size", false),
+    SCAN_TIMEOUT_SECONDS("scan_timeout_seconds", false),
+    SCAN_SPLITS("scan_splits", false),
+
     RETRY_COUNT("retry_count", false),
     RETRY_SLEEP_INIT_MS("retry_sleep_init_ms", false),
     RETRY_SLEEP_STEP_MS("retry_sleep_step_ms", false),

@@ -96,16 +96,12 @@ public class HologresJDBCWriter<T> extends HologresWriter<T> {
     }
 
     @Override
-    public void flush() throws IOException {
-        try {
-            client.flush();
-        } catch (HoloClientException e) {
-            throw new IOException(e);
-        }
+    public void flush() throws HoloClientException {
+        client.flush();
     }
 
     @Override
-    public void close() throws IOException {
+    public void close() throws HoloClientException {
         try {
             flush();
         } finally {

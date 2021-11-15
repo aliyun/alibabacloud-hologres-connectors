@@ -5,6 +5,7 @@ import org.apache.flink.configuration.Configuration;
 import org.apache.flink.metrics.Counter;
 import org.apache.flink.metrics.Meter;
 
+import com.alibaba.hologres.client.exception.HoloClientException;
 import com.alibaba.ververica.connectors.common.MetricUtils;
 import com.alibaba.ververica.connectors.common.sink.HasRetryTimeout;
 import com.alibaba.ververica.connectors.common.sink.Syncable;
@@ -34,6 +35,8 @@ public class HologresOutputFormat<T> extends RichOutputFormat<T>
     protected DirtyDataStrategy dirtyDataStrategy;
     protected HologresWriter<T> hologresIOClient;
 
+    protected Exception exception = null;
+
     public HologresOutputFormat(HologresConnectionParam param, HologresWriter<T> hologresIOClient) {
         this.param = checkNotNull(param);
 
@@ -61,13 +64,20 @@ public class HologresOutputFormat<T> extends RichOutputFormat<T>
     @Override
     public void close() throws IOException {
         // flush requests
-        hologresIOClient.flush();
-        hologresIOClient.close();
+        try {
+            hologresIOClient.flush();
+            hologresIOClient.close();
+        } catch (HoloClientException | IOException e) {
+            throw new IOException(e);
+        }
         LOG.info("Finished closing {}", getClass().getSimpleName());
     }
 
     @Override
     public void writeRecord(T value) throws IOException {
+        if (exception != null) {
+            throw new IOException(exception);
+        }
         if (outTps != null) {
             outTps.markEvent();
         }
@@ -102,11 +112,12 @@ public class HologresOutputFormat<T> extends RichOutputFormat<T>
         try {
             hologresIOClient.flush();
             LOG.info("end to wait request to finish");
-        } catch (IOException e) {
+        } catch (HoloClientException | IOException e) {
             LOG.info("Flush messages failed, %s", e);
             if (!dirtyDataStrategy.equals(DirtyDataStrategy.SKIP)
                     && !dirtyDataStrategy.equals(DirtyDataStrategy.SKIP_SILENT)) {
-                throw e;
+                exception = e;
+                throw new IOException(e);
             }
         }
     }
