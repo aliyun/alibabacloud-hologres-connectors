@@ -14,7 +14,8 @@
         "postSql": [],
         "batchByteSize": 52428800,
         "client": {
-            "writeThreadSize": 3
+            "writeThreadSize": 3,
+            "dynamicPartition" : true
         }
     }
 }
