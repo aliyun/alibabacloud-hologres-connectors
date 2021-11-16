@@ -112,7 +112,7 @@ public class BaseWriter {
 			config.setJdbcUrl(jdbcUrl);
 			config.setUsername(username);
 			config.setPassword(password);
-
+			config.setRewriteSqlMaxBatchSize(1024);
 			if (clientConf != null) {
 				try {
 					config = ConfLoader.load(clientConf, config, ignoreConfList);
@@ -278,7 +278,7 @@ public class BaseWriter {
 			config.setUsername(username);
 			config.setPassword(password);
 			config.setWriteMode(writeMode == WriteMode.IGNORE ? com.alibaba.hologres.client.model.WriteMode.INSERT_OR_IGNORE : (writeMode == WriteMode.UPDATE ? com.alibaba.hologres.client.model.WriteMode.INSERT_OR_UPDATE : com.alibaba.hologres.client.model.WriteMode.INSERT_OR_REPLACE));
-
+			config.setRewriteSqlMaxBatchSize(1024);
 			config.setWriteBatchSize(this.batchSize);
 			config.setWriteBatchTotalByteSize(this.batchByteSize);
 			config.setMetaCacheTTL(3600000L);
