@@ -1,25 +1,25 @@
 # 通过holo-client读写Hologres
 
 - [通过holo-client读写Hologres](#通过holo-client读写hologres)
-  - [功能介绍](#功能介绍)
-  - [holo-client引入](#holo-client引入)
-  - [连接数说明](#连接数说明)
-  - [数据读写](#数据读写)
-    - [写入普通表](#写入普通表)
-    - [写入分区表](#写入分区表)
-    - [写入含主键表](#写入含主键表)
-    - [基于主键删除（DELETE占比提高会降低整体的每秒写入）](#基于主键删除delete占比提高会降低整体的每秒写入)
-    - [基于完整主键查询](#基于完整主键查询)
-    - [Scan查询](#scan查询)
-  - [异常处理](#异常处理)
-  - [自定义操作](#自定义操作)
-  - [版本已知问题](#版本已知问题)
-  - [附录](#附录)
-    - [HoloConfig参数说明](#holoconfig参数说明)
-      - [基础配置](#基础配置)
-      - [写入配置](#写入配置)
-      - [查询配置](#查询配置)
-      - [连接配置](#连接配置)
+    - [功能介绍](#功能介绍)
+    - [holo-client引入](#holo-client引入)
+    - [连接数说明](#连接数说明)
+    - [数据读写](#数据读写)
+        - [写入普通表](#写入普通表)
+        - [写入分区表](#写入分区表)
+        - [写入含主键表](#写入含主键表)
+        - [基于主键删除（DELETE占比提高会降低整体的每秒写入）](#基于主键删除delete占比提高会降低整体的每秒写入)
+        - [基于完整主键查询](#基于完整主键查询)
+        - [Scan查询](#scan查询)
+    - [异常处理](#异常处理)
+    - [自定义操作](#自定义操作)
+    - [版本已知问题](#版本已知问题)
+    - [附录](#附录)
+        - [HoloConfig参数说明](#holoconfig参数说明)
+            - [基础配置](#基础配置)
+            - [写入配置](#写入配置)
+            - [查询配置](#查询配置)
+            - [连接配置](#连接配置)
 
 ## 功能介绍
 holo-client适用于大批量数据写入（批量、实时同步至holo）和高QPS点查（维表关联）场景。holo-client基于JDBC实现，使用时请确认实例剩余可用连接数。
@@ -39,13 +39,13 @@ select count(*) from pg_stat_activity where backend_type='client backend';
 <dependency>
   <groupId>com.alibaba.hologres</groupId>
   <artifactId>holo-client</artifactId>
-  <version>1.2.16.4</version>
+  <version>1.2.16.5</version>
 </dependency>
 ```
 
 - Gradle
 ```
-implementation 'com.alibaba.hologres:holo-client:1.2.16.4'
+implementation 'com.alibaba.hologres:holo-client:1.2.16.5'
 ```
 
 ## 连接数说明
