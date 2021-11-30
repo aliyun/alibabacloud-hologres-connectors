@@ -2,15 +2,17 @@
 Connectors for Hologres
 
 # 模块介绍
-* [holo-client-docs](./holo-client-docs)
+* [holo-client](./holo-client)
 
-    介绍如何通过holo-client读写Hologres的文档
+    holo-client源码以及使用holo-client读写Hologres的文档
 * [holo-client-c](./holo-client-c)
     
     介绍如何通过holo-client-c读写Hologres
 * [holo-client-go](./holo-client-go)
 
-    介绍golang使用holo-client-c读写Hologres
+    介绍golang使用holo-client-c读写Hologres<br/><br/>
+
+
 * [hologres-connector-examples](hologres-connector-examples)
   
     该模块提供了若干使用该项目下Connector的各种实例代码<br/><br/>
@@ -28,6 +30,7 @@ Connectors for Hologres
 * [hologres-connector-flink-1.13](./hologres-connector-flink-1.13)
 
     依赖hologres-connector-flink-base，实现了Flink 1.13版本的Connector<br/><br/>
+
 
 * [hologres-connector-hive-base](./hologres-connector-hive-base)
 
