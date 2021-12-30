@@ -4,13 +4,15 @@
     - [功能介绍](#功能介绍)
     - [holo-client引入](#holo-client引入)
     - [连接数说明](#连接数说明)
-    - [数据读写](#数据读写)
+    - [数据写入](#数据写入)
         - [写入普通表](#写入普通表)
         - [写入分区表](#写入分区表)
         - [写入含主键表](#写入含主键表)
         - [基于主键删除（DELETE占比提高会降低整体的每秒写入）](#基于主键删除delete占比提高会降低整体的每秒写入)
+    - [数据查询](#数据查询)
         - [基于完整主键查询](#基于完整主键查询)
         - [Scan查询](#scan查询)
+    - [消费Binlog](#消费Binlog)
     - [异常处理](#异常处理)
     - [自定义操作](#自定义操作)
     - [版本已知问题](#版本已知问题)
@@ -53,7 +55,7 @@ implementation 'com.alibaba.hologres:holo-client:1.2.16.5'
 - idle超过connectionMaxIdleMs会被释放
 - 在存活链接不足与处理请求量时，会自动创建新链接
 
-## 数据读写
+## 数据写入
 建议项目中创建HoloClient单例，通过writeThreadSize和readThreadSize控制读写的并发（每并发占用1个JDBC连接，空闲超过connectionMaxIdleMs将被自动回收)
 ### 写入普通表
 ```java
@@ -153,6 +155,7 @@ catch(HoloClientException e){
 }
 
 ```
+## 数据查询
 ### 基于完整主键查询
 ```java
 // 配置参数,url格式为 jdbc:postgresql://host:port/db
@@ -174,8 +177,6 @@ catch(HoloClientException e){
 ```
 
 ### Scan查询
-```sql
-```
 ```java
 // 配置参数,url格式为 jdbc:postgresql://host:port/db
 HoloConfig config = new HoloConfig();
@@ -208,6 +209,57 @@ try (HoloClient client = new HoloClient(config)) {
 catch(HoloClientException e){
 }   
 ```
+
+## 消费Binlog
+Hologres V1.1版本之后，支持使用holo-client进行表的Binlog消费。
+Binlog相关知识可以参考文档 [订阅Hologres Binlog](https://help.aliyun.com/document_detail/201024.html) 以及 [通过JDBC消费Hologres Binlog](https://help.aliyun.com/document_detail/321431.html) 
+```java
+// 配置参数,url格式为 jdbc:postgresql://host:port/db
+HoloConfig config = new HoloConfig();
+config.setJdbcUrl(url);
+config.setUsername(username);
+config.setPassword(password);
+config.setBinlogReadBatchSize(128);
+// 为所有shard指定起始消费的时间点位
+config.setBinlogReadStartTime("2021-01-01 12:00:00+08");
+
+try (HoloClient client = new HoloClient(config)) {
+    TableSchema schema = client.getTableSchema(tableName);
+    // offsetMap为可选参数
+    BinlogShardGroupReader reader = client.binlogSubscribe(schema);
+    Record record;
+    while ((record = reader.getRecord()) != null){
+        //handle record
+    }
+}
+```
+如需要，可以为每个shard指定起始消费点位
+```java
+// 配置参数,url格式为 jdbc:postgresql://host:port/db
+HoloConfig config = new HoloConfig();
+config.setJdbcUrl(url);
+config.setUsername(username);
+config.setPassword(password);
+config.setBinlogReadBatchSize(128);
+
+// 此处shardCount为示例，请替换为所消费表对应的实际数量
+int shardCount = 10;
+Map<Integer, BinlogOffset> offsetMap = new HashMap<>(shardCount);
+for (int i = 0; i < shardCount; i++) {
+// BinlogOffset通过setSequence指定lsn，通过setTimestamp指定单位为us的时间戳，两者同时指定lsn优先级大于时间戳
+offsetMap.put(i, new BinlogOffset().setSequence(0).setTimestamp(1609430400000000););
+}
+
+try (HoloClient client = new HoloClient(config)) {
+    TableSchema schema = client.getTableSchema(tableName);
+    BinlogShardGroupReader reader = client.binlogSubscribe(schema, offsetMap);
+    Record record;
+    while ((record = reader.getRecord()) != null){
+        //handle record
+    }
+}
+```
+
 ## 异常处理
 ```java
 public void doPut(HoloClient client, Put put) throws HoloClientException {
@@ -322,3 +374,12 @@ try (HoloClient client = new HoloClient(config)) {
 | connectionMaxIdleMs| 60000 | 写入线程和点查线程数据库连接的最大Idle时间，超过连接将被释放| 1.2.4 |
 | metaCacheTTL | 1 min | getTableSchema信息的本地缓存时间 | 1.2.6 |
 | metaAutoRefreshFactor | 4 | 当tableSchema cache剩余存活时间短于 metaCacheTTL/metaAutoRefreshFactor 将自动刷新cache | 1.2.10.1 |
+
+#### 消费Binlog配置
+| 参数名 | 默认值 | 说明 |引入版本 |
+| --- | --- | --- | --- |
+| binlogReadBatchSize | 1024 | 从每个shard单次获取的Binlog最大批次大小 | 1.2.16.5 |
+| binlogIgnoreDelete |false| 是否忽略消费Delete类型的binlog | 1.2.16.5 |
+| binlogIgnoreBeforeUpdate | false | 是否忽略消费BeforeUpdate类型的binlog | 1.2.16.5 |
+| binlogReadStartTime |"1970-01-01 00:00:00+08"| 表示从某个时间点位开始消费Binlog，示例参数格式: "2021-01-01 12:00:00+08" <br/> 如果没有指定： <br/> 1. 如果是第一次开始消费该Replication slot的Binlog，则从头开始消费，类似Kafka的Oldest <br/> 2. 如果曾经消费过该Replication slot的Binlog，则尝试从之前Commit过的点位开始消费| 1.2.16.5 |
+| binlogReadTimeoutSeconds | 60 |上游没有心跳的超时时间 注意：此处的timeout指的是上游停止通信，消费到最新数据没有可返回的binlog并不会导致超时，可以理解为初始化/卡住的超时时间| 1.2.16.5 |

@@ -15,7 +15,6 @@
 
 package com.alibaba.hologres.hive;
 
-import com.alibaba.hologres.hive.conf.HoloStorageConfig;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.serde.serdeConstants;
 import org.apache.hadoop.hive.serde2.AbstractSerDe;
@@ -24,6 +23,7 @@ import org.apache.hadoop.hive.serde2.SerDeStats;
 import org.apache.hadoop.hive.serde2.io.HiveDecimalWritable;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspectorFactory;
+import org.apache.hadoop.hive.serde2.objectinspector.PrimitiveObjectInspector.PrimitiveCategory;
 import org.apache.hadoop.hive.serde2.objectinspector.StructObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory;
 import org.apache.hadoop.hive.serde2.typeinfo.PrimitiveTypeInfo;
@@ -33,11 +33,13 @@ import org.apache.hadoop.io.MapWritable;
 import org.apache.hadoop.io.NullWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.Writable;
+import org.postgresql.model.Column;
+import org.postgresql.model.TableSchema;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
-import java.sql.JDBCType;
+import java.sql.Types;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -51,10 +53,9 @@ public class HoloSerDe extends AbstractSerDe {
     HoloRecordWritable dbRecordWritable;
 
     private StructObjectInspector objectInspector;
-    private int numColumns;
-    private String[] hiveColumnTypeArray;
-    private List<String> columnNames;
-    private List<JDBCType> columnTypes;
+    private int hiveColumnCount;
+    private String[] hiveColumnNames;
+    private Column[] holoColumns;
     private List<Object> row;
 
     private PrimitiveTypeInfo[] hiveColumnTypes;
@@ -68,52 +69,19 @@ public class HoloSerDe extends AbstractSerDe {
     @Override
     public void initialize(Configuration conf, Properties props) throws SerDeException {
         try {
-            LOGGER.debug("Initializing the SerDe");
-
-            String url = props.getProperty(HoloStorageConfig.JDBC_URL.getPropertyName());
-            String tableName = props.getProperty(HoloStorageConfig.TABLE.getPropertyName());
-            String username = props.getProperty(HoloStorageConfig.USERNAME.getPropertyName());
-            String password = props.getProperty(HoloStorageConfig.PASSWORD.getPropertyName());
-            LOGGER.info("tbl properties:{}", props);
-            LOGGER.info("url:{}", url);
-            LOGGER.info("tableName:{}", tableName);
-
-            if (tableName == null || tableName.isEmpty()) {
-                throw new Exception(
-                        HoloStorageConfig.TABLE.getPropertyName() + " should be defined");
-            }
-            if (username == null || username.isEmpty()) {
-                throw new Exception(
-                        HoloStorageConfig.USERNAME.getPropertyName() + " should be defined");
-            }
-            if (password == null || password.isEmpty()) {
-                throw new Exception(
-                        HoloStorageConfig.PASSWORD.getPropertyName() + " should be defined");
-            }
-            DatabaseMetaAccessor dbAccessor =
-                    new DatabaseMetaAccessor(url, tableName, username, password);
-            List<Column> columns = dbAccessor.getColumns();
-            columnNames = new ArrayList<>(columns.size());
-            columnTypes = new ArrayList<>(columns.size());
-            for (Column column : columns) {
-                columnNames.add(column.getName());
-                columnTypes.add(JDBCType.valueOf(column.getType()));
-            }
-            numColumns = columnNames.size();
-
-            String[] hiveColumnNameArray =
-                    parseProperty(props.getProperty(serdeConstants.LIST_COLUMNS), ",");
-            if (numColumns != hiveColumnNameArray.length) {
+            HoloClientProvider clientProvider = new HoloClientProvider(conf, props);
+            TableSchema schema = clientProvider.getTableSchema();
+            holoColumns = schema.getColumnSchema();
+            hiveColumnNames = parseProperty(props.getProperty(serdeConstants.LIST_COLUMNS), ",");
+            hiveColumnCount = hiveColumnNames.length;
+            if (holoColumns.length < hiveColumnCount) {
                 throw new SerDeException(
-                        "Expected "
-                                + numColumns
-                                + " columns. Table definition has "
-                                + hiveColumnNameArray.length
-                                + " columns");
+                        String.format(
+                                "Table definition has %s columns, could not greater than Hologres table %s has %d columns.",
+                                hiveColumnCount, schema.getTableName(), holoColumns.length));
             }
-            List<String> hiveColumnNames = Arrays.asList(hiveColumnNameArray);
 
-            hiveColumnTypeArray =
+            String[] hiveColumnTypeArray =
                     parseProperty(props.getProperty(serdeConstants.LIST_COLUMN_TYPES), ":");
             if (hiveColumnTypeArray.length == 0) {
                 throw new SerDeException("Received an empty Hive column type definition");
@@ -124,8 +92,8 @@ public class HoloSerDe extends AbstractSerDe {
                             props.getProperty(serdeConstants.LIST_COLUMN_TYPES));
 
             hiveColumnTypes = new PrimitiveTypeInfo[hiveColumnTypesList.size()];
-            List<ObjectInspector> fieldInspectors = new ArrayList<>(hiveColumnNames.size());
-            for (int i = 0; i < hiveColumnNames.size(); i++) {
+            List<ObjectInspector> fieldInspectors = new ArrayList<>(hiveColumnCount);
+            for (int i = 0; i < hiveColumnCount; i++) {
                 TypeInfo ti = hiveColumnTypesList.get(i);
                 if (ti.getCategory() != ObjectInspector.Category.PRIMITIVE) {
                     throw new SerDeException("Non primitive types not supported yet");
@@ -135,16 +103,94 @@ public class HoloSerDe extends AbstractSerDe {
                         PrimitiveObjectInspectorFactory.getPrimitiveJavaObjectInspector(
                                 hiveColumnTypes[i]));
             }
+            validateColumns(schema, hiveColumnNames, hiveColumnTypes);
 
             objectInspector =
                     ObjectInspectorFactory.getStandardStructObjectInspector(
-                            hiveColumnNames, fieldInspectors);
-            row = new ArrayList<>(numColumns);
+                            Arrays.asList(hiveColumnNames), fieldInspectors);
+            row = new ArrayList<>(hiveColumnCount);
 
-            dbRecordWritable = new HoloRecordWritable(columnNames.size());
+            dbRecordWritable = new HoloRecordWritable(hiveColumnCount, hiveColumnNames);
         } catch (Exception e) {
             LOGGER.error("Caught exception while initializing the SqlSerDe", e);
             throw new SerDeException(e);
+        }
+    }
+
+    /** 创建表时验证数据类型. */
+    private void validateColumns(
+            TableSchema schema, String[] hiveColumnNames, PrimitiveTypeInfo[] hiveColumnTypes) {
+        String columnName;
+        PrimitiveCategory columnType;
+
+        for (int i = 0; i < hiveColumnCount; i++) {
+            columnName = hiveColumnNames[i];
+            columnType = hiveColumnTypes[i].getPrimitiveCategory();
+            Column holoColumn;
+            try {
+                holoColumn = schema.getColumn(schema.getColumnIndex(columnName));
+            } catch (NullPointerException e) {
+                throw new IllegalArgumentException(
+                        String.format(
+                                "Column %s with data type %s does not exist in hologres!",
+                                columnName, columnType));
+            }
+            boolean matched = false;
+            switch (holoColumn.getType()) {
+                case Types.TINYINT:
+                    matched = (columnType == PrimitiveCategory.BYTE);
+                    break;
+                case Types.SMALLINT:
+                    matched = (columnType == PrimitiveCategory.SHORT);
+                    break;
+                case Types.INTEGER:
+                    matched = (columnType == PrimitiveCategory.INT);
+                    break;
+                case Types.BIGINT:
+                    matched = (columnType == PrimitiveCategory.LONG);
+                    break;
+                case Types.REAL:
+                case Types.FLOAT:
+                    matched = (columnType == PrimitiveCategory.FLOAT);
+                    break;
+                case Types.DOUBLE:
+                    matched = (columnType == PrimitiveCategory.DOUBLE);
+                    break;
+                case Types.NUMERIC:
+                case Types.DECIMAL:
+                    matched = (columnType == PrimitiveCategory.DECIMAL);
+                    break;
+                case Types.BOOLEAN:
+                case Types.BIT:
+                    matched = (columnType == PrimitiveCategory.BOOLEAN);
+                    break;
+                case Types.CHAR:
+                case Types.VARCHAR:
+                case Types.LONGVARCHAR:
+                    matched = (columnType == PrimitiveCategory.STRING);
+                    break;
+                case Types.DATE:
+                    matched = (columnType == PrimitiveCategory.DATE);
+                    break;
+                case Types.TIMESTAMP:
+                    matched = (columnType == PrimitiveCategory.TIMESTAMP);
+                    break;
+                case Types.BINARY:
+                case Types.VARBINARY:
+                    matched = (columnType == PrimitiveCategory.BINARY);
+                    break;
+                default:
+                    throw new IllegalArgumentException(
+                            String.format(
+                                    "Does not support column %s with data type %s for now!",
+                                    columnName, columnType));
+            }
+            if (!matched) {
+                throw new IllegalArgumentException(
+                        String.format(
+                                "Column %s with data type %s does not match the hologres data type!",
+                                columnName, columnType));
+            }
         }
     }
 
@@ -163,51 +209,48 @@ public class HoloSerDe extends AbstractSerDe {
             throw new SerDeException("Expected MapWritable. Got " + blob.getClass().getName());
         }
 
-        if ((row == null) || (columnNames == null)) {
+        if (row == null || hiveColumnTypes == null) {
             throw new SerDeException("Holo SerDe has no columns to deserialize");
         }
 
         row.clear();
         MapWritable input = (MapWritable) blob;
         Text columnKey = new Text();
-        for (int i = 0; i < numColumns; i++) {
-            columnKey.set(columnNames.get(i));
+        for (int i = 0; i < hiveColumnCount; i++) {
+            columnKey.set(hiveColumnNames[i]);
             Writable value = input.get(columnKey);
 
             if (value == NullWritable.get()) {
                 row.add(null);
             } else {
-                switch (columnTypes.get(i)) {
-                    case TINYINT:
+                switch (hiveColumnTypes[i].getPrimitiveCategory()) {
+                    case BYTE:
                         row.add(Byte.valueOf(value.toString()));
                         break;
-                    case SMALLINT:
+                    case SHORT:
                         row.add(Short.valueOf(value.toString()));
                         break;
-                    case INTEGER:
+                    case INT:
                         row.add(Integer.valueOf(value.toString()));
                         break;
-                    case BIGINT:
+                    case LONG:
                         row.add(Long.valueOf(value.toString()));
                         break;
-                    case REAL:
                     case FLOAT:
                         row.add(Float.valueOf(value.toString()));
                         break;
                     case DOUBLE:
                         row.add(Double.valueOf(value.toString()));
                         break;
-                    case NUMERIC:
                     case DECIMAL:
                         row.add(new HiveDecimalWritable(value.toString()).getHiveDecimal());
                         break;
-                    case BIT:
                     case BOOLEAN:
                         row.add(Boolean.valueOf(value.toString()));
                         break;
                     case CHAR:
                     case VARCHAR:
-                    case LONGVARCHAR:
+                    case STRING:
                         row.add(String.valueOf(value.toString()));
                         break;
                     case DATE:
@@ -217,10 +260,8 @@ public class HoloSerDe extends AbstractSerDe {
                         row.add(java.sql.Timestamp.valueOf(value.toString()));
                         break;
                     case BINARY:
-                    case VARBINARY:
                         row.add(value.toString().getBytes(StandardCharsets.UTF_8));
                         break;
-                    case ARRAY:
                     default:
                         // do nothing
                         break;
@@ -244,19 +285,19 @@ public class HoloSerDe extends AbstractSerDe {
     public HoloRecordWritable serialize(Object row, ObjectInspector objInspector)
             throws SerDeException {
         LOGGER.trace("Serializing from SerDe");
-        if ((row == null) || (hiveColumnTypes == null)) {
+        if (row == null || hiveColumnTypes == null) {
             throw new SerDeException("Holo SerDe has no columns to serialize");
         }
 
-        if (((Object[]) row).length != numColumns) {
+        if (((Object[]) row).length != hiveColumnCount) {
             throw new SerDeException(
                     String.format(
                             "Required %d columns, received %d.",
-                            numColumns, ((Object[]) row).length));
+                            hiveColumnCount, ((Object[]) row).length));
         }
 
         dbRecordWritable.clear();
-        for (int i = 0; i < numColumns; i++) {
+        for (int i = 0; i < hiveColumnCount; i++) {
             Object rowData = ((Object[]) row)[i];
             if (null != rowData) {
                 switch (hiveColumnTypes[i].getPrimitiveCategory()) {

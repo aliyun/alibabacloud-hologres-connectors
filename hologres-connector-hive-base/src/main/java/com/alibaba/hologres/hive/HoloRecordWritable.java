@@ -13,13 +13,15 @@ import java.util.Arrays;
 public class HoloRecordWritable implements Writable {
 
     private Object[] columnValues;
+    private String[] columnNames;
 
     public void clear() {
         Arrays.fill(columnValues, null);
     }
 
-    public HoloRecordWritable(int numColumns) {
+    public HoloRecordWritable(int numColumns, String[] columnNames) {
         this.columnValues = new Object[numColumns];
+        this.columnNames = columnNames;
     }
 
     public void set(int i, Object columnObject) {
@@ -30,16 +32,9 @@ public class HoloRecordWritable implements Writable {
         if (columnValues == null) {
             throw new HiveHoloStorageException("No data available to be written");
         }
-        if (put.getRecord().getSchema().getColumns().length != columnValues.length) {
-            throw new HiveHoloStorageException(
-                    "expect columns "
-                            + put.getRecord().getSchema().getColumns().length
-                            + " but "
-                            + columnValues.length);
-        }
         for (int i = 0; i < columnValues.length; i++) {
             Object value = columnValues[i];
-            put.setObject(i, value);
+            put.setObject(columnNames[i], value);
         }
     }
 

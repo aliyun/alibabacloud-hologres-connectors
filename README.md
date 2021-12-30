@@ -12,10 +12,6 @@ Connectors for Hologres
 
     介绍golang使用holo-client-c读写Hologres<br/><br/>
 
-* [holo-shipper](./holo-shipper)
-
-    holo-shipper 是支持将Holo Instance的部分表导入导出的备份工具。可以在Holo之间搬迁表，也可以dump到中间存储然后再恢复。<br/><br/>
-
 
 * [hologres-connector-examples](hologres-connector-examples)
   
@@ -67,9 +63,22 @@ Connectors for Hologres
 
     依赖[DataX框架](https://github.com/alibaba/DataX)，实现了写hologres插件<br/><br/>
 
+# 使用
+目前connector的Release版本已经发布到maven中央仓库，详见[hologres-connectors](https://search.maven.org/search?q=com.alibaba.hologres)
+
+可以在项目pom文件中通过如下方式引入依赖，其中`<classifier>`必须加上，防止发生依赖冲突。
+```xml
+<dependency>
+    <groupId>com.alibaba.hologres</groupId>
+    <artifactId>hologres-connector-flink-1.13</artifactId>
+    <version>1.0.0</version>
+    <classifier>jar-with-dependencies</classifier>
+</dependency>
+```
+
+# 下载
+也可以在 GitHub Releases 中可以下载最新SNAPSHOT版本已经编译好的jar包
+
 # 编译
 在根目录执行
 ```mvn install -DskipTests``` 即可，各模块的maven依赖，可参考各自的pom.xml文件
-
-# 下载
-在 Releases 中可以下载最新版本已经编译好的jar包

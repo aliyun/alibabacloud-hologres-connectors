@@ -4,6 +4,17 @@
 - 需要**Hologres 0.9**及以上版本。
 - 需要Hive3
 
+### 从中央仓库获取jar
+可以在项目pom文件中通过如下方式引入依赖，其中`<classifier>`必须加上，防止发生依赖冲突。
+```xml
+<dependency>
+    <groupId>com.alibaba.hologres</groupId>
+    <artifactId>hologres-connector-hive-3.x</artifactId>
+    <version>1.0.0</version>
+    <classifier>jar-with-dependencies</classifier>
+</dependency>
+```
+### 自行编译
 #### build base jar 并 install 到本地maven仓库
   - -P指定相关版本参数
 
@@ -63,7 +74,8 @@ ROW FORMAT DELIMITED FIELDS TERMINATED BY '|' STORED AS TEXTFILE;
 load data local inpath '/path/customer.tbl' overwrite into table customer_local;
 ```
 
-3.在hive中创建hive外表，外表字段类型一定要和holo保持一致！
+3.在hive中创建hive外表，外表字段名称一定要和holo一致,类型与holo类型匹配！
+* 建外表时可以只选取holo的部分字段，必须包含holo表的全部主键且使用 INSERT_OR_UPDATE 方式写入
 
 ```
 CREATE EXTERNAL TABLE customer_to_holo
@@ -87,6 +99,43 @@ TBLPROPERTIES (
     "hive.sql.write_mode" = "INSERT_OR_UPDATE",
     "hive.sql.write_thread_size" = "12"
 );
+
+CREATE EXTERNAL TABLE customer_to_holo_1
+(
+    c_custkey     int,
+    c_name        string,
+    c_address     string
+)
+STORED BY 'com.alibaba.hologres.hive.HoloStorageHandler'
+TBLPROPERTIES (
+    "hive.sql.jdbc.driver" = "org.postgresql.Driver",
+    "hive.sql.jdbc.url" = "jdbc:postgresql://host:port/db?reWriteBatchedInserts=true",
+    "hive.sql.username" = "",
+    "hive.sql.password" = "",
+    "hive.sql.table" = "hive_customer",
+    "hive.sql.write_mode" = "INSERT_OR_UPDATE",
+    "hive.sql.write_thread_size" = "12"
+);
+
+CREATE EXTERNAL TABLE customer_to_holo_2
+(
+    c_custkey     int,
+    c_acctbal     decimal(15,2),
+    c_phone       string,
+    c_mktsegment  string,
+    c_comment     string
+)
+STORED BY 'com.alibaba.hologres.hive.HoloStorageHandler'
+TBLPROPERTIES (
+    "hive.sql.jdbc.driver" = "org.postgresql.Driver",
+    "hive.sql.jdbc.url" = "jdbc:postgresql://host:port/db?reWriteBatchedInserts=true",
+    "hive.sql.username" = "",
+    "hive.sql.password" = "",
+    "hive.sql.table" = "hive_customer",
+    "hive.sql.write_mode" = "INSERT_OR_UPDATE",
+    "hive.sql.write_thread_size" = "12"
+);
+
 ```
 
 4.写入数据
@@ -94,6 +143,10 @@ TBLPROPERTIES (
 ```sql
 --插入单行数据
 insert into customer_to_holo values (111,'aaa','bbb',222,'ccc',33.44,'ddd','eee');
+
+--写部分列
+insert into customer_to_holo_1 select 1, 'aaa', 'bbb';
+insert into customer_to_holo_2 select 1, 123.456, 'foo', 'bar', 'ooohhh';
 
 --从hive本地表写入holo中
 insert into customer_to_holo select * from customer_local;
@@ -103,6 +156,8 @@ insert into customer_to_holo select * from customer_local;
 
 ```sql
 select * from customer_to_holo where c_custkey = 1;
+select * from customer_to_holo_1 where c_custkey = 1;
+select * from customer_to_holo_2 where c_custkey = 1;
 ```
 
 ## 参数说明
@@ -149,8 +204,8 @@ select * from customer_to_holo where c_custkey = 1;
 |int|int|
 |bigint|int8|
 |boolean|bool|
-|float|float|
-|double|float|
+|float|real|
+|double|double|
 |string|text|
 |timestamp|timestamptz|
 |date|date|
