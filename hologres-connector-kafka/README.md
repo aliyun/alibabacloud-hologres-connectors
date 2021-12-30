@@ -6,6 +6,17 @@
   - 建议使用Kafka-1.0.0及以上版本
   - kafka-0.10.0.0, kafka-0.10.1.0 不支持`whole_message_info=true`
 
+### 从中央仓库获取jar
+可以在项目pom文件中通过如下方式引入依赖，其中`<classifier>`必须加上，防止发生依赖冲突。
+```xml
+<dependency>
+    <groupId>com.alibaba.hologres</groupId>
+    <artifactId>hologres-connector-kafka</artifactId>
+    <version>1.0.0</version>
+    <classifier>jar-with-dependencies</classifier>
+</dependency>
+```
+### 自行编译
 #### build jar
 
   ```

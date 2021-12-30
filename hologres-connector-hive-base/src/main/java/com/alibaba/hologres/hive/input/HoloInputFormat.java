@@ -1,6 +1,5 @@
 package com.alibaba.hologres.hive.input;
 
-import com.alibaba.hologres.hive.DatabaseMetaAccessor;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.ql.io.HiveInputFormat;
@@ -41,7 +40,6 @@ public class HoloInputFormat extends HiveInputFormat<LongWritable, MapWritable> 
             TaskAttemptContext taskAttemptContext =
                     ShimLoader.getHadoopShims().newTaskAttemptContext(jobConf, null);
             Configuration conf = taskAttemptContext.getConfiguration();
-            DatabaseMetaAccessor dbAccessor = new DatabaseMetaAccessor(conf);
 
             // 目前使用holo-client不需要使用hive的split功能
             numSplits = 1;

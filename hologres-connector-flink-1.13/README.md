@@ -4,6 +4,17 @@
 - 需要**Hologres 0.9**及以上版本。
 - 需要Flink1.13
 
+### 从中央仓库获取jar
+可以在项目pom文件中通过如下方式引入依赖，其中`<classifier>`必须加上，防止发生依赖冲突。
+```xml
+<dependency>
+    <groupId>com.alibaba.hologres</groupId>
+    <artifactId>hologres-connector-flink-1.13</artifactId>
+    <version>1.0.0</version>
+    <classifier>jar-with-dependencies</classifier>
+</dependency>
+```
+### 自行编译
 #### build base jar 并 install 到本地maven仓库
 - -P指定相关版本参数
 - 为了精简代码，Flink1.13的connector依赖了Flink1.12的connector，需要先编译安装1.12的connector至本地

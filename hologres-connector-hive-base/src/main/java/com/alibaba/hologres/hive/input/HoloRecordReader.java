@@ -2,7 +2,6 @@ package com.alibaba.hologres.hive.input;
 
 import com.alibaba.hologres.client.Exporter;
 import com.alibaba.hologres.client.HoloClient;
-import com.alibaba.hologres.client.HoloConfig;
 import com.alibaba.hologres.client.RecordInputFormat;
 import com.alibaba.hologres.client.Scan;
 import com.alibaba.hologres.client.SortKeys;
@@ -10,7 +9,7 @@ import com.alibaba.hologres.client.exception.HoloClientException;
 import com.alibaba.hologres.client.model.ExportContext;
 import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.model.RecordScanner;
-import com.alibaba.hologres.hive.conf.HoloStorageConfig;
+import com.alibaba.hologres.hive.HoloClientProvider;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.ql.exec.SerializationUtilities;
 import org.apache.hadoop.hive.ql.plan.ExprNodeDesc;
@@ -23,7 +22,6 @@ import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.mapred.RecordReader;
 import org.apache.hadoop.mapreduce.TaskAttemptContext;
 import org.postgresql.model.Column;
-import org.postgresql.model.TableName;
 import org.postgresql.model.TableSchema;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,6 +36,7 @@ public class HoloRecordReader implements RecordReader<LongWritable, MapWritable>
 
     private static final Logger LOGGER = LoggerFactory.getLogger(HoloRecordReader.class);
 
+    HoloClientProvider clientProvider;
     HoloClient client;
     RecordScanner scanner;
     TableSchema schema;
@@ -52,48 +51,10 @@ public class HoloRecordReader implements RecordReader<LongWritable, MapWritable>
         this.inputSplit = inputSplit;
 
         Configuration conf = context.getConfiguration();
-
-        String tableName = conf.get(HoloStorageConfig.TABLE.getPropertyName());
-        String url = conf.get(HoloStorageConfig.JDBC_URL.getPropertyName());
-        if (tableName == null || tableName.isEmpty()) {
-            throw new IllegalArgumentException("Table name should be defined");
-        }
-        if (url == null || url.isEmpty()) {
-            throw new IllegalArgumentException("Url should be defined");
-        }
-
-        String username = conf.get(HoloStorageConfig.USERNAME.getPropertyName());
-        if (username == null || username.isEmpty()) {
-            throw new IllegalArgumentException("username should be defined");
-        }
-
-        String password = conf.get(HoloStorageConfig.PASSWORD.getPropertyName());
-        if (password == null || password.isEmpty()) {
-            throw new IllegalArgumentException("password should be defined");
-        }
-
-        int readBatchSize = conf.getInt(HoloStorageConfig.READ_BATCH_SIZE.getPropertyName(), 128);
-        int readThreadSize = conf.getInt(HoloStorageConfig.READ_THREAD_SIZE.getPropertyName(), 1);
-        int readBatchQueueSize =
-                conf.getInt(HoloStorageConfig.READ_BATCH_QUEUE_SIZE.getPropertyName(), 256);
-        int scanFetchSize = conf.getInt(HoloStorageConfig.SCAN_FETCH_SIZE.getPropertyName(), 2000);
-        int scanTimeoutSeconds =
-                conf.getInt(HoloStorageConfig.SCAN_TIMEOUT_SECONDS.getPropertyName(), 60);
-
         try {
-            HoloConfig holoConfig = new HoloConfig();
-
-            holoConfig.setJdbcUrl(url);
-            holoConfig.setUsername(username);
-            holoConfig.setPassword(password);
-            holoConfig.setReadBatchSize(readBatchSize);
-            holoConfig.setReadThreadSize(readThreadSize);
-            holoConfig.setReadBatchQueueSize(readBatchQueueSize);
-            holoConfig.setScanFetchSize(scanFetchSize);
-            holoConfig.setScanTimeoutSeconds(scanTimeoutSeconds);
-            client = new HoloClient(holoConfig);
-            schema = client.getTableSchema(TableName.valueOf(tableName));
-            client.setAsyncCommit(true);
+            clientProvider = new HoloClientProvider(conf);
+            client = clientProvider.createOrGetClient();
+            schema = clientProvider.getTableSchema();
 
             String filterXml = conf.get(TableScanDesc.FILTER_EXPR_CONF_STR);
             // Use scan when have filter conditions, else use copy.
