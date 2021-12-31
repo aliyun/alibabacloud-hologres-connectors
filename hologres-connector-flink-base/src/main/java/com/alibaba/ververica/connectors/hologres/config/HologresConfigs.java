@@ -4,7 +4,7 @@ import org.apache.flink.configuration.ConfigOption;
 import org.apache.flink.configuration.ConfigOptions;
 
 import com.alibaba.ververica.connectors.common.dim.DimOptions;
-import com.alibaba.ververica.connectors.hologres.jdbc.HologresJdbcConfigs;
+import com.alibaba.ververica.connectors.hologres.jdbc.HologresJDBCConfigs;
 import org.apache.commons.lang3.reflect.FieldUtils;
 
 import java.util.Arrays;
@@ -71,8 +71,8 @@ public class HologresConfigs {
                             }
                         });
 
-        HologresJdbcConfigs jdbcConfigs = new HologresJdbcConfigs();
-        Arrays.stream(FieldUtils.getAllFields(HologresJdbcConfigs.class))
+        HologresJDBCConfigs jdbcConfigs = new HologresJDBCConfigs();
+        Arrays.stream(FieldUtils.getAllFields(HologresJDBCConfigs.class))
                 .filter(f -> ConfigOption.class.isAssignableFrom(f.getType()))
                 .forEach(
                         f -> {

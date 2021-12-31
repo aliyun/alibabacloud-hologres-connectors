@@ -5,19 +5,15 @@ import org.apache.flink.table.api.TableSchema;
 import org.apache.flink.table.data.RowData;
 
 import com.alibaba.hologres.client.Get;
-import com.alibaba.hologres.client.HoloClient;
-import com.alibaba.hologres.client.HoloConfig;
 import com.alibaba.hologres.client.Put;
 import com.alibaba.hologres.client.Scan;
 import com.alibaba.hologres.client.exception.HoloClientException;
 import com.alibaba.hologres.client.model.Record;
-import com.alibaba.hologres.client.model.WriteMode;
 import com.alibaba.ververica.connectors.hologres.api.HologresReader;
 import com.alibaba.ververica.connectors.hologres.api.HologresRecordConverter;
 import com.alibaba.ververica.connectors.hologres.api.HologresTableSchema;
 import com.alibaba.ververica.connectors.hologres.api.table.HologresRowDataConverter;
 import com.alibaba.ververica.connectors.hologres.config.HologresConnectionParam;
-import com.alibaba.ververica.connectors.hologres.config.JDBCOptions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,9 +27,9 @@ import java.util.concurrent.ExecutionException;
 public class HologresJDBCReader<T> extends HologresReader<T> {
     private static final transient Logger LOG = LoggerFactory.getLogger(HologresJDBCReader.class);
     private final HologresRecordConverter<T, Record> recordConverter;
-    protected transient HoloClient holoClient;
+    private transient HologresJDBCClientProvider clientProvider;
     protected final boolean insertIfNotExists;
-    private transient HologresTableSchema hologresTableSchema;
+    private transient HologresTableSchema schema;
 
     public HologresJDBCReader(
             String[] primaryKeys,
@@ -73,17 +69,11 @@ public class HologresJDBCReader<T> extends HologresReader<T> {
         if (insertIfNotExists) {
             LOG.info("Hologres dim table will insert new record if primary key does not exist.");
         }
-        HoloConfig holoConfig = new HoloConfig();
-        JDBCOptions jdbcOptions = param.getJdbcOptions();
-        holoConfig.setJdbcUrl(jdbcOptions.getDbUrl());
-        holoConfig.setUsername(jdbcOptions.getUsername());
-        holoConfig.setPassword(jdbcOptions.getPassword());
-        holoConfig.setWriteMode(WriteMode.INSERT_OR_IGNORE);
-        holoConfig.setReadThreadSize(param.getConnectionPoolSize());
         try {
-            holoClient = new HoloClient(holoConfig);
-            hologresTableSchema =
-                    new HologresTableSchema(holoClient.getTableSchema(jdbcOptions.getTable()));
+            this.clientProvider = new HologresJDBCClientProvider(param);
+            schema =
+                    new HologresTableSchema(
+                            clientProvider.getClient().getTableSchema(param.getTable()));
         } catch (HoloClientException e) {
             throw new RuntimeException(e);
         }
@@ -96,8 +86,8 @@ public class HologresJDBCReader<T> extends HologresReader<T> {
     @Override
     public void close() throws IOException {
         LOG.info("Closing HologresLookUpFunction");
-        if (holoClient != null) {
-            this.holoClient.close();
+        if (clientProvider.getClient() != null) {
+            this.clientProvider.getClient().close();
         }
     }
 
@@ -106,7 +96,8 @@ public class HologresJDBCReader<T> extends HologresReader<T> {
         CompletableFuture<T> result = new CompletableFuture<>();
         Record record = recordConverter.convertToPrimaryKey(in);
         try {
-            holoClient
+            clientProvider
+                    .getClient()
                     .get(new Get(record.clone()))
                     .handleAsync(
                             (rowData, throwable) -> {
@@ -161,7 +152,8 @@ public class HologresJDBCReader<T> extends HologresReader<T> {
             scanBuilder.addEqualFilter(primaryKeys, record.getObject(primaryKeys));
         }
         try {
-            holoClient
+            clientProvider
+                    .getClient()
                     .asyncScan(scanBuilder.build())
                     .handleAsync(
                             (scanner, throwable) -> {
@@ -199,9 +191,9 @@ public class HologresJDBCReader<T> extends HologresReader<T> {
     protected T insertNewPrimaryKey(Record record) throws IOException {
         Put put = new Put(record);
         try {
-            holoClient.put(put);
-            holoClient.flush();
-            Record rowData = holoClient.get(new Get(record)).get();
+            clientProvider.getClient().put(put);
+            clientProvider.getClient().flush();
+            Record rowData = clientProvider.getClient().get(new Get(record)).get();
             if (rowData == null) {
                 throw new IOException("Could not get value for " + record);
             }

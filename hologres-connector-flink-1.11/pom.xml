@@ -8,7 +8,7 @@
     <parent>
         <groupId>com.alibaba.hologres</groupId>
         <artifactId>hologres-connector-parent</artifactId>
-        <version>${hologres.connectors.version}</version>
+        <version>1.0-SNAPSHOT</version>
     </parent>
 
     <artifactId>hologres-connector-flink-1.11</artifactId>

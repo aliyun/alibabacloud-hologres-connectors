@@ -4,8 +4,6 @@ import org.apache.flink.api.common.functions.RuntimeContext;
 import org.apache.flink.table.api.TableSchema;
 import org.apache.flink.table.data.RowData;
 
-import com.alibaba.hologres.client.HoloClient;
-import com.alibaba.hologres.client.HoloConfig;
 import com.alibaba.hologres.client.Put;
 import com.alibaba.hologres.client.exception.HoloClientException;
 import com.alibaba.hologres.client.model.Record;
@@ -14,14 +12,13 @@ import com.alibaba.ververica.connectors.hologres.api.HologresTableSchema;
 import com.alibaba.ververica.connectors.hologres.api.HologresWriter;
 import com.alibaba.ververica.connectors.hologres.api.table.HologresRowDataConverter;
 import com.alibaba.ververica.connectors.hologres.config.HologresConnectionParam;
-import com.alibaba.ververica.connectors.hologres.config.JDBCOptions;
 import org.postgresql.core.SqlCommandType;
 
 import java.io.IOException;
 
 /** An IO writer implementation for JDBC. */
 public class HologresJDBCWriter<T> extends HologresWriter<T> {
-    private transient HoloClient client;
+    private transient HologresJDBCClientProvider clientProvider;
     private transient HologresTableSchema schema;
     private HologresRecordConverter<T, Record> recordConverter;
 
@@ -52,20 +49,10 @@ public class HologresJDBCWriter<T> extends HologresWriter<T> {
     @Override
     public void open(RuntimeContext runtimeContext) throws IOException {
         try {
-            HoloConfig holoConfig = new HoloConfig();
-            JDBCOptions jdbcOptions = param.getJdbcOptions();
-            holoConfig.setJdbcUrl(jdbcOptions.getDbUrl());
-            holoConfig.setUsername(jdbcOptions.getUsername());
-            holoConfig.setPassword(jdbcOptions.getPassword());
-            holoConfig.setWriteThreadSize(param.getConnectionPoolSize());
-            holoConfig.setWriteMaxIntervalMs(param.getJdbcWriteFlushInterval());
-            holoConfig.setWriteBatchByteSize(param.getSplitDataSize());
-            holoConfig.setWriteBatchSize(param.getJdbcWriteBatchSize());
-
-            holoConfig.setDynamicPartition(param.isCreateMissingPartTable());
-            holoConfig.setWriteMode(param.getJDBCWriteMode());
-            client = new HoloClient(holoConfig);
-            schema = new HologresTableSchema(client.getTableSchema(param.getTable()));
+            this.clientProvider = new HologresJDBCClientProvider(param);
+            schema =
+                    new HologresTableSchema(
+                            clientProvider.getClient().getTableSchema(param.getTable()));
         } catch (HoloClientException e) {
             throw new IOException(e);
         }
@@ -76,7 +63,7 @@ public class HologresJDBCWriter<T> extends HologresWriter<T> {
         Record jdbcRecord = (Record) recordConverter.convertFrom(record);
         jdbcRecord.setType(SqlCommandType.INSERT);
         try {
-            client.put(new Put(jdbcRecord));
+            clientProvider.getClient().put(new Put(jdbcRecord));
         } catch (HoloClientException e) {
             throw new IOException(e);
         }
@@ -88,7 +75,7 @@ public class HologresJDBCWriter<T> extends HologresWriter<T> {
         Record jdbcRecord = recordConverter.convertFrom(record);
         jdbcRecord.setType(SqlCommandType.DELETE);
         try {
-            client.put(new Put(jdbcRecord));
+            clientProvider.getClient().put(new Put(jdbcRecord));
         } catch (HoloClientException e) {
             throw new IOException(e);
         }
@@ -97,7 +84,7 @@ public class HologresJDBCWriter<T> extends HologresWriter<T> {
 
     @Override
     public void flush() throws HoloClientException {
-        client.flush();
+        clientProvider.getClient().flush();
     }
 
     @Override
@@ -105,9 +92,8 @@ public class HologresJDBCWriter<T> extends HologresWriter<T> {
         try {
             flush();
         } finally {
-            if (null != client) {
-                client.close();
-                client = null;
+            if (null != clientProvider.getClient()) {
+                clientProvider.getClient().close();
             }
         }
     }

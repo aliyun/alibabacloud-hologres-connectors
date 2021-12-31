@@ -22,7 +22,7 @@ import org.apache.flink.configuration.ReadableConfig;
 
 import com.alibaba.hologres.client.model.WriteMode;
 import com.alibaba.ververica.connectors.common.source.resolver.DirtyDataStrategy;
-import com.alibaba.ververica.connectors.hologres.jdbc.HologresJdbcConfigs;
+import com.alibaba.ververica.connectors.hologres.jdbc.HologresJDBCConfigs;
 import com.alibaba.ververica.connectors.hologres.utils.JDBCUtils;
 
 import java.io.Serializable;
@@ -42,12 +42,30 @@ public class HologresConnectionParam implements Serializable {
     // dirty data strategy
     private DirtyDataStrategy dirtyDataStrategy = DirtyDataStrategy.EXCEPTION;
 
-    // JDBC
+    // JDBC connection
+    private final int jdbcRetryCount;
+    private final long jdbcRetrySleepInitMs;
+    private final long jdbcRetrySleepStepMs;
+    private final long jdbcConnectionMaxIdleMs;
+    private final long jdbcMetaCacheTTL;
+    private final int jdbcMetaAutoRefreshFactor;
     private final int connectionPoolSize;
-    private final int jdbcWriteBatchSize;
-    private final int jdbcWriteFlushInterval;
-    private final boolean insertIfNotExists;
+    // JDBC source
+    private final int jdbcReadBatchSize;
+    private final int jdbcReadBatchQueueSize;
+    private final int jdbcScanFetchSize;
+    private final int jdbcScanTimeoutSeconds;
+    // JDBC sink
     private final WriteMode writeMode;
+    private final int jdbcWriteBatchSize;
+    private final long jdbcWriteBatchByteSize;
+    private final long jdbcWriteBatchTotalByteSize;
+    private final long jdbcWriteFlushInterval;
+    private final boolean jdbcReWriteBatchedDeletes;
+    private final int jdbcRewriteSqlMaxBatchSize;
+    private final boolean jdbcEnableDefaultForNotNullColumn;
+    // JDBC dim
+    private final boolean insertIfNotExists;
 
     public HologresConnectionParam(ReadableConfig properties) {
         this.options = JDBCUtils.getJDBCOptions(properties);
@@ -67,13 +85,40 @@ public class HologresConnectionParam implements Serializable {
             this.dirtyDataStrategy = DirtyDataStrategy.SKIP_SILENT;
         }
 
+        this.jdbcRetryCount = properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_RETRY_COUNT);
+        this.jdbcRetrySleepInitMs =
+                properties.get(HologresJDBCConfigs.OPTIONAL_RETRY_SLEEP_INIT_MS);
+        this.jdbcRetrySleepStepMs =
+                properties.get(HologresJDBCConfigs.OPTIONAL_RETRY_SLEEP_STEP_MS);
+        this.jdbcConnectionMaxIdleMs =
+                properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_CONNECTION_MAX_IDLE_MS);
+        this.jdbcMetaCacheTTL = properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_META_CACHE_TTL);
+        this.jdbcMetaAutoRefreshFactor =
+                properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_META_AUTO_REFRESH_FACTOR);
         this.connectionPoolSize =
-                properties.get(HologresJdbcConfigs.OPTIONAL_CLIENT_CONNECTION_POOL_SIZE);
+                properties.get(HologresJDBCConfigs.OPTIONAL_CLIENT_CONNECTION_POOL_SIZE);
+        this.jdbcReadBatchSize = properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_READ_BATCH_SIZE);
+        this.jdbcReadBatchQueueSize =
+                properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_READ_BATCH_QUEUE_SIZE);
+        this.jdbcScanFetchSize = properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_SCAN_FETCH_SIZE);
+        this.jdbcScanTimeoutSeconds =
+                properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_SCAN_TIMEOUT_SECONDS);
         this.jdbcWriteBatchSize =
-                properties.get(HologresJdbcConfigs.OPTIONAL_JDBC_WRITE_BATCH_SIZE);
+                properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_WRITE_BATCH_SIZE);
+        this.jdbcWriteBatchByteSize =
+                properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_WRITE_BATCH_BYTE_SIZE);
+        this.jdbcWriteBatchTotalByteSize =
+                properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_WRITE_BATCH_TOTAL_BYTE_SIZE);
         this.jdbcWriteFlushInterval =
-                properties.get(HologresJdbcConfigs.OPTIONAL_JDBC_WRITE_FLUSH_INTERVAL);
-        this.insertIfNotExists = properties.get(HologresJdbcConfigs.INSERT_IF_NOT_EXISTS);
+                properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_WRITE_FLUSH_INTERVAL);
+        this.jdbcReWriteBatchedDeletes =
+                properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_REWRITE_BATCHED_DELETES);
+        this.jdbcRewriteSqlMaxBatchSize =
+                properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_REWRITE_SQL_MAX_BATCH_SIZE);
+        this.jdbcEnableDefaultForNotNullColumn =
+                properties.get(
+                        HologresJDBCConfigs.OPTIONAL_JDBC_ENABLE_DEFAULT_FOR_NOT_NULL_COLUMN);
+        this.insertIfNotExists = properties.get(HologresJDBCConfigs.INSERT_IF_NOT_EXISTS);
     }
 
     public static WriteMode getJDBCWriteMode(ReadableConfig tableProperties) {
@@ -152,8 +197,68 @@ public class HologresConnectionParam implements Serializable {
         return this.jdbcWriteBatchSize;
     }
 
-    public int getJdbcWriteFlushInterval() {
+    public long getJdbcWriteBatchByteSize() {
+        return jdbcWriteBatchByteSize;
+    }
+
+    public long getJdbcWriteBatchTotalByteSize() {
+        return jdbcWriteBatchTotalByteSize;
+    }
+
+    public long getJdbcWriteFlushInterval() {
         return this.jdbcWriteFlushInterval;
+    }
+
+    public int getJdbcReadBatchSize() {
+        return jdbcReadBatchSize;
+    }
+
+    public int getJdbcReadBatchQueueSize() {
+        return jdbcReadBatchQueueSize;
+    }
+
+    public int getJdbcScanFetchSize() {
+        return jdbcScanFetchSize;
+    }
+
+    public int getScanTimeoutSeconds() {
+        return jdbcScanTimeoutSeconds;
+    }
+
+    public boolean getJdbcReWriteBatchedDeletes() {
+        return jdbcReWriteBatchedDeletes;
+    }
+
+    public int getJdbcRewriteSqlMaxBatchSize() {
+        return jdbcRewriteSqlMaxBatchSize;
+    }
+
+    public boolean getJdbcEnableDefaultForNotNullColumn() {
+        return jdbcEnableDefaultForNotNullColumn;
+    }
+
+    public int getJdbcRetryCount() {
+        return jdbcRetryCount;
+    }
+
+    public long getJdbcRetrySleepInitMs() {
+        return jdbcRetrySleepInitMs;
+    }
+
+    public long getJdbcRetrySleepStepMs() {
+        return jdbcRetrySleepStepMs;
+    }
+
+    public long getJdbcConnectionMaxIdleMs() {
+        return jdbcConnectionMaxIdleMs;
+    }
+
+    public long getJdbcMetaCacheTTL() {
+        return jdbcMetaCacheTTL;
+    }
+
+    public int getJdbcMetaAutoRefreshFactor() {
+        return jdbcMetaAutoRefreshFactor;
     }
 
     public boolean isInsertIfNotExists() {
