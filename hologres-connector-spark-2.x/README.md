@@ -255,6 +255,7 @@ CREATE TABLE test_table_stream
 | RETRY_SLEEP_INIT_MS | 1000 | 否 | 每次重试的等待时间=retrySleepInitMs+retry*retrySleepStepMs |
 | RETRY_SLEEP_STEP_MS | 10000 | 否 | 每次重试的等待时间=retrySleepInitMs+retry*retrySleepStepMs|
 | CONNECTION_MAX_IDLE_MS| 60000 | 否 | 写入线程和点查线程数据库连接的最大Idle时间，超过连接将被释放|
+| DYNAMIC_PARTITION| false|	否 |若为true，写入分区表父表时，当分区不存在时自动创建分区 |
 
 ## 类型映射
 |spark|holo|

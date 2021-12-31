@@ -69,6 +69,11 @@ public class HoloSinkConfig extends AbstractConfig {
             "当某一批次提交失败时，会将批次内的记录逐条提交（保序），单条提交失败的记录将会跟随异常被抛出";
     private static final String WRITE_FAIL_STRATEGY_DISPLAY = "Write Fail Strategy";
 
+    public static final String DYNAMIC_PARTITION = "connection.dynamicPartition";
+    public static final Boolean DYNAMIC_PARTITION_DEFAULT = false;
+    private static final String DYNAMIC_PARTITION_DOC = "写入分区表父表时是否支持自动创建不存在的分区";
+    private static final String DYNAMIC_PARTITION_DISPLAY = "SUPPORT DYNAMIC PARTITION";
+
     public static final String RETRY_COUNT = "connection.retryCount";
     public static final int RETRY_COUNT_DEFAULT = 3;
     private static final String RETRY_COUNT_DOC = "当连接故障时，写入和查询的重试次数";
@@ -268,6 +273,17 @@ public class HoloSinkConfig extends AbstractConfig {
                 1,
                 ConfigDef.Width.LONG,
                 WRITE_FAIL_STRATEGY_DISPLAY);
+
+        config.define(
+                DYNAMIC_PARTITION,
+                ConfigDef.Type.BOOLEAN,
+                DYNAMIC_PARTITION_DEFAULT,
+                ConfigDef.Importance.HIGH,
+                DYNAMIC_PARTITION_DOC,
+                CONFIG_CONNECTION_GROUP,
+                1,
+                ConfigDef.Width.LONG,
+                DYNAMIC_PARTITION_DISPLAY);
 
         config.define(
                 WRITE_THREAD_SIZE,

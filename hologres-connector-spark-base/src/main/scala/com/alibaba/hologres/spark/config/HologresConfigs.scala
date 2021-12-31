@@ -3,7 +3,6 @@ package com.alibaba.hologres.spark.config
 import com.alibaba.hologres.client.HoloConfig
 import com.alibaba.hologres.client.model.{WriteFailStrategy, WriteMode}
 import com.alibaba.hologres.spark.utils.JDBCUtil._
-import com.esotericsoftware.minlog.Log.Logger
 import org.apache.commons.cli.MissingArgumentException
 
 /** Hologres config parameters process. */
@@ -42,6 +41,7 @@ class HologresConfigs(sourceOptions: Map[String, String]) {
   }
   holoConfig.setWriteFailStrategy(wFailStrategy)
 
+  sourceOptions.get("dynamic_partition").map(v => holoConfig.setDynamicPartition(v.toBoolean))
   sourceOptions.get("write_batch_size").map(v => holoConfig.setWriteBatchSize(v.toInt))
   sourceOptions.get("write_batch_byte_size").map(v => holoConfig.setWriteBatchByteSize(v.toLong))
   holoConfig.setRewriteSqlMaxBatchSize(1024)

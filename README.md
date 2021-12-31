@@ -12,6 +12,10 @@ Connectors for Hologres
 
     介绍golang使用holo-client-c读写Hologres<br/><br/>
 
+* [holo-shipper](./holo-shipper)
+
+    holo-shipper 是支持将Holo Instance的部分表导入导出的备份工具。可以在Holo之间搬迁表，也可以dump到中间存储然后再恢复。<br/><br/>
+
 
 * [hologres-connector-examples](hologres-connector-examples)
   
