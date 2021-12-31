@@ -28,6 +28,7 @@ public class HoloClientProvider {
     private final WriteFailStrategy writeFailStrategy;
     private final long writeMaxIntervalMs;
     private final int writeThreadSize;
+    private final boolean dynamicPartition;
 
     private final int readBatchSize;
     private final int readThreadSize;
@@ -67,6 +68,8 @@ public class HoloClientProvider {
                 conf.getLong(HoloStorageConfig.WRITE_MAX_INTERVAL_MS.getPropertyName(), 10000L);
         this.writeThreadSize =
                 conf.getInt(HoloStorageConfig.WRITE_THREAD_SIZE.getPropertyName(), 1);
+        this.dynamicPartition =
+                conf.getBoolean(HoloStorageConfig.DYNAMIC_PARTITION.getPropertyName(), false);
 
         String wMode =
                 conf.get(HoloStorageConfig.WRITE_MODE.getPropertyName(), "INSERT_OR_REPLACE")
@@ -170,6 +173,8 @@ public class HoloClientProvider {
         holoConfig.setRewriteSqlMaxBatchSize(rewriteSqlMaxBatchSize);
         holoConfig.setWriteMaxIntervalMs(writeMaxIntervalMs);
         holoConfig.setWriteThreadSize(writeThreadSize);
+        holoConfig.setDynamicPartition(dynamicPartition);
+
         holoConfig.setRetryCount(retryCount);
         holoConfig.setRetrySleepInitMs(retrySleepInitMs);
         holoConfig.setRetrySleepStepMs(retrySleepStepMs);

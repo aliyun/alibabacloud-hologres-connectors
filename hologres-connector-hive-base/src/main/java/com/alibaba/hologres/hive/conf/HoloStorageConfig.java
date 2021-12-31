@@ -14,6 +14,7 @@ public enum HoloStorageConfig {
     WRITE_MAX_INTERVAL_MS("write_max_interval_ms", false),
     WRITE_FAIL_STRATEGY("write_fail_strategy", false),
     WRITE_THREAD_SIZE("write_thread_size", false),
+    DYNAMIC_PARTITION("dynamic_partition", false),
 
     READ_THREAD_SIZE("read_thread_size", false),
     READ_BATCH_SIZE("read_batch_size", false),

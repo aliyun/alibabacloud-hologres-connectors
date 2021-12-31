@@ -187,6 +187,7 @@ select * from customer_to_holo_2 where c_custkey = 1;
 | write_max_interval_ms | 10000 | 否 | 距离上次提交超过writeMaxIntervalMs会触发一次批量提交，单位为ms |
 | write_fail_strategy | TYR_ONE_BY_ONE | 否 | 当发生写失败时的重试策略:<br>TYR_ONE_BY_ONE 当某一批次提交失败时，会将批次内的记录逐条提交（保序），其中某单条提交失败的记录将会跟随异常被抛出<br> NONE 直接抛出异常 |
 | write_thread_size | 1 | 否 | 写入并发线程数（每个并发占用1个数据库连接） |
+| dynamic_partition| false|	否 |若为true，写入分区表父表时，当分区不存在时自动创建分区 |
 
 读参数
 

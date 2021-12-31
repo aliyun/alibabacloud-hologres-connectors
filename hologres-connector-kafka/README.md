@@ -522,6 +522,7 @@ curl -s -X POST -H 'Content-Type: application/json' --data @holo-sink.json http:
 | connection.writeMaxIntervalMs | 10000 | 否 | 距离上次提交超过writeMaxIntervalMs会触发一次批量提交 |
 | connection.writeFailStrategy | TYR_ONE_BY_ONE | 否 | 当发生写失败时的重试策略:<br>TYR_ONE_BY_ONE 当某一批次提交失败时，会将批次内的记录逐条提交（保序），其中某单条提交失败的记录将会跟随异常被抛出<br> NONE 直接抛出异常 |
 | connection.writeThreadSize | 1 | 否 | 写入并发线程数（每个并发占用1个数据库连接） |
+| connection.dynamicPartition| false|	否 |若为true，写入分区表父表时，当分区不存在时自动创建分区 |
 | connection.retryCount | 3 | 否 | 当连接故障时，写入和查询的重试次数 |
 | connection.retrySleepInitMs | 1000 | 否 | 每次重试的等待时间=retrySleepInitMs+retry*retrySleepStepMs |
 | connection.retrySleepStepMs | 10000 | 否 | 每次重试的等待时间=retrySleepInitMs+retry*retrySleepStepMs |
