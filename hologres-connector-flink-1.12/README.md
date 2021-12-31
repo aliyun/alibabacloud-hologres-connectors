@@ -68,6 +68,8 @@
 | jdbcReWriteBatchedDeletes|将多条delete请求合并为一条sql语句提升性能|否 | 默认值：true | 
 | jdbcRewriteSqlMaxBatchSize|单条sql进行INSERT/DELETE操作的最大批次大小,比如写入操作，所攒的批会通过 writeBatchSize/rewriteSqlMaxBatchSize 条INSERT语句完成插入	| 否	| 默认值：1024|
 | jdbcEnableDefaultForNotNullColumn|设置为true时，not null且未在表上设置default的字段传入null时，将以默认值写入. String 默认“”,Number 默认0,Date/timestamp/timestamptz 默认1970-01-01 00:00:00| 	否| 	默认值：true| 
+|jdbcReadBatchSize|	维表点查最大批次大小|	否|	默认值：128 |
+|jdbcReadBatchQueueSize|维表点查请求缓冲队列大小|否|默认值：256 |
 
 ### Hologres Flink Connector 流式语义
 
