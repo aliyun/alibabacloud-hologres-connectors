@@ -5,7 +5,6 @@
 package com.alibaba.hologres.client.model;
 
 import com.alibaba.hologres.client.impl.util.ShardUtil;
-import org.postgresql.model.Column;
 
 import java.lang.reflect.Array;
 

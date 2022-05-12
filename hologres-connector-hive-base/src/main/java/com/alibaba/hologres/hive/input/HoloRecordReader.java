@@ -6,9 +6,11 @@ import com.alibaba.hologres.client.RecordInputFormat;
 import com.alibaba.hologres.client.Scan;
 import com.alibaba.hologres.client.SortKeys;
 import com.alibaba.hologres.client.exception.HoloClientException;
+import com.alibaba.hologres.client.model.Column;
 import com.alibaba.hologres.client.model.ExportContext;
 import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.model.RecordScanner;
+import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.hive.HoloClientProvider;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.ql.exec.SerializationUtilities;
@@ -21,8 +23,6 @@ import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.mapred.RecordReader;
 import org.apache.hadoop.mapreduce.TaskAttemptContext;
-import org.postgresql.model.Column;
-import org.postgresql.model.TableSchema;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -57,8 +57,14 @@ public class HoloRecordReader implements RecordReader<LongWritable, MapWritable>
             schema = clientProvider.getTableSchema();
 
             String filterXml = conf.get(TableScanDesc.FILTER_EXPR_CONF_STR);
-            // Use scan when have filter conditions, else use copy.
-            if (filterXml != null) {
+            // Use copy only when copyMode is true and there is no filter EXPR
+            if (filterXml == null && clientProvider.isCopyMode()) {
+                LOGGER.info("Use copy mode");
+
+                ExportContext er = client.exportData(Exporter.newBuilder(schema).build());
+                recordFormat = new RecordInputFormat(er, schema);
+            } else {
+                // Use scan default, or have filter conditions
                 LOGGER.info("Use scan mode");
 
                 Scan.Builder scanBuilder = Scan.newBuilder(schema);
@@ -68,11 +74,6 @@ public class HoloRecordReader implements RecordReader<LongWritable, MapWritable>
                 walk(conditionNode, scanBuilder);
 
                 isScan = true;
-            } else {
-                LOGGER.info("Use copy mode");
-
-                ExportContext er = client.exportData(Exporter.newBuilder(schema).build());
-                recordFormat = new RecordInputFormat(er, schema);
             }
         } catch (HoloClientException e) {
             close();

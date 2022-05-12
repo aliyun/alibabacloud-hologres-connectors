@@ -22,6 +22,7 @@ public enum HoloStorageConfig {
     SCAN_FETCH_SIZE("scan_fetch_size", false),
     SCAN_TIMEOUT_SECONDS("scan_timeout_seconds", false),
     SCAN_SPLITS("scan_splits", false),
+    COPY_MODE("copy_mode", false),
 
     RETRY_COUNT("retry_count", false),
     RETRY_SLEEP_INIT_MS("retry_sleep_init_ms", false),

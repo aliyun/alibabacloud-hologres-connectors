@@ -3,9 +3,9 @@ package com.alibaba.ververica.connectors.hologres.api;
 import com.alibaba.hologres.client.HoloClient;
 import com.alibaba.hologres.client.HoloConfig;
 import com.alibaba.hologres.client.exception.HoloClientException;
+import com.alibaba.hologres.client.model.Column;
+import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.ververica.connectors.hologres.config.JDBCOptions;
-import org.postgresql.model.Column;
-import org.postgresql.model.TableSchema;
 
 import java.io.Serializable;
 

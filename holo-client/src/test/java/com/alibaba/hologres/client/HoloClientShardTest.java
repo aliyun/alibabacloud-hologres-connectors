@@ -6,10 +6,10 @@ package com.alibaba.hologres.client;
 
 import com.alibaba.hologres.client.impl.collector.shard.DistributionKeyShardPolicy;
 import com.alibaba.hologres.client.impl.collector.shard.ShardPolicy;
+import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.model.WriteMode;
 import org.junit.Assert;
 import org.junit.Test;
-import org.postgresql.model.TableSchema;
 
 import java.sql.Connection;
 import java.sql.ResultSet;

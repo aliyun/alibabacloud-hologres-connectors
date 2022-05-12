@@ -3,12 +3,12 @@ package com.alibaba.hologres.hive;
 import com.alibaba.hologres.client.HoloClient;
 import com.alibaba.hologres.client.HoloConfig;
 import com.alibaba.hologres.client.exception.HoloClientException;
+import com.alibaba.hologres.client.model.TableName;
+import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.model.WriteFailStrategy;
 import com.alibaba.hologres.client.model.WriteMode;
 import com.alibaba.hologres.hive.conf.HoloStorageConfig;
 import org.apache.hadoop.conf.Configuration;
-import org.postgresql.model.TableName;
-import org.postgresql.model.TableSchema;
 
 import java.util.Properties;
 
@@ -23,7 +23,6 @@ public class HoloClientProvider {
 
     private final int writeBatchSize;
     private final long writeBatchByteSize;
-    private final int rewriteSqlMaxBatchSize;
     private final WriteMode writeMode;
     private final WriteFailStrategy writeFailStrategy;
     private final long writeMaxIntervalMs;
@@ -35,6 +34,8 @@ public class HoloClientProvider {
     private final int readBatchQueueSize;
     private final int scanFetchSize;
     private final int scanTimeoutSeconds;
+    private final boolean copyMode;
+
     private final int retryCount;
     private final long retrySleepInitMs;
     private final long retrySleepStepMs;
@@ -62,8 +63,6 @@ public class HoloClientProvider {
                 conf.getLong(
                         HoloStorageConfig.WRITE_BATCH_BYTE_SIZE.getPropertyName(),
                         2L * 1024L * 1024L);
-        this.rewriteSqlMaxBatchSize =
-                conf.getInt(HoloStorageConfig.REWRITE_SQL_MAX_BATCH_SIZE.getPropertyName(), 1024);
         this.writeMaxIntervalMs =
                 conf.getLong(HoloStorageConfig.WRITE_MAX_INTERVAL_MS.getPropertyName(), 10000L);
         this.writeThreadSize =
@@ -110,6 +109,7 @@ public class HoloClientProvider {
         this.scanFetchSize = conf.getInt(HoloStorageConfig.SCAN_FETCH_SIZE.getPropertyName(), 2000);
         this.scanTimeoutSeconds =
                 conf.getInt(HoloStorageConfig.SCAN_TIMEOUT_SECONDS.getPropertyName(), 60);
+        this.copyMode = conf.getBoolean(HoloStorageConfig.COPY_MODE.getPropertyName(), false);
 
         // else options
         this.retryCount = conf.getInt(HoloStorageConfig.RETRY_COUNT.getPropertyName(), 3);
@@ -170,7 +170,6 @@ public class HoloClientProvider {
         holoConfig.setWriteFailStrategy(writeFailStrategy);
         holoConfig.setWriteBatchSize(writeBatchSize);
         holoConfig.setWriteBatchByteSize(writeBatchByteSize);
-        holoConfig.setRewriteSqlMaxBatchSize(rewriteSqlMaxBatchSize);
         holoConfig.setWriteMaxIntervalMs(writeMaxIntervalMs);
         holoConfig.setWriteThreadSize(writeThreadSize);
         holoConfig.setDynamicPartition(dynamicPartition);
@@ -198,5 +197,9 @@ public class HoloClientProvider {
         } catch (HoloClientException e) {
             throw e;
         }
+    }
+
+    public boolean isCopyMode() {
+        return copyMode;
     }
 }

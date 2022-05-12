@@ -99,14 +99,6 @@ public class HoloConfig implements Serializable {
 	int writeThreadSize = 1;
 
 	/**
-	 * 每个write线程队列缓冲区大小.
-	 *
-	 * @HasGetter
-	 * @HasSetter
-	 */
-	int writeBufferSize = DEFAULT_BATCH_SIZE * 5 / 4;
-
-	/**
 	 * 当将Number写入Date/timestamp/timestamptz列时，将number视作距离1970-01-01 00:00:00 +00:00的毫秒数.
 	 *
 	 * @HasGetter
@@ -121,22 +113,6 @@ public class HoloConfig implements Serializable {
 	 * @HasSetter
 	 */
 	boolean inputStringAsEpochMsForDatetimeColumn = false;
-
-	/**
-	 * flush操作超时等待时间.
-	 *
-	 * @HasGetter
-	 * @HasSetter
-	 */
-	long flushMaxWaitMs = 60000L;
-
-	/**
-	 * put操作超时等待时间.
-	 *
-	 * @HasGetter
-	 * @HasSetter
-	 */
-	long putMaxWaitMs = 10000L;
 
 	/**
 	 * 启用时，not null且未在表上设置default的字段传入null时，将转为默认值.
@@ -175,24 +151,6 @@ public class HoloConfig implements Serializable {
 	boolean removeU0000InTextColumnValue = true;
 
 	/**
-	 * 批量delete时重写sql.
-	 * boolean
-	 *
-	 * @HasGetter
-	 * @HasSetter
-	 */
-	boolean reWriteBatchedDeletes = true;
-
-	/**
-	 * INSERT/DELETE rewrite模式下，单条sql的最大batch大小.
-	 * boolean
-	 *
-	 * @HasGetter
-	 * @HasSetter
-	 */
-	int rewriteSqlMaxBatchSize = 128;
-
-	/**
 	 * 全局flush的时间间隔.
 	 * boolean
 	 *
@@ -228,6 +186,35 @@ public class HoloConfig implements Serializable {
 	 */
 	long recordSampleInterval = -1L;
 
+	/**
+	 * 强制使用老方式做put请求 insert into xxx values (),() on conflict.
+	 * 不强制的话，对于高版本holo会自动采用insert into xxx select unnest() on conflict的方式写入
+	 * boolean
+	 *
+	 * @HasGetter
+	 * @HasSetter
+	 */
+	boolean useLegacyPutHandler = false;
+
+	/**
+	 * 写入时一条sql的最大行数，仅unnest模式生效.
+	 * [TODO] 仍在测试中.
+	 * int
+	 *
+	 * @HasGetter
+	 * @HasSetter
+	 */
+	int maxRowsPerSql = Integer.MAX_VALUE;
+
+	/**
+	 * 写入时一条sql的最大字节数，仅unnest模式生效.
+	 * [TODO] 仍在测试中.
+	 * long
+	 *
+	 * @HasGetter
+	 * @HasSetter
+	 */
+	long maxBytesPerSql = Long.MAX_VALUE;
 	//--------------------------read conf-------------------------------------------------
 	/**
 	 * 最多一次将readBatchSize条Get请求合并提交，默认128.
@@ -278,28 +265,14 @@ public class HoloConfig implements Serializable {
 	int binlogReadBatchSize = 1024;
 
 	/**
-	 * 从 binlogReadStartLsn 开始消费 Binlog 数据.
+	 * binlogRead 发送BinlogHeartBeatRecord的间隔.
+	 * -1表示不发送
+	 * 当binlog没有新数据，每binlogHeartBeatIntervalMs会下发一条BinlogHeartBeatRecord，record的timestamp表示截止到这个时间的数据都已经消费完了.
 	 *
 	 * @HasGetter
 	 * @HasSetter
 	 */
-	long binlogReadStartLsn = -1;
-
-	/**
-	 * 从 binlogReadStartTime 开始消费 Binlog 数据.
-	 *
-	 * @HasGetter
-	 * @HasSetter
-	 */
-	String binlogReadStartTime = "1970-01-01 07:59:59+08";
-
-	/**
-	 * binlogRead 的超时时间.
-	 *
-	 * @HasGetter
-	 * @HasSetter
-	 */
-	int binlogReadTimeoutSeconds = 60;
+	long binlogHeartBeatIntervalMs = -1L;
 
 	/**
 	 * 是否需要忽略Delete类型的Binlog.
@@ -344,14 +317,6 @@ public class HoloConfig implements Serializable {
 	long retrySleepInitMs = 1000L;
 
 	/**
-	 * 是否在初始化HoloClient时就检测连接是否可用（正常连接是lazy的，只有在get和put是才会初始化连接）.
-	 *
-	 * @HasGetter
-	 * @HasSetter
-	 */
-	boolean failFastWhenInit = true;
-
-	/**
 	 * 每个get和put的后台连接在空闲超过connectionMaxIdleMs后将被释放(再次使用时会自动重新连接).
 	 *
 	 * @HasGetter
@@ -374,14 +339,6 @@ public class HoloConfig implements Serializable {
 	 * @HasSetter
 	 */
 	int metaAutoRefreshFactor = 4;
-
-	/**
-	 * 使用在client端实现的动态分区，替代jdbc driver动态分区实现.
-	 *
-	 * @HasGetter
-	 * @HasSetter
-	 */
-	boolean enableClientDynamicPartition = true;
 
 	/**
 	 * 执行hg_internal_refresh_meta的默认超时时间(单位为秒).
@@ -433,6 +390,8 @@ public class HoloConfig implements Serializable {
 	String password;
 
 	String appName = "holo-client";
+
+	boolean enableShutdownHook = false;
 
 	public WriteMode getWriteMode() {
 		return writeMode;
@@ -496,14 +455,6 @@ public class HoloConfig implements Serializable {
 
 	public void setReadBatchQueueSize(int readBatchQueueSize) {
 		this.readBatchQueueSize = readBatchQueueSize;
-	}
-
-	public boolean isFailFastWhenInit() {
-		return failFastWhenInit;
-	}
-
-	public void setFailFastWhenInit(boolean failFastWhenInit) {
-		this.failFastWhenInit = failFastWhenInit;
 	}
 
 	public int getRetryCount() {
@@ -578,30 +529,12 @@ public class HoloConfig implements Serializable {
 		this.writeThreadSize = writeThreadSize;
 	}
 
-	@Deprecated
-	public int getWriteBufferSize() {
-		return writeBufferSize;
-	}
-
-	@Deprecated
-	public void setWriteBufferSize(int writeBufferSize) {
-		this.writeBufferSize = writeBufferSize;
-	}
-
 	public boolean isInputNumberAsEpochMsForDatetimeColumn() {
 		return inputNumberAsEpochMsForDatetimeColumn;
 	}
 
 	public void setInputNumberAsEpochMsForDatetimeColumn(boolean inputNumberAsEpochMsForDatetimeColumn) {
 		this.inputNumberAsEpochMsForDatetimeColumn = inputNumberAsEpochMsForDatetimeColumn;
-	}
-
-	public long getFlushMaxWaitMs() {
-		return flushMaxWaitMs;
-	}
-
-	public void setFlushMaxWaitMs(long flushMaxWaitMs) {
-		this.flushMaxWaitMs = flushMaxWaitMs;
 	}
 
 	public long getMetaCacheTTL() {
@@ -634,14 +567,6 @@ public class HoloConfig implements Serializable {
 
 	public void setDefaultTimestampText(String defaultTimestampText) {
 		this.defaultTimestampText = defaultTimestampText;
-	}
-
-	public long getPutMaxWaitMs() {
-		return putMaxWaitMs;
-	}
-
-	public void setPutMaxWaitMs(long putMaxWaitMs) {
-		this.putMaxWaitMs = putMaxWaitMs;
 	}
 
 	public long getWriteBatchTotalByteSize() {
@@ -700,22 +625,6 @@ public class HoloConfig implements Serializable {
 		this.removeU0000InTextColumnValue = removeU0000InTextColumnValue;
 	}
 
-	public boolean isReWriteBatchedDeletes() {
-		return reWriteBatchedDeletes;
-	}
-
-	public void setReWriteBatchedDeletes(boolean reWriteBatchedDeletes) {
-		this.reWriteBatchedDeletes = reWriteBatchedDeletes;
-	}
-
-	public boolean isEnableClientDynamicPartition() {
-		return enableClientDynamicPartition;
-	}
-
-	public void setEnableClientDynamicPartition(boolean enableClientDynamicPartition) {
-		this.enableClientDynamicPartition = enableClientDynamicPartition;
-	}
-
 	public int getRefreshMetaTimeout() {
 		return refreshMetaTimeout;
 	}
@@ -738,14 +647,6 @@ public class HoloConfig implements Serializable {
 
 	public void setRefreshMetaBeforeGetTableSchema(boolean refreshMetaBeforeGetTableSchema) {
 		this.refreshMetaBeforeGetTableSchema = refreshMetaBeforeGetTableSchema;
-	}
-
-	public int getRewriteSqlMaxBatchSize() {
-		return rewriteSqlMaxBatchSize;
-	}
-
-	public void setRewriteSqlMaxBatchSize(int rewriteSqlMaxBatchSize) {
-		this.rewriteSqlMaxBatchSize = rewriteSqlMaxBatchSize;
 	}
 
 	public long getForceFlushInterval() {
@@ -788,28 +689,12 @@ public class HoloConfig implements Serializable {
 		this.binlogReadBatchSize = binlogReadBatchSize;
 	}
 
-	public long getBinlogReadStartLsn() {
-		return binlogReadStartLsn;
+	public long getBinlogHeartBeatIntervalMs() {
+		return binlogHeartBeatIntervalMs;
 	}
 
-	public void setBinlogReadStartLsn(long binlogReadStartLsn) {
-		this.binlogReadStartLsn = binlogReadStartLsn;
-	}
-
-	public String getBinlogReadStartTime() {
-		return binlogReadStartTime;
-	}
-
-	public void setBinlogReadStartTime(String binlogReadStartTime) {
-		this.binlogReadStartTime = binlogReadStartTime;
-	}
-
-	public int getBinlogReadTimeoutSeconds() {
-		return binlogReadTimeoutSeconds;
-	}
-
-	public void setBinlogReadTimeoutSeconds(int binlogReadTimeoutSeconds) {
-		this.binlogReadTimeoutSeconds = binlogReadTimeoutSeconds;
+	public void setBinlogHeartBeatIntervalMs(long binlogHeartBeatIntervalMs) {
+		this.binlogHeartBeatIntervalMs = binlogHeartBeatIntervalMs;
 	}
 
 	public boolean getBinlogIgnoreDelete() {
@@ -826,6 +711,38 @@ public class HoloConfig implements Serializable {
 
 	public void setBinlogIgnoreBeforeUpdate(boolean binlogIgnoreBeforeUpdate) {
 		this.binlogIgnoreBeforeUpdate = binlogIgnoreBeforeUpdate;
+	}
+
+	public boolean isEnableShutdownHook() {
+		return enableShutdownHook;
+	}
+
+	public void setEnableShutdownHook(boolean enableShutdownHook) {
+		this.enableShutdownHook = enableShutdownHook;
+	}
+
+	public boolean isUseLegacyPutHandler() {
+		return useLegacyPutHandler;
+	}
+
+	public void setUseLegacyPutHandler(boolean useLegacyPutHandler) {
+		this.useLegacyPutHandler = useLegacyPutHandler;
+	}
+
+	public int getMaxRowsPerSql() {
+		return maxRowsPerSql;
+	}
+
+	public void setMaxRowsPerSql(int maxRowsPerSql) {
+		this.maxRowsPerSql = maxRowsPerSql;
+	}
+
+	public long getMaxBytesPerSql() {
+		return maxBytesPerSql;
+	}
+
+	public void setMaxBytesPerSql(long maxBytesPerSql) {
+		this.maxBytesPerSql = maxBytesPerSql;
 	}
 
 	public static String[] getPropertyKeys() {

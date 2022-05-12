@@ -39,7 +39,7 @@ public class Trace {
 	public String toString() {
 		StringBuilder sb = new StringBuilder();
 		int index = this.index.get();
-		for (int i = 1; i < index; ++i) {
+		for (int i = 1; i < index && i < values.length; ++i) {
 			sb.append(text[i]).append(":").append((values[i] - values[i - 1]) / 1000L).append(" us -> ");
 		}
 		sb.append("total:").append(getCost()).append(" us");

@@ -22,7 +22,9 @@ public class Metrics {
 	public static final String METRICS_BATCH_MEMORY = "batch_memory";
 
 	public static final String METRICS_WRITE_QPS = "write_qps";
+	public static final String METRICS_WRITE_BPS = "write_bps";
 	public static final String METRICS_WRITE_RPS = "write_rps";
+	public static final String METRICS_WRITE_SQL_PER_BATCH = "write_sql_per_batch";
 	public static final String METRICS_WRITE_LATENCY = "write_latency";
 
 	public static final String METRICS_WRITE_COST_MS_ALL = "write_cost_ms";

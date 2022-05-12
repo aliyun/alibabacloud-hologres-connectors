@@ -5,7 +5,7 @@
 package com.alibaba.hologres.client.impl.collector;
 
 import com.alibaba.hologres.client.HoloConfig;
-import org.postgresql.model.TableName;
+import com.alibaba.hologres.client.model.TableName;
 
 /**
  * Resize策略.

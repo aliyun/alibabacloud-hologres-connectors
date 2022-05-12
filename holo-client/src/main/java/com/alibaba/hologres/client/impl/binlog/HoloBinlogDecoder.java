@@ -4,23 +4,23 @@ import com.alibaba.blink.dataformat.BinaryArray;
 import com.alibaba.blink.dataformat.BinaryRow;
 import com.alibaba.blink.memory.MemorySegment;
 import com.alibaba.blink.memory.MemorySegmentFactory;
-import com.alibaba.hologres.client.HoloClient;
+import com.alibaba.hologres.client.exception.ExceptionCode;
 import com.alibaba.hologres.client.exception.HoloClientException;
-import com.alibaba.hologres.client.model.BinlogEventType;
+import com.alibaba.hologres.client.model.Column;
 import com.alibaba.hologres.client.model.Record;
+import com.alibaba.hologres.client.model.TableSchema;
+import com.alibaba.hologres.client.model.binlog.BinlogRecord;
 import org.postgresql.jdbc.ArrayUtil;
-import org.postgresql.model.Column;
-import org.postgresql.model.TableSchema;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.IntBuffer;
 import java.nio.LongBuffer;
+import java.security.InvalidParameterException;
 import java.sql.Date;
 import java.sql.Time;
 import java.sql.Timestamp;
@@ -39,61 +39,63 @@ public class HoloBinlogDecoder {
 	public static final long TIMEZONE_OFFSET = TimeZone.getDefault().getRawOffset();
 	public static final Logger LOGGER = LoggerFactory.getLogger(HoloBinlogDecoder.class);
 
-	private HoloClient client = null;
-	private final String tableName;
-	private int shardId;
-
-	private MemorySegment segment;
-	private List<BinaryRow> rows;
 	private Column[] columns;
 	private int columnCount;
 	private long tableVersion = -1;
 	private TableSchema schema;
 	private Boolean binlogIgnoreBeforeUpdate = false;
 	private Boolean binlogIgnoreDelete = false;
+	private TableSchemaSupplier tableSchemaSupplier;
 
-	public HoloBinlogDecoder(HoloClient client, TableSchema schema, int shardId, Boolean binlogIgnoreDelete, Boolean binlogIgnoreBeforeUpdate) throws HoloClientException {
-		this(client, schema);
-		this.shardId = shardId;
+	public HoloBinlogDecoder(TableSchema schema, Boolean binlogIgnoreDelete, Boolean binlogIgnoreBeforeUpdate) throws HoloClientException {
 		this.binlogIgnoreDelete = binlogIgnoreDelete;
 		this.binlogIgnoreBeforeUpdate = binlogIgnoreBeforeUpdate;
+		init(schema);
 	}
 
-	/** 传入HoloClient 可以支持在使用中刷新schema，比如增删表列等情况. */
-	public HoloBinlogDecoder(HoloClient client, TableSchema schema) throws HoloClientException {
-		this.client = client;
-		this.tableName = schema.getTableNameObj().getFullName();
-		this.schema = client.getTableSchema(tableName, true);
-		this.columns = schema.getColumnSchema();
-		this.columnCount = columns.length;
+	public HoloBinlogDecoder(TableSchemaSupplier supplier, Boolean binlogIgnoreDelete, Boolean binlogIgnoreBeforeUpdate) throws HoloClientException {
+		this.tableSchemaSupplier = supplier;
+		this.binlogIgnoreDelete = binlogIgnoreDelete;
+		this.binlogIgnoreBeforeUpdate = binlogIgnoreBeforeUpdate;
+		init(supplier.apply());
 	}
 
-	/** 不需要在使用中刷新schema. */
 	public HoloBinlogDecoder(TableSchema schema) throws HoloClientException {
-		this.tableName = schema.getTableNameObj().getFullName();
+		this(schema, false, false);
+	}
+
+	public HoloBinlogDecoder(TableSchemaSupplier supplier) throws HoloClientException {
+		this(supplier, false, false);
+	}
+
+	private static long parseSchemaVersion(TableSchema schema) throws HoloClientException {
+		try {
+			return Long.parseLong(schema.getSchemaVersion());
+		} catch (Exception e) {
+			throw new HoloClientException(ExceptionCode.INTERNAL_ERROR, String.format("parse schema version fail for table %s, schema version %s", schema.getTableNameObj().getFullName(), schema.getSchemaVersion()), e);
+		}
+	}
+
+	private void init(TableSchema schema) throws HoloClientException {
 		this.schema = schema;
 		this.columns = schema.getColumnSchema();
 		this.columnCount = columns.length;
+		this.tableVersion = parseSchemaVersion(schema);
 	}
 
-	/**
-	 * 如果table version 发生变化（alter table），重新获取table scheme.
-	 */
-	private void reFlushDecoder() throws HoloClientException {
-		this.schema = client.getTableSchema(tableName, true);
-		this.columns = schema.getColumnSchema();
-		this.columnCount = columns.length;
+	public TableSchemaSupplier getTableSchemaSupplier() {
+		return tableSchemaSupplier;
 	}
 
-	private BinaryRow getRow(int index) {
-		return this.rows.get(index);
+	public void setTableSchemaSupplier(TableSchemaSupplier tableSchemaSupplier) {
+		this.tableSchemaSupplier = tableSchemaSupplier;
 	}
 
-	private int size() {
-		return this.rows.size();
+	public TableSchema getSchema() {
+		return schema;
 	}
 
-	private void deserialize(byte[] headerBytes, byte[] dataBytes) throws HoloClientException {
+	private List<BinaryRow> deserialize(int shardId, byte[] headerBytes, byte[] dataBytes) throws HoloClientException {
 		LongBuffer longBuffer = ByteBuffer.wrap(headerBytes).order(ByteOrder.BIG_ENDIAN).asLongBuffer();
 		long binlogProtocolVersion = longBuffer.get(0);
 		long currentTableVersion = longBuffer.get(1);
@@ -101,24 +103,30 @@ public class HoloBinlogDecoder {
 			throw new IllegalStateException(
 					"binlog version mismatch, expected: " + BINLOG_PROTOCOL_VERSION + ", actual: " + binlogProtocolVersion);
 		}
-		if (tableVersion == -1) {
-			tableVersion = currentTableVersion;
-		} else if (currentTableVersion != tableVersion) {
-			String s = 	String.format("Table %s have been altered, old table version id is %s, new table version id is %s.",
-					tableName, tableVersion, currentTableVersion);
-			if (client != null){
-				LOGGER.info(s);
-				tableVersion = currentTableVersion;
-				reFlushDecoder();
+		if (currentTableVersion != tableVersion) {
+			LOGGER.warn("Table {} have been altered, current client table version id is {}, binlog table version id is {}.",
+					schema.getTableNameObj().getFullName(), tableVersion, currentTableVersion);
+			if (tableSchemaSupplier != null) {
+				// TODO 先写死，正常来说不应该发生retry
+				int tryCount = 3;
+				while (tableVersion < currentTableVersion && --tryCount > 0) {
+					init(tableSchemaSupplier.apply());
+				}
+				if (tableVersion != currentTableVersion) {
+					throw new HoloClientException(ExceptionCode.META_NOT_MATCH, String.format("binlog table version for table %s is %s but client table version is %s after refresh", schema.getTableNameObj().getFullName(), currentTableVersion, schema.getSchemaVersion()));
+				} else {
+					LOGGER.info("Table {} have been altered, update shardId [{}] current client table version id to {}.",
+							schema.getTableNameObj().getFullName(), shardId, tableVersion);
+				}
 			} else {
-				throw new RuntimeException(s + "You could use \" HoloBinlogDecoder(HoloClient client, TableSchema schema)\" to avoid it.");
+				throw new HoloClientException(ExceptionCode.META_NOT_MATCH, String.format("binlog table version for table %s is %s but client table version is %s ", schema.getTableNameObj().getFullName(), currentTableVersion, schema.getSchemaVersion()));
 			}
 		}
 
 		IntBuffer buffer = ByteBuffer.wrap(dataBytes).order(ByteOrder.LITTLE_ENDIAN).asIntBuffer();
 		int rowCount = buffer.get(1);
-		this.segment = MemorySegmentFactory.wrap(dataBytes);
-		this.rows = new ArrayList();
+		MemorySegment segment = MemorySegmentFactory.wrap(dataBytes);
+		List<BinaryRow> rows = new ArrayList();
 		for (int i = 0; i < rowCount; ++i) {
 			int offset = buffer.get(2 + i);
 			int offsetNext = i == rowCount - 1 ? dataBytes.length : buffer.get(3 + i);
@@ -128,13 +136,14 @@ public class HoloBinlogDecoder {
 			}
 
 			BinaryRow row = new BinaryRow(this.columnCount + 3);
-			row.pointTo(this.segment, offset, offsetNext - offset);
-			this.rows.add(row);
+			row.pointTo(segment, offset, offsetNext - offset);
+			rows.add(row);
 		}
+		return rows;
 	}
 
 	private void convertBinaryRowToRecord(Column column, BinaryRow currentRow, Record currentRecord, int index)
-			throws IOException {
+			throws HoloClientException {
 		int offsetIndex = index + 3;
 		if (currentRow.isNullAt(offsetIndex)) {
 			currentRecord.setObject(index, null);
@@ -231,23 +240,34 @@ public class HoloBinlogDecoder {
 				currentRecord.setObject(index, currentRow.getBoolean(offsetIndex));
 				break;
 			default:
-				throw new IOException("unsupported type " + column.getType() + " type name:" + column.getTypeName());
+				throw new HoloClientException(ExceptionCode.DATA_TYPE_ERROR, "unsupported type " + column.getType() + " type name:" + column.getTypeName());
 		}
 	}
 
 	/**
 	 * @param byteBuffer 包含header和data两部分
-	 *		<p>
-	 * 		header部分为前 16 byte，结构如下:
-	 *		0  -  7: binlog_protocol version, (long)
-	 *		8  - 15: table version, (long)
-	 *		<p>
-	 *		data部分为header部分之后，结构如下:
-	 *		0  -  4: binlog version, (int)
-	 *		5  -  8: row count,  (int)
-	 *		9  -   : each row‘s offset, (int)
+	 *                   <p>
+	 *                   header部分为前 16 byte，结构如下:
+	 *                   0  -  7: binlog_protocol version, (long)
+	 *                   8  - 15: table version, (long)
+	 *                   <p>
+	 *                   data部分为header部分之后，结构如下:
+	 *                   0  -  4: binlog version, (int)
+	 *                   5  -  8: row count,  (int)
+	 *                   9  -   : each row‘s offset, (int)
 	 */
-	public List<Record> decode(ByteBuffer byteBuffer) throws IOException, HoloClientException, IllegalStateException {
+	public List<BinlogRecord> decode(int shardId, ByteBuffer byteBuffer) throws HoloClientException {
+		ArrayBuffer<BinlogRecord> array = new ArrayBuffer<>(10, BinlogRecord[].class);
+		decode(shardId, byteBuffer, array);
+		List<BinlogRecord> list = new ArrayList<>();
+		array.beginRead();
+		while (array.remain() > 0) {
+			list.add(array.pop());
+		}
+		return list;
+	}
+
+	public void decode(int shardId, ByteBuffer byteBuffer, ArrayBuffer<BinlogRecord> array) throws HoloClientException {
 
 		if (byteBuffer.limit() < BINLOG_HEADER_LEN) {
 			throw new IllegalStateException("Invalid ByteBuffer");
@@ -257,30 +277,37 @@ public class HoloBinlogDecoder {
 		byte[] dataBytes = new byte[byteBuffer.limit() - 16];
 		System.arraycopy(byteBuffer.array(), byteBuffer.arrayOffset(), headerBytes, 0, 16);
 		System.arraycopy(byteBuffer.array(), byteBuffer.arrayOffset() + 16, dataBytes, 0, byteBuffer.limit() - 16);
-		deserialize(headerBytes, dataBytes);
+		List<BinaryRow> list = deserialize(shardId, headerBytes, dataBytes);
 
-		List<Record> records = new ArrayList<>();
-		for (int i = 0; i < size(); ++i) {
-			BinaryRow currentRow = getRow(i);
-			Record currentRecord = new Record(schema, true);
+		List<BinlogRecord> records = new ArrayList<>();
+		for (BinaryRow currentRow : list) {
 			long lsn = currentRow.getLong(0);
-			long type = currentRow.getLong(1);
+			long eventType = currentRow.getLong(1);
 			long timestamp = currentRow.getLong(2);
-			if (binlogIgnoreDelete && type == BinlogEventType.DELETE.getValue()) {
+
+			BinlogEventType type = null;
+			try {
+				type = BinlogEventType.of(eventType);
+			} catch (InvalidParameterException e) {
+				throw new HoloClientException(ExceptionCode.INTERNAL_ERROR, "unknow binlog eventtype " + eventType, e);
+			}
+			BinlogRecord currentRecord = new BinlogRecord(schema, lsn, type, timestamp);
+			currentRecord.setShardId(shardId);
+			// 只是跳过解析，我们需要每一条数据，否则
+			// 1 返回一个size==0的就不知道是消费完了还是正在消费中
+			// 2 checkpoint也没法做了
+			if (binlogIgnoreDelete && type == BinlogEventType.DELETE) {
+				records.add(currentRecord);
 				continue;
 			}
-			if (binlogIgnoreBeforeUpdate && type == BinlogEventType.BEFORE_UPDATE.getValue()) {
+			if (binlogIgnoreBeforeUpdate && type == BinlogEventType.BEFORE_UPDATE) {
+				records.add(currentRecord);
 				continue;
-			}
-			currentRecord.setBinlogParams(lsn, type, timestamp);
-			if (shardId >= 0){
-				currentRecord.setShardId(shardId);
 			}
 			for (int index = 0; index < columnCount; ++index) {
 				convertBinaryRowToRecord(columns[index], currentRow, currentRecord, index);
 			}
-			records.add(currentRecord);
+			array.add(currentRecord);
 		}
-		return records;
 	}
 }

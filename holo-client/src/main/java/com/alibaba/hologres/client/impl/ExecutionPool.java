@@ -7,7 +7,6 @@ package com.alibaba.hologres.client.impl;
 import com.alibaba.hologres.client.Get;
 import com.alibaba.hologres.client.HoloClient;
 import com.alibaba.hologres.client.HoloConfig;
-import com.alibaba.hologres.client.Trace;
 import com.alibaba.hologres.client.exception.ExceptionCode;
 import com.alibaba.hologres.client.exception.HoloClientException;
 import com.alibaba.hologres.client.impl.action.AbstractAction;
@@ -18,13 +17,9 @@ import com.alibaba.hologres.client.impl.action.ScanAction;
 import com.alibaba.hologres.client.impl.action.SqlAction;
 import com.alibaba.hologres.client.impl.collector.ActionCollector;
 import com.alibaba.hologres.client.impl.util.ConnectionUtil;
-import org.postgresql.jdbc.PgConnection;
-import org.postgresql.model.Partition;
-import org.postgresql.model.TableName;
-import org.postgresql.model.TableSchema;
-import org.postgresql.util.MetaStore;
-import org.postgresql.util.MetaUtil;
-import org.postgresql.util.cache.Cache;
+import com.alibaba.hologres.client.model.Partition;
+import com.alibaba.hologres.client.model.TableName;
+import com.alibaba.hologres.client.model.TableSchema;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -46,8 +41,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
-
-import static org.postgresql.util.cache.Cache.MODE_ONLY_CACHE;
 
 /**
  * 执行资源池，维护请求和工作线程.
@@ -78,7 +71,7 @@ public class ExecutionPool implements Closeable {
 	private Semaphore readSemaphore;
 
 	//挂到shutdownHook上，免得用户忘记关闭了
-	Thread shutdownHandler;
+	Thread shutdownHandler = null;
 
 	//----------------------------------------------------------------------
 
@@ -92,7 +85,7 @@ public class ExecutionPool implements Closeable {
 	final ArrayBlockingQueue<Get> queue;
 	final ByteSizeCache byteSizeCache;
 
-	MetaStore metaStore = null;
+	private final MetaStore metaStore;
 
 	ExecutorService workerExecutorService;
 	ThreadFactory workerThreadFactory;
@@ -100,10 +93,15 @@ public class ExecutionPool implements Closeable {
 	ExecutorService backgroundExecutorService;
 	ThreadFactory backgroundThreadFactory;
 
+	ThreadFactory ontShotWorkerThreadFactory;
+
 	final int writeThreadSize;
 	final int readThreadSize;
 	final boolean refreshBeforeGetTableSchema;
 	final int refreshMetaTimeout;
+	final boolean enableShutdownHook;
+	final HoloConfig config;
+	final boolean isShardEnv;
 
 	public static ExecutionPool buildOrGet(String name, HoloConfig config) {
 		return buildOrGet(name, config, true);
@@ -121,6 +119,8 @@ public class ExecutionPool implements Closeable {
 
 	public ExecutionPool(String name, HoloConfig config, boolean isShardEnv) {
 		this.name = name;
+		this.config = config;
+		this.isShardEnv = isShardEnv;
 		workerThreadFactory = new ThreadFactory() {
 			@Override
 			public Thread newThread(Runnable r) {
@@ -139,10 +139,20 @@ public class ExecutionPool implements Closeable {
 				return t;
 			}
 		};
+		ontShotWorkerThreadFactory = new ThreadFactory() {
+			@Override
+			public Thread newThread(Runnable r) {
+				Thread t = new Thread(r);
+				t.setName(ExecutionPool.this.name + "-oneshot-worker");
+				t.setDaemon(false);
+				return t;
+			}
+		};
 		this.readThreadSize = config.getReadThreadSize();
 		this.writeThreadSize = config.getWriteThreadSize();
 		this.refreshBeforeGetTableSchema = config.isRefreshMetaBeforeGetTableSchema();
 		this.refreshMetaTimeout = config.getRefreshMetaTimeout();
+		this.enableShutdownHook = config.isEnableShutdownHook();
 		this.queue = new ArrayBlockingQueue<>(config.getReadBatchQueueSize());
 		readActionWatcher = new ActionWatcher(config.getReadBatchSize());
 		//workerSize取读并发和写并发的最大值，worker会公用
@@ -157,6 +167,8 @@ public class ExecutionPool implements Closeable {
 		clientMap = new ConcurrentHashMap<>();
 		byteSizeCache = new ByteSizeCache(config.getWriteBatchTotalByteSize());
 		backgroundJob = new BackgroundJob(config);
+		this.metaStore = new MetaStore();
+		metaStore.tableCache.setTtl(config.getMetaCacheTTL());
 	}
 
 	private synchronized void start() throws HoloClientException {
@@ -168,21 +180,9 @@ public class ExecutionPool implements Closeable {
 			for (int i = 0; i < workers.length; ++i) {
 				workerExecutorService.execute(workers[i]);
 			}
-			shutdownHandler = new Thread(() -> close());
-			Runtime.getRuntime().addShutdownHook(shutdownHandler);
-
-			SqlAction<MetaStore> initAction = new SqlAction<>(conn -> {
-				conn.isValid(5);
-				return conn.unwrap(PgConnection.class).getMetaStore();
-			});
-			while (!submit(initAction)) {
-
-			}
-			try {
-				this.metaStore = (MetaStore) initAction.getResult();
-			} catch (HoloClientException e) {
-				close();
-				throw e;
+			if (this.enableShutdownHook) {
+				shutdownHandler = new Thread(() -> close());
+				Runtime.getRuntime().addShutdownHook(shutdownHandler);
 			}
 			backgroundExecutorService.execute(backgroundJob);
 			backgroundExecutorService.execute(readActionWatcher);
@@ -241,77 +241,49 @@ public class ExecutionPool implements Closeable {
 	}
 
 	public Partition getOrSubmitPartition(TableName tableName, String partValue, boolean isStr) throws HoloClientException {
-		try {
-			Partition partition = metaStore.partitionCache.get(tableName).get(partValue, null, MODE_ONLY_CACHE);
-			if (partition == null) {
-				SqlAction<Partition> partitionAction = new SqlAction<>((conn) -> {
-					//getTableSchema封装了一个MetaAction，但getPartition没有
-					// 所以这个refresh的逻辑，getPartition是在这里，getTableSchema是在Worker里处理MetaAction时实现的
-					if (refreshBeforeGetTableSchema && refreshMetaTimeout > 0) {
-						ConnectionUtil.refreshMeta(conn, refreshMetaTimeout);
-					}
-					return conn.unwrap(PgConnection.class).getMetaStore().partitionCache.get(tableName).get(partValue, (partitionValue) -> MetaUtil.getPartition(conn, tableName.getSchemaName(), tableName.getTableName(), partitionValue, isStr));
-				});
-				while (!submit(partitionAction)) {
-
-				}
-				partition = partitionAction.getResult();
-			}
-			return partition;
-		} catch (SQLException e) {
-			throw HoloClientException.fromSqlException(e);
-		} catch (Exception e) {
-			throw new HoloClientException(ExceptionCode.INTERNAL_ERROR, "getOrSubmitPartition fail. tableName=" + tableName.getFullName() + ", partValue=" + partValue, e);
-		}
+		return getOrSubmitPartition(tableName, partValue, isStr, false);
 	}
 
 	public Partition getOrSubmitPartition(TableName tableName, String partValue, boolean isStr, boolean createIfNotExists) throws HoloClientException {
 		try {
-			Partition cachedPartition = metaStore.partitionCache.get(tableName).get(partValue, null, MODE_ONLY_CACHE);
-			if (cachedPartition == null) {
-				Trace trace = new Trace();
-				trace.begin();
+			return metaStore.partitionCache.get(tableName).get(partValue, v -> {
 				SqlAction<Partition> partitionAction = new SqlAction<>((conn) -> {
 					String value = partValue;
-					Partition partition = conn.unwrap(PgConnection.class).getMetaStore().partitionCache.get(tableName).get(value, (partitionValue) -> {
-						if (refreshMetaTimeout > 0) {
-							ConnectionUtil.refreshMeta(conn, refreshMetaTimeout);
-						}
-						Partition internalPartition = MetaUtil.getPartition(conn, tableName.getSchemaName(), tableName.getTableName(), value, isStr);
-						if (internalPartition == null) {
-							if (!createIfNotExists) {
-								return null;
-							} else {
-								try {
-									internalPartition = MetaUtil.retryCreatePartitionChildTable(conn, tableName.getSchemaName(), tableName.getTableName(), value, isStr);
-								} catch (SQLException e) {
-									internalPartition = MetaUtil.getPartition(conn, tableName.getSchemaName(), tableName.getTableName(), value, isStr);
-									if (internalPartition == null) {
-										throw new SQLException("create partition fail and not found the partition", e);
-									}
-								}
-								if (internalPartition != null) {
-									return internalPartition;
-								} else {
-									throw new SQLException("after create, partition child table is still not exists, tableName:" + tableName.getFullName() + ",partitionValue:" + value);
+					if (refreshMetaTimeout > 0) {
+						ConnectionUtil.refreshMeta(conn, refreshMetaTimeout);
+					}
+					Partition internalPartition = ConnectionUtil.getPartition(conn, tableName.getSchemaName(), tableName.getTableName(), value, isStr);
+					if (internalPartition == null) {
+						if (!createIfNotExists) {
+							return null;
+						} else {
+							try {
+								internalPartition = ConnectionUtil.retryCreatePartitionChildTable(conn, tableName.getSchemaName(), tableName.getTableName(), value, isStr);
+							} catch (SQLException e) {
+								internalPartition = ConnectionUtil.getPartition(conn, tableName.getSchemaName(), tableName.getTableName(), value, isStr);
+								if (internalPartition == null) {
+									throw new SQLException("create partition fail and not found the partition", e);
 								}
 							}
-						} else {
-							return internalPartition;
+							if (internalPartition != null) {
+								return internalPartition;
+							} else {
+								throw new SQLException("after create, partition child table is still not exists, tableName:" + tableName.getFullName() + ",partitionValue:" + value);
+							}
 						}
-					});
-					return partition;
+					} else {
+						return internalPartition;
+					}
 				});
-				trace.step("before submit partition");
-				while (!submit(partitionAction)) {
+				try {
+					while (!submit(partitionAction)) {
 
+					}
+					return partitionAction.getResult();
+				} catch (HoloClientException e) {
+					throw new SQLException(e);
 				}
-				trace.step("after submit partition");
-				cachedPartition = partitionAction.getResult();
-				trace.step("after get partition");
-				//System.out.println(partValue+" "+ trace.toString());
-			}
-			return cachedPartition;
+			});
 		} catch (SQLException e) {
 			throw HoloClientException.fromSqlException(e);
 		} catch (Exception e) {
@@ -319,26 +291,43 @@ public class ExecutionPool implements Closeable {
 		}
 	}
 
-	public MetaAction getOrSubmitTableSchema(TableName tableName, boolean noCache) throws HoloClientException {
-		TableSchema schema = null;
-		// 使用cache的情况下，直接从缓存中获取tableSchema
-		if (!noCache) {
-			try {
-				schema = metaStore.tableCache.get(tableName, null, Cache.MODE_ONLY_CACHE);
-			} catch (SQLException e) {
-				LOGGER.warn("get tableSchema only cache fail", e);
-				schema = null;
-			}
+	public TableSchema getOrSubmitTableSchema(TableName tableName, boolean noCache) throws HoloClientException {
+
+		try {
+			return metaStore.tableCache.get(tableName, (tn) -> {
+				try {
+					MetaAction metaAction = new MetaAction(tableName);
+					while (!submit(metaAction)) {
+					}
+					return metaAction.getResult();
+				} catch (HoloClientException e) {
+					throw new SQLException(e);
+				}
+			}, noCache ? Cache.MODE_NO_CACHE : Cache.MODE_LOCAL_THEN_REMOTE);
+		} catch (SQLException e) {
+			throw HoloClientException.fromSqlException(e);
 		}
-		MetaAction metaAction = new MetaAction(tableName, noCache ? Cache.MODE_NO_CACHE : Cache.MODE_LOCAL_THEN_REMOTE);
-		//获取到tableSchema的话，直接返回；当没有获取到tableSchema的情况下，提交获取meta的Action
-		if (schema != null) {
-			metaAction.getFuture().complete(schema);
-		} else {
-			while (!submit(metaAction)) {
-			}
+	}
+
+
+	/**
+	 * oneshot是靠started自己去控制的，如果started一直不false，也就不会结束.
+	 *
+	 * @param started
+	 * @param index
+	 * @param action
+	 * @return
+	 * @throws HoloClientException
+	 */
+	public Thread submitOneShotAction(AtomicBoolean started, int index, AbstractAction action) throws HoloClientException {
+		Worker worker = new Worker(config, started, index, isShardEnv);
+		boolean ret = worker.offer(action);
+		if (!ret) {
+			throw new HoloClientException(ExceptionCode.INTERNAL_ERROR, "submitOneShotAction fail");
 		}
-		return metaAction;
+		Thread thread = ontShotWorkerThreadFactory.newThread(worker);
+		thread.start();
+		return thread;
 	}
 
 	/**
@@ -520,7 +509,6 @@ public class ExecutionPool implements Closeable {
 						}
 					} catch (HoloClientException e) {
 						fatalException = e;
-						started.set(false);
 						break;
 					}
 				}
@@ -532,28 +520,42 @@ public class ExecutionPool implements Closeable {
 			if (pendingRefreshTableSchemaActionCount.get() == 0) {
 				// 万一出现非预期的异常也不会导致线程结束工作
 				try {
-					metaStore.tableCache.filterKeys(tableSchemaRemainLife).forEach(tableName -> {
-						SqlAction<TableSchema> sqlAction = new SqlAction<>(conn -> MetaUtil.getRecordSchema(conn, tableName));
-						try {
-							if (submit(sqlAction)) {
-								pendingRefreshTableSchemaActionCount.incrementAndGet();
-								sqlAction.getFuture().whenComplete((tableSchema, exception) -> {
-									if (exception != null) {
-										LOGGER.warn("refreshTableSchema fail", exception);
-										if (exception.getMessage() != null && exception.getMessage().contains("can not found table")) {
-											metaStore.tableCache.remove(tableName);
-										}
-									} else {
-										metaStore.tableCache.put(tableName, (TableSchema) tableSchema);
+					metaStore.tableCache.filterKeys(tableSchemaRemainLife).forEach(tableNameWithState -> {
+						Cache.ItemState state = tableNameWithState.l;
+						TableName tableName = tableNameWithState.r;
+						switch (state) {
+							case EXPIRE:
+								LOGGER.info("remove expire tableSchema for {}", tableName);
+								metaStore.tableCache.remove(tableName);
+								break;
+							case NEED_REFRESH:
+								try {
+									MetaAction metaAction = new MetaAction(tableName);
+									if (submit(metaAction)) {
+										LOGGER.info("refresh tableSchema for {}, because remain lifetime < {} ms", tableName, tableSchemaRemainLife);
+										pendingRefreshTableSchemaActionCount.incrementAndGet();
+										metaAction.getFuture().whenComplete((tableSchema, exception) -> {
+											pendingRefreshTableSchemaActionCount.decrementAndGet();
+											if (exception != null) {
+												LOGGER.warn("refreshTableSchema fail", exception);
+												if (exception.getMessage() != null && exception.getMessage().contains("can not found table")) {
+													metaStore.tableCache.remove(tableName);
+												}
+											} else {
+												metaStore.tableCache.put(tableName, tableSchema);
+											}
+										});
 									}
-									pendingRefreshTableSchemaActionCount.decrementAndGet();
-								});
-							}
-						} catch (HoloClientException e) {
-							LOGGER.warn("", e);
+								} catch (Exception e) {
+									LOGGER.warn("refreshTableSchema fail", e);
+								}
+								break;
+							default:
+								LOGGER.error("undefine item state {}", state);
 						}
+
 					});
-				} catch (Exception e) {
+				} catch (Throwable e) {
 					LOGGER.warn("refreshTableSchema unexpected fail", e);
 				}
 			}

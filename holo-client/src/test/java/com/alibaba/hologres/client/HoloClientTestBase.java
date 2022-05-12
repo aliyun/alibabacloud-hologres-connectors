@@ -6,12 +6,12 @@ package com.alibaba.hologres.client;
 
 import com.alibaba.hologres.client.exception.ExceptionCode;
 import com.alibaba.hologres.client.exception.HoloClientException;
+import com.alibaba.hologres.client.impl.util.ConnectionUtil;
+import com.alibaba.hologres.client.model.HoloVersion;
+import com.alibaba.hologres.client.model.TableSchema;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.BeforeClass;
-import org.postgresql.model.TableSchema;
-import org.postgresql.util.HoloVersion;
-import org.postgresql.util.MetaUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -108,7 +108,7 @@ public class HoloClientTestBase {
 			properties.setProperty("password", temp);
 		}
 
-		holoVersion = MetaUtil.getHoloVersion(buildConnection());
+		holoVersion = ConnectionUtil.getHoloVersion(buildConnection());
 	}
 
 	@Before

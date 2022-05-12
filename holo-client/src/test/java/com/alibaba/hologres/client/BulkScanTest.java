@@ -7,11 +7,11 @@ package com.alibaba.hologres.client;
 import com.alibaba.hologres.client.model.ExportContext;
 import com.alibaba.hologres.client.model.ImportContext;
 import com.alibaba.hologres.client.model.Record;
+import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.model.WriteMode;
 import org.junit.Assert;
 import org.junit.Ignore;
 import org.junit.Test;
-import org.postgresql.model.TableSchema;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

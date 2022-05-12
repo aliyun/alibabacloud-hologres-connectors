@@ -9,11 +9,11 @@ import com.alibaba.hologres.client.HoloConfig;
 import com.alibaba.hologres.client.exception.HoloClientException;
 import com.alibaba.hologres.client.exception.HoloClientWithDetailsException;
 import com.alibaba.hologres.client.impl.ExecutionPool;
+import com.alibaba.hologres.client.model.Partition;
 import com.alibaba.hologres.client.model.Record;
-import org.postgresql.model.Partition;
-import org.postgresql.model.TableName;
-import org.postgresql.model.TableSchema;
-import org.postgresql.util.IdentifierUtil;
+import com.alibaba.hologres.client.model.TableName;
+import com.alibaba.hologres.client.model.TableSchema;
+import com.alibaba.hologres.client.utils.IdentifierUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -102,7 +102,7 @@ public class ActionCollector {
 					get.getFuture().complete(null);
 					return true;
 				} else {
-					TableSchema newSchema = pool.getOrSubmitTableSchema(TableName.valueOf(IdentifierUtil.quoteIdentifier(partition.getSchemaName(), true), IdentifierUtil.quoteIdentifier(partition.getTableName(), true)), false).getResult();
+					TableSchema newSchema = pool.getOrSubmitTableSchema(TableName.valueOf(IdentifierUtil.quoteIdentifier(partition.getSchemaName(), true), IdentifierUtil.quoteIdentifier(partition.getTableName(), true)), false);
 					record.changeToChildSchema(newSchema);
 				}
 			} catch (HoloClientException e) {

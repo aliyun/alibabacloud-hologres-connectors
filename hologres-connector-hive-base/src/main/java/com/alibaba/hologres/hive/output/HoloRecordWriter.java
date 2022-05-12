@@ -3,6 +3,7 @@ package com.alibaba.hologres.hive.output;
 import com.alibaba.hologres.client.HoloClient;
 import com.alibaba.hologres.client.Put;
 import com.alibaba.hologres.client.exception.HoloClientException;
+import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.hive.HoloClientProvider;
 import com.alibaba.hologres.hive.HoloRecordWritable;
 import com.alibaba.hologres.hive.exception.HiveHoloStorageException;
@@ -11,7 +12,6 @@ import org.apache.hadoop.hive.ql.exec.FileSinkOperator;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.mapreduce.TaskAttemptContext;
 import org.apache.hadoop.security.alias.CredentialProviderFactory;
-import org.postgresql.model.TableSchema;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

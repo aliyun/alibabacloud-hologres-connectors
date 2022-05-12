@@ -4,8 +4,8 @@
 
 package com.alibaba.hologres.client.impl.action;
 
-import org.postgresql.model.TableName;
-import org.postgresql.model.TableSchema;
+import com.alibaba.hologres.client.model.TableName;
+import com.alibaba.hologres.client.model.TableSchema;
 
 /**
  * ma.
@@ -13,22 +13,15 @@ import org.postgresql.model.TableSchema;
 public class MetaAction extends AbstractAction<TableSchema> {
 
 	TableName tableName;
-	int mode;
 
 	/**
 	 * @param tableName 表名
-	 * @param mode @see org.postgresql.util.cache.Cache
 	 */
-	public MetaAction(TableName tableName, int mode) {
+	public MetaAction(TableName tableName) {
 		this.tableName = tableName;
-		this.mode = mode;
 	}
 
 	public TableName getTableName() {
 		return tableName;
-	}
-
-	public int getMode() {
-		return mode;
 	}
 }

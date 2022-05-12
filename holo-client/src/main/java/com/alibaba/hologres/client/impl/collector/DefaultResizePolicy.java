@@ -5,8 +5,8 @@
 package com.alibaba.hologres.client.impl.collector;
 
 import com.alibaba.hologres.client.HoloConfig;
+import com.alibaba.hologres.client.model.TableName;
 import com.alibaba.hologres.client.utils.Metrics;
-import org.postgresql.model.TableName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

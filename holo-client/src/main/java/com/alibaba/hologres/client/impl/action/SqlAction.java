@@ -4,7 +4,7 @@
 
 package com.alibaba.hologres.client.impl.action;
 
-import org.postgresql.util.FunctionWithSQLException;
+import com.alibaba.hologres.client.function.FunctionWithSQLException;
 
 import java.sql.Connection;
 

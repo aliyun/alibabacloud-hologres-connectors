@@ -1,9 +1,9 @@
 package com.alibaba.hologres.client.impl;
 
+import com.alibaba.hologres.client.model.Column;
 import com.alibaba.hologres.client.model.Record;
+import com.alibaba.hologres.client.model.TableSchema;
 import org.postgresql.jdbc.TimestampUtils;
-import org.postgresql.model.Column;
-import org.postgresql.model.TableSchema;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

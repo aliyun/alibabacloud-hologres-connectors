@@ -2,166 +2,239 @@ package com.alibaba.hologres.client;
 
 import com.alibaba.hologres.client.exception.ExceptionCode;
 import com.alibaba.hologres.client.exception.HoloClientException;
-import com.alibaba.hologres.client.impl.ConnectionHolder;
-import com.alibaba.hologres.client.model.BinlogOffset;
-import com.alibaba.hologres.client.model.Record;
-import org.postgresql.model.TableSchema;
-import org.postgresql.util.HoloVersion;
-import org.postgresql.util.MetaUtil;
+import com.alibaba.hologres.client.impl.binlog.ArrayBuffer;
+import com.alibaba.hologres.client.impl.binlog.BinlogEventType;
+import com.alibaba.hologres.client.impl.binlog.BinlogRecordCollector;
+import com.alibaba.hologres.client.impl.binlog.Committer;
+import com.alibaba.hologres.client.model.binlog.BinlogRecord;
+import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
-import java.security.InvalidParameterException;
-import java.sql.SQLException;
+import java.io.Closeable;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * BinlogShardGroupReader 为一个范围的shard创建BinlogShardReader，并将各个reader返回的Record放入queue.
+ * BinlogShardGroupReader 为一个范围的shard创建BinlogShardReader，并将各个reader返回的BinlogRecord放入queue.
  */
-public class BinlogShardGroupReader {
-	public static final org.slf4j.Logger LOGGER = LoggerFactory.getLogger(BinlogShardGroupReader.class);
+public class BinlogShardGroupReader implements Closeable {
+	public static final Logger LOGGER = LoggerFactory.getLogger(BinlogShardGroupReader.class);
 
-	private final HoloClient client;
-	private final TableSchema schema;
 	private final HoloConfig config;
-	private final int startShardId;
-	private final int endShardId;
-	private final String slotName;
-	private final Map<Integer, BinlogOffset> offsetMap;
-	private HoloVersion holoVersion;
+	private final Subscribe subscribe;
+	private final Map<Integer, Committer> committerMap;
+	private final AtomicBoolean started;
 
-	public BinlogShardGroupReader(HoloClient client, TableSchema schema, HoloConfig config, int startShardId, int endShardId, String slotName, Map<Integer, BinlogOffset> offsetMap) throws HoloClientException {
-		this.client = client;
-		this.schema = schema;
-		this.startShardId = startShardId;
-		this.endShardId = endShardId;
+	BlockingQueue<BinlogRecord> queue;
+	volatile HoloClientException exception = null;
+	Collector collector;
+
+	List<Thread> threadList = new ArrayList<Thread>();
+
+	public BinlogShardGroupReader(HoloConfig config, Subscribe subscribe, int shardCount, Map<Integer, Committer> committerMap, AtomicBoolean started) {
 		this.config = config;
-		this.slotName = slotName;
-		this.offsetMap = offsetMap;
-
-		// Check hologres version
-		ConnectionHolder connectionHolder = client.createConnectionHolder();
-		connectionHolder.retryExecute((conn) -> {
-			holoVersion = MetaUtil.getHoloVersion(conn);
-			return null;
-		}, 1);
-		connectionHolder.close();
-
-		if (holoVersion.compareTo(new HoloVersion(1, 1, 2)) < 0) {
-			throw new HoloClientException(ExceptionCode.INTERNAL_ERROR, "Binlog reader need hologres version >= 1.1.2 ");
-		}
-
-		this.threadSize = endShardId - startShardId;
-		this.numOpened = new AtomicInteger(threadSize);
-		this.queue = new ArrayBlockingQueue<Record>(1024);
-
-		this.start();
+		this.subscribe = subscribe;
+		this.committerMap = committerMap;
+		this.queue = new ArrayBlockingQueue<>(Math.max(1024, committerMap.size() * config.getBinlogReadBatchSize() / 2));
+		this.started = started;
+		collector = new Collector();
 	}
 
-	int threadSize;
-	AtomicInteger numOpened;
-	BlockingQueue<Record> queue;
-	ExecutorService threadPool = Executors.newCachedThreadPool();
+	int bufferPosition = 0;
+	List<BinlogRecord> buffer = new ArrayList<>();
+
+	//当buffer消费完了就拿一批回来
+	private void tryFetch(long target) throws InterruptedException, TimeoutException, HoloClientException {
+		if (buffer.size() <= bufferPosition) {
+			if (buffer.size() > 0) {
+				buffer.clear();
+			}
+			BinlogRecord r = null;
+			while (r == null) {
+				if (null != exception) {
+					throw exception;
+				}
+				if (System.nanoTime() > target) {
+					throw new TimeoutException();
+				}
+				r = queue.poll(1000, TimeUnit.MILLISECONDS);
+				if (r != null) {
+					buffer.add(r);
+					queue.drainTo(buffer);
+					bufferPosition = 0;
+				}
+			}
+		}
+	}
+
+	public Collector getCollector() {
+		return collector;
+	}
 
 	/**
-	 * Call getRecord until null or call BinlogShardGroupReader.cancel() to interrupt.
+	 * Call getBinlogRecord until null or call BinlogShardGroupReader.cancel() to interrupt.
 	 */
-	public Record getRecord() {
-		while (numOpened.get() > 0 || !queue.isEmpty()) {
-			Record r;
-			try {
-				r = queue.poll(100, TimeUnit.MILLISECONDS);
-			} catch (InterruptedException e) {
-				return null;
+	public BinlogRecord getBinlogRecord() throws HoloClientException, InterruptedException, TimeoutException {
+		return getBinlogRecord(-1);
+	}
+
+	/**
+	 * Call getBinlogRecord until null or call BinlogShardGroupReader.cancel() to interrupt.
+	 */
+	public BinlogRecord getBinlogRecord(long timeout) throws HoloClientException, InterruptedException, TimeoutException {
+		if (null != exception) {
+			throw exception;
+		}
+		BinlogRecord r = null;
+
+		long target = timeout > 0 ? (System.nanoTime() + timeout * 1000000L) : Long.MAX_VALUE;
+		while (r == null) {
+			tryFetch(target);
+			if (buffer.size() > bufferPosition) {
+				r = buffer.get(bufferPosition++);
 			}
 			if (r != null) {
-				return r;
+				Committer committer = committerMap.get(r.getShardId());
+				if (committer == null) {
+					throw new HoloClientException(ExceptionCode.INTERNAL_ERROR, "reader for shard " + r.getShardId() + " is not exists!");
+				}
+				committer.updateLastReadLsn(r.getBinlogLsn());
+				if ((r.getBinlogEventType() == BinlogEventType.DELETE && config.getBinlogIgnoreDelete()) || (r.getBinlogEventType() == BinlogEventType.BEFORE_UPDATE && config.getBinlogIgnoreBeforeUpdate())) {
+					r = null;
+				}
 			}
 		}
-		threadPool.shutdown();
-		return null;
+		return r;
 	}
 
-	private void start() throws HoloClientException {
-		for (int i = startShardId; i < endShardId; i++) {
-			LOGGER.info("Create BinlogShardReader, shardId: {} ", i);
-			threadPool.execute(new BinlogShardReader(client, schema, config, slotName, queue, i, (offsetMap == null) ? new BinlogOffset() : offsetMap.get(i)));
-		}
-	}
-
-	public void cancel() {
-		threadPool.shutdownNow();
-		numOpened.set(0);
-	}
-
-	/**
-	 * Cancel after waitMs.
-	 */
-	public void cancel(long waitMs) throws InterruptedException {
-		Thread.sleep(waitMs);
+	@Override
+	public void close() {
 		cancel();
 	}
 
-	public boolean isCanceled() {
-		return threadPool.isTerminated();
-	}
-
-	public static BinlogShardGroupReader.Builder newBuilder(HoloClient client, TableSchema schema, HoloConfig config) {
-		return new BinlogShardGroupReader.Builder(client, schema, config);
-	}
-
 	/**
-	 * builder.
+	 * 采集器实现.
 	 */
-	public static class Builder {
-		private final HoloClient client;
-		private final TableSchema schema;
-		private final HoloConfig config;
-		private int startShardId = -1;
-		private int endShardId = -1;
-		private String slotName;
-		private Map<Integer, BinlogOffset> offsetMap;
+	class Collector implements BinlogRecordCollector {
 
-		public Builder(HoloClient client, TableSchema schema, HoloConfig config) {
-			this.client = client;
-			this.schema = schema;
-			this.config = config;
+		@Override
+		public BinlogRecord emit(int shardId, ArrayBuffer<BinlogRecord> recordList) throws InterruptedException {
+			BinlogRecord lastSuccessRecord = null;
+			do {
+				BinlogRecord record = recordList.peek();
+				boolean succ = queue.offer(record, 1000L, TimeUnit.MILLISECONDS);
+				if (succ) {
+					lastSuccessRecord = recordList.pop();
+				} else {
+					break;
+				}
+			} while (recordList.remain() > 0);
+			return lastSuccessRecord;
 		}
 
-		public BinlogShardGroupReader.Builder setSlotName(String slotName) {
-			this.slotName = slotName;
-			return this;
-		}
-
-		public BinlogShardGroupReader.Builder setBinlogOffsetMap(Map<Integer, BinlogOffset> offsetMap) {
-			this.offsetMap = offsetMap;
-			return this;
-		}
-
-		/**
-		 * 输出shardId [start,end) 的数据.
-		 *
-		 * @param startShardId start
-		 * @param endShardId   end
-		 * @return
-		 */
-		public BinlogShardGroupReader.Builder setShardRange(int startShardId, int endShardId) {
-			if (endShardId <= startShardId) {
-				throw new InvalidParameterException("startShardId must less then endShardId");
+		@Override
+		public void exceptionally(int shardId, Throwable e) {
+			LOGGER.error("shard id " + shardId + "fetch binlog fail", e);
+			if (e instanceof HoloClientException) {
+				exception = (HoloClientException) e;
+			} else {
+				exception = new HoloClientException(ExceptionCode.INTERNAL_ERROR, "shard id " + shardId + " fetch binlog fail", e);
 			}
-			this.startShardId = startShardId;
-			this.endShardId = endShardId;
-			return this;
 		}
+	}
 
-		public BinlogShardGroupReader build() throws IOException, HoloClientException, SQLException {
-			return new BinlogShardGroupReader(client, schema, config, startShardId, endShardId, slotName, offsetMap);
+	public void commit(long timeoutMs) throws HoloClientException, TimeoutException, InterruptedException {
+		List<CompletableFuture<Void>> futureList = new ArrayList<>();
+		for (Map.Entry<Integer, Committer> entry : committerMap.entrySet()) {
+			futureList.add(commitFlushedLsn(entry.getValue(), entry.getKey(), entry.getValue().getLastReadLsn(), timeoutMs));
 		}
+		long targetMs = System.currentTimeMillis() + timeoutMs;
+		int index = 0;
+		for (CompletableFuture<Void> future : futureList) {
+			long currentMs = System.currentTimeMillis();
+			if (currentMs < targetMs) {
+				try {
+					future.get(targetMs - currentMs, TimeUnit.MILLISECONDS);
+				} catch (ExecutionException e) {
+					Throwable cause = e.getCause();
+					if (cause instanceof HoloClientException) {
+						throw (HoloClientException) cause;
+					} else {
+						throw new HoloClientException(ExceptionCode.INTERNAL_ERROR, "commit fail", cause);
+					}
+				} catch (TimeoutException e) {
+					throw e;
+				}
+			} else {
+				throw new TimeoutException();
+			}
+		}
+	}
+
+	public CompletableFuture<Void> commitFlushedLsn(Committer committer, int shardId, long lsn, long timeoutMs) throws
+			TimeoutException, InterruptedException {
+		LOGGER.info("begin commit {} shardId {} flushedLsn to {}", subscribe.getTableName(), shardId, lsn);
+		return committer.commit(lsn, 1000L).thenRun(() -> {
+			LOGGER.info("done commit {} shardId {} flushedLsn to {}", subscribe.getTableName(), shardId, lsn);
+		});
+	}
+
+	public void commitFlushedLsn(int shardId, long lsn, long timeoutMs) throws
+			HoloClientException, TimeoutException, InterruptedException {
+		Committer committer = committerMap.get(shardId);
+		if (committer != null) {
+			CompletableFuture<Void> future = commitFlushedLsn(committer, shardId, lsn, timeoutMs);
+			try {
+				future.get(timeoutMs, TimeUnit.MILLISECONDS);
+			} catch (ExecutionException e) {
+				Throwable cause = e.getCause();
+				if (cause instanceof HoloClientException) {
+					throw (HoloClientException) cause;
+				} else {
+					throw new HoloClientException(ExceptionCode.INTERNAL_ERROR, "commit fail", cause);
+				}
+			}
+		} else {
+			throw new HoloClientException(ExceptionCode.INVALID_REQUEST, "unknown shard " + shardId);
+		}
+	}
+
+	//主要是为了在close的时候，确保thread都停了.
+	public void addThread(Thread thread) {
+		threadList.add(thread);
+	}
+
+	public void cancel() {
+		started.set(false);
+		while (queue.size() > 0) {
+			queue.clear();
+			try {
+				Thread.sleep(100L);
+			} catch (InterruptedException e) {
+				e.printStackTrace();
+			}
+		}
+		for (Thread thread : threadList) {
+			if (thread.isAlive()) {
+				try {
+					Thread.sleep(1000L);
+				} catch (InterruptedException ignore) {
+
+				}
+				thread.interrupt();
+			}
+		}
+	}
+
+	public boolean isCanceled() {
+		return !started.get();
 	}
 }

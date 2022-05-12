@@ -53,11 +53,6 @@ public class HoloSinkConfig extends AbstractConfig {
     private static final String WRITE_BATCH_BYTE_SIZE_DOC = "每个写入线程的最大批次bytes大小，（默认2MB）";
     private static final String WRITE_BATCH_BYTE_SIZE_DISPLAY = "Write Batch Byte Size";
 
-    public static final String REWRITE_SQL_MAX_BATCH_SIZE = "connection.rewriteSqlMaxBatchSize";
-    public static final int REWRITE_SQL_MAX_BATCH_SIZE_DEFAULT = 1024;
-    private static final String REWRITE_SQL_MAX_BATCH_SIZE_DOC = "单条sql进行INSERT/DELETE操作的最大批次大小";
-    private static final String REWRITE_SQL_MAX_BATCH_SIZE_DISPLAY = "Rewrite Sql Max Batch Size";
-
     public static final String WRITE_MAX_INTERVAL_MS = "connection.writeMaxIntervalMs";
     public static final long WRITE_MAX_INTERVAL_MS_DEFAULT = 10000L;
     private static final String WRITE_MAX_INTERVAL_MS_DOC = "距离上次提交超过writeMaxIntervalMs会触发一次批量提交";
@@ -143,15 +138,15 @@ public class HoloSinkConfig extends AbstractConfig {
     /** DIRTY DATA CONFIG. */
     private static final String DIRTY_DATA_GROUP = "DirtyData";
 
-    public static final String DIRTY_DATE_STRATEGY = "dirty_date_strategy";
-    public static final String DIRTY_DATE_STRATEGY_DEFAULT = "EXCEPTION";
-    private static final String DIRTY_DATE_STRATEGY_DOC = "脏数据处理策略";
-    private static final String DIRTY_DATE_STRATEGY_DISPLAY = "Dirty date strategy";
+    public static final String DIRTY_DATA_STRATEGY = "dirty_data_strategy";
+    public static final String DIRTY_DATA_STRATEGY_DEFAULT = "EXCEPTION";
+    private static final String DIRTY_DATA_STRATEGY_DOC = "脏数据处理策略";
+    private static final String DIRTY_DATA_STRATEGY_DISPLAY = "Dirty data strategy";
 
-    public static final String DIRTY_DATE_TO_SKIP_ONCE = "dirty_date_to_skip_once";
-    public static final String DIRTY_DATE_TO_SKIP_ONCE_DEFAULT = "null,-1,-1";
-    private static final String DIRTY_DATE_TO_SKIP_ONCE_DOC = "跳过特定的一条脏数据";
-    private static final String DIRTY_DATE_TO_SKIP_ONCE_DISPLAY = "Dirty date skip once";
+    public static final String DIRTY_DATA_TO_SKIP_ONCE = "dirty_data_to_skip_once";
+    public static final String DIRTY_DATA_TO_SKIP_ONCE_DEFAULT = "null,-1,-1";
+    private static final String DIRTY_DATA_TO_SKIP_ONCE_DOC = "跳过特定的一条脏数据";
+    private static final String DIRTY_DATA_TO_SKIP_ONCE_DISPLAY = "Dirty data skip once";
 
     /** Metrics CONFIG. */
     private static final String METRICS_GROUP = "Metrics";
@@ -159,7 +154,7 @@ public class HoloSinkConfig extends AbstractConfig {
     public static final String METRICS_REPORT_INTERVAL = "metrics_report_interval";
     public static final int METRICS_REPORT_INTERVAL_DEFAULT = 60;
     private static final String METRICS_REPORT_INTERVAL_DOC = "脏数据处理策略";
-    private static final String METRICS_REPORT_INTERVAL_DISPLAY = "Dirty date strategy";
+    private static final String METRICS_REPORT_INTERVAL_DISPLAY = "Dirty data strategy";
 
     public static ConfigDef config() {
         ConfigDef config = new ConfigDef();
@@ -240,17 +235,6 @@ public class HoloSinkConfig extends AbstractConfig {
                 1,
                 ConfigDef.Width.LONG,
                 WRITE_BATCH_BYTE_SIZE_DISPLAY);
-
-        config.define(
-                REWRITE_SQL_MAX_BATCH_SIZE,
-                ConfigDef.Type.INT,
-                REWRITE_SQL_MAX_BATCH_SIZE_DEFAULT,
-                ConfigDef.Importance.HIGH,
-                REWRITE_SQL_MAX_BATCH_SIZE_DOC,
-                CONFIG_CONNECTION_GROUP,
-                1,
-                ConfigDef.Width.LONG,
-                REWRITE_SQL_MAX_BATCH_SIZE_DISPLAY);
 
         config.define(
                 WRITE_MAX_INTERVAL_MS,
@@ -422,26 +406,26 @@ public class HoloSinkConfig extends AbstractConfig {
 
         // CONFIG_DIRTY_DATA_GROUP
         config.define(
-                DIRTY_DATE_STRATEGY,
+                DIRTY_DATA_STRATEGY,
                 ConfigDef.Type.STRING,
-                DIRTY_DATE_STRATEGY_DEFAULT,
+                DIRTY_DATA_STRATEGY_DEFAULT,
                 ConfigDef.Importance.HIGH,
-                DIRTY_DATE_STRATEGY_DOC,
+                DIRTY_DATA_STRATEGY_DOC,
                 DIRTY_DATA_GROUP,
                 1,
                 ConfigDef.Width.LONG,
-                DIRTY_DATE_STRATEGY_DISPLAY);
+                DIRTY_DATA_STRATEGY_DISPLAY);
 
         config.define(
-                DIRTY_DATE_TO_SKIP_ONCE,
+                DIRTY_DATA_TO_SKIP_ONCE,
                 ConfigDef.Type.LIST,
-                DIRTY_DATE_TO_SKIP_ONCE_DEFAULT,
+                DIRTY_DATA_TO_SKIP_ONCE_DEFAULT,
                 ConfigDef.Importance.LOW,
-                DIRTY_DATE_TO_SKIP_ONCE_DOC,
+                DIRTY_DATA_TO_SKIP_ONCE_DOC,
                 DIRTY_DATA_GROUP,
                 1,
                 ConfigDef.Width.LONG,
-                DIRTY_DATE_TO_SKIP_ONCE_DISPLAY);
+                DIRTY_DATA_TO_SKIP_ONCE_DISPLAY);
 
         // CONFIG_METRICS_GROUP
         config.define(

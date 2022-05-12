@@ -5,18 +5,15 @@
 package com.alibaba.hologres.client.impl;
 
 import com.alibaba.hologres.client.HoloConfig;
-import com.alibaba.hologres.client.impl.util.ConnectionUtil;
+import com.alibaba.hologres.client.Put;
+import com.alibaba.hologres.client.model.Column;
+import com.alibaba.hologres.client.model.HoloVersion;
 import com.alibaba.hologres.client.model.Record;
+import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.model.WriteMode;
-import org.postgresql.core.SqlCommandType;
-import org.postgresql.jdbc.PgConnection;
-import org.postgresql.model.Column;
-import org.postgresql.model.Partition;
-import org.postgresql.model.TableName;
-import org.postgresql.model.TableSchema;
-import org.postgresql.roaringbitmap.PGroaringbitmap;
-import org.postgresql.util.IdentifierUtil;
-import org.postgresql.util.MetaUtil;
+import com.alibaba.hologres.client.type.PGroaringbitmap;
+import com.alibaba.hologres.client.utils.IdentifierUtil;
+import com.alibaba.hologres.client.utils.Tuple;
 import org.postgresql.util.PSQLState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,14 +23,16 @@ import java.sql.Array;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.sql.Time;
+import java.sql.Timestamp;
 import java.sql.Types;
+import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collection;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.PrimitiveIterator;
 import java.util.function.BiFunction;
 import java.util.stream.IntStream;
@@ -43,32 +42,37 @@ import java.util.stream.IntStream;
  */
 public class UpsertStatementBuilder {
 	public static final Logger LOGGER = LoggerFactory.getLogger(UpsertStatementBuilder.class);
-	WriteMode mode;
+	protected static final String DELIMITER_OR = " OR ";
+	protected static final String DELIMITER_DOT = ", ";
+	protected WriteMode mode;
+	protected HoloConfig config;
 	boolean enableDefaultValue;
 	String defaultTimeStampText;
-	boolean dynamicPartition;
-	boolean enableClientDynamicPartition;
-	int refreshMetaTimeout;
+
+	boolean inputNumberAsEpochMsForDatetimeColumn;
+	boolean inputStringAsEpochMsForDatetimeColumn;
+	boolean removeU0000InTextColumnValue;
 
 	public UpsertStatementBuilder(HoloConfig config) {
+		this.config = config;
 		this.mode = config.getWriteMode();
 		this.enableDefaultValue = config.isEnableDefaultForNotNullColumn();
 		this.defaultTimeStampText = config.getDefaultTimestampText();
-		this.dynamicPartition = config.isDynamicPartition();
-		this.enableClientDynamicPartition = config.isEnableClientDynamicPartition();
-		this.refreshMetaTimeout = config.getRefreshMetaTimeout();
+		this.inputNumberAsEpochMsForDatetimeColumn = config.isInputNumberAsEpochMsForDatetimeColumn();
+		this.inputStringAsEpochMsForDatetimeColumn = config.isInputStringAsEpochMsForDatetimeColumn();
+		this.removeU0000InTextColumnValue = config.isRemoveU0000InTextColumnValue();
 	}
 
 	/**
 	 * 表+record.isSet的列（BitSet） -> Sql语句的映射.
 	 */
 	static class SqlCache<T> {
-		Map<TableSchema, Map<T, String>> cacheMap = new HashMap<>();
+		Map<TableSchema, Map<T, SqlTemplate>> cacheMap = new HashMap<>();
 
 		int size = 0;
 
-		public String computeIfAbsent(TableSchema tableSchema, T t, BiFunction<TableSchema, T, String> b) {
-			Map<T, String> subMap = cacheMap.computeIfAbsent(tableSchema, (s) -> new HashMap<>());
+		public SqlTemplate computeIfAbsent(TableSchema tableSchema, T t, BiFunction<TableSchema, T, SqlTemplate> b) {
+			Map<T, SqlTemplate> subMap = cacheMap.computeIfAbsent(tableSchema, (s) -> new HashMap<>());
 			return subMap.computeIfAbsent(t, (bs) -> {
 				++size;
 				return b.apply(tableSchema, bs);
@@ -84,46 +88,20 @@ public class UpsertStatementBuilder {
 		}
 	}
 
-	class Tuple<L, R> {
-		public L l;
-		public R r;
-
-		public Tuple(L l, R r) {
-			this.l = l;
-			this.r = r;
-		}
-
-		@Override
-		public boolean equals(Object o) {
-			if (this == o) {
-				return true;
-			}
-			if (o == null || getClass() != o.getClass()) {
-				return false;
-			}
-			Tuple<?, ?> tuple = (Tuple<?, ?>) o;
-			return Objects.equals(l, tuple.l) &&
-					Objects.equals(r, tuple.r);
-		}
-
-		@Override
-		public int hashCode() {
-			return Objects.hash(l, r);
-		}
-	}
-
 	SqlCache<Tuple<BitSet, BitSet>> insertCache = new SqlCache<>();
-	SqlCache<BitSet> updateCache = new SqlCache<>();
-	Map<TableSchema, String> deleteCache = new HashMap<>();
+	Map<TableSchema, SqlTemplate> deleteCache = new HashMap<>();
 	boolean first = true;
 
-	private String buildDeleteSql(TableSchema schema) {
-		String sql = deleteCache.get(schema);
-		if (sql == null) {
+	private SqlTemplate buildDeleteSqlTemplate(TableSchema schema) {
+		SqlTemplate sqlTemplate = deleteCache.get(schema);
+		if (sqlTemplate == null) {
+			first = true;
 			StringBuilder sb = new StringBuilder();
 			sb.append("delete from ").append(schema.getTableNameObj().getFullName());
 			sb.append(" where ");
-			first = true;
+			String header = sb.toString();
+			sb.setLength(0);
+			sb.append("(");
 			for (int index : schema.getKeyIndex()) {
 				if (!first) {
 					sb.append(" and ");
@@ -131,54 +109,16 @@ public class UpsertStatementBuilder {
 				first = false;
 				sb.append(IdentifierUtil.quoteIdentifier(schema.getColumnSchema()[index].getName(), true)).append("=?");
 			}
-			sql = sb.toString();
-			deleteCache.put(schema, sql);
+			sb.append(")");
+			String rowText = sb.toString();
+			int maxLevel = 32 - Integer.numberOfLeadingZeros(Short.MAX_VALUE / schema.getKeyIndex().length) - 1;
+			sqlTemplate = new SqlTemplate(header, null, rowText, DELIMITER_OR, maxLevel);
+			deleteCache.put(schema, sqlTemplate);
 		}
-		return sql;
+		return sqlTemplate;
 	}
 
-	private String buildUpdateSql(TableSchema schema, BitSet set) {
-
-		StringBuilder sb = new StringBuilder();
-		sb.append("update ").append(schema.getTableNameObj().getFullName())
-				.append(" set ");
-		first = true;
-		//从BitSet中剔除所有主键列，拼成 set a=?,b=?,... where
-		set.stream().forEach((index) -> {
-			boolean skip = false;
-			for (int keyIndex : schema.getKeyIndex()) {
-				if (index == keyIndex) {
-					skip = true;
-					break;
-				}
-			}
-			if (skip) {
-				return;
-			}
-			if (!first) {
-				sb.append(",");
-			}
-			first = false;
-			sb.append(IdentifierUtil.quoteIdentifier(schema.getColumnSchema()[index].getName(), true)).append("=?");
-		});
-		sb.append(" where ");
-		first = true;
-		//拼上主键条件 where pk0=? and pk1=? and ...
-		for (int index : schema.getKeyIndex()) {
-			if (!first) {
-				sb.append(" and ");
-			}
-			first = false;
-			sb.append(IdentifierUtil.quoteIdentifier(schema.getColumnSchema()[index].getName())).append("=?");
-		}
-
-		String sql = sb.toString();
-
-		LOGGER.debug("new sql:{}", sql);
-		return sql;
-	}
-
-	private String buildInsertSql(TableSchema schema, Tuple<BitSet, BitSet> input) {
+	private SqlTemplate buildInsertSql(TableSchema schema, Tuple<BitSet, BitSet> input) {
 		BitSet set = input.l;
 		BitSet onlyInsertSet = input.r;
 		StringBuilder sb = new StringBuilder();
@@ -195,7 +135,10 @@ public class UpsertStatementBuilder {
 		});
 		sb.append(")");
 
-		sb.append(" values (");
+		sb.append(" values ");
+		String header = sb.toString();
+		sb.setLength(0);
+		sb.append("(");
 		first = true;
 		set.stream().forEach((index) -> {
 			if (!first) {
@@ -211,6 +154,9 @@ public class UpsertStatementBuilder {
 			}
 		});
 		sb.append(")");
+		String rowText = sb.toString();
+		sb.setLength(0);
+
 		if (schema.getKeyIndex().length > 0) {
 			sb.append(" on conflict (");
 			first = true;
@@ -239,10 +185,11 @@ public class UpsertStatementBuilder {
 				});
 			}
 		}
-		String sql = sb.toString();
 
-		LOGGER.debug("new sql:{}", sql);
-		return sql;
+		String tail = sb.toString();
+
+		int maxLevel = 32 - Integer.numberOfLeadingZeros(Short.MAX_VALUE / set.cardinality()) - 1;
+		return new SqlTemplate(header, tail, rowText, DELIMITER_DOT, maxLevel);
 	}
 
 	/**
@@ -395,7 +342,7 @@ public class UpsertStatementBuilder {
 		try {
 			for (int i = 0; i < record.getSize(); ++i) {
 				Column column = record.getSchema().getColumn(i);
-				if (record.getType() == SqlCommandType.INSERT && mode != WriteMode.INSERT_OR_UPDATE) {
+				if (record.getType() == Put.MutationType.INSERT && mode != WriteMode.INSERT_OR_UPDATE) {
 					fillDefaultValue(record, column, i);
 					fillNotSetValue(record, column, i);
 				}
@@ -407,6 +354,16 @@ public class UpsertStatementBuilder {
 			throw new SQLException(PSQLState.INVALID_PARAMETER_VALUE.getState(), e);
 		}
 	}
+
+	private String removeU0000(final String in) {
+		if (in != null && in.contains("\u0000")) {
+			return in.replaceAll("\u0000", "");
+		} else {
+			return in;
+		}
+	}
+
+	private static final String MYSQL_0000 = "0000-00-00 00:00:00";
 
 	private void fillPreparedStatement(PreparedStatement ps, int index, Object obj, Column column) throws SQLException {
 		switch (column.getType()) {
@@ -422,6 +379,15 @@ public class UpsertStatementBuilder {
 					ps.setObject(index, obj, column.getType());
 				}
 				break;
+			case Types.LONGNVARCHAR:
+			case Types.VARCHAR:
+			case Types.CHAR:
+				if (obj == null) {
+					ps.setNull(index, column.getType());
+				} else {
+					ps.setObject(index, removeU0000(obj.toString()), column.getType());
+				}
+				break;
 			case Types.BIT:
 				if ("bit".equals(column.getTypeName())) {
 					if (obj instanceof Boolean) {
@@ -433,172 +399,286 @@ public class UpsertStatementBuilder {
 					ps.setObject(index, obj, column.getType());
 				}
 				break;
+			case Types.TIMESTAMP_WITH_TIMEZONE:
+			case Types.TIMESTAMP:
+				if (obj instanceof Number && inputNumberAsEpochMsForDatetimeColumn) {
+					ps.setObject(index, new Timestamp(((Number) obj).longValue()), column.getType());
+				} else if (obj instanceof String && inputStringAsEpochMsForDatetimeColumn) {
+					long l = 0L;
+					try {
+						l = Long.parseLong((String) obj);
+						ps.setObject(index, new Timestamp(l), column.getType());
+					} catch (NumberFormatException e) {
+						if (MYSQL_0000.equals(obj)) {
+							ps.setObject(index, new Timestamp(0), column.getType());
+						} else {
+							ps.setObject(index, obj, column.getType());
+						}
+					}
+				} else {
+					if (MYSQL_0000.equals(obj)) {
+						ps.setObject(index, new Timestamp(0), column.getType());
+					} else {
+						ps.setObject(index, obj, column.getType());
+					}
+				}
+				break;
+			case Types.DATE:
+				if (obj instanceof Number && inputNumberAsEpochMsForDatetimeColumn) {
+					ps.setObject(index, new java.sql.Date(((Number) obj).longValue()), column.getType());
+				} else if (obj instanceof String && inputStringAsEpochMsForDatetimeColumn) {
+					long l = 0L;
+					try {
+						l = Long.parseLong((String) obj);
+						ps.setObject(index, new java.sql.Date(l), column.getType());
+					} catch (NumberFormatException e) {
+						if (MYSQL_0000.equals(obj)) {
+							ps.setObject(index, new java.sql.Date(0), column.getType());
+						} else {
+							ps.setObject(index, obj, column.getType());
+						}
+					}
+				} else {
+					if (MYSQL_0000.equals(obj)) {
+						ps.setObject(index, new java.sql.Date(0), column.getType());
+					} else {
+						ps.setObject(index, obj, column.getType());
+					}
+				}
+				break;
+			case Types.TIME_WITH_TIMEZONE:
+			case Types.TIME:
+				if (obj instanceof Number && inputNumberAsEpochMsForDatetimeColumn) {
+					ps.setObject(index, new Time(((Number) obj).longValue()), column.getType());
+				} else if (obj instanceof String && inputStringAsEpochMsForDatetimeColumn) {
+					long l = 0L;
+					try {
+						l = Long.parseLong((String) obj);
+						ps.setObject(index, new Time(l), column.getType());
+					} catch (NumberFormatException e) {
+						if (MYSQL_0000.equals(obj)) {
+							ps.setObject(index, new Time(0), column.getType());
+						} else {
+							ps.setObject(index, obj, column.getType());
+						}
+					}
+				} else {
+					if (MYSQL_0000.equals(obj)) {
+						ps.setObject(index, new Time(0), column.getType());
+					} else {
+						ps.setObject(index, obj, column.getType());
+					}
+				}
+				break;
 			default:
 				ps.setObject(index, obj, column.getType());
 		}
 	}
 
-	private void buildInsertStatement(Connection conn, Map<String, PreparedStatement> map, Record record) throws SQLException {
-		TableSchema schema = record.getSchema();
-		TableName tableName = schema.getTableNameObj();
-		if (record.getSchema().getPartitionIndex() > -1 && enableClientDynamicPartition) {
-			boolean isStr = Types.VARCHAR == schema.getColumn(schema.getPartitionIndex()).getType();
-			String value = String.valueOf(record.getObject(schema.getPartitionIndex()));
-			Partition partition = conn.unwrap(PgConnection.class).getMetaStore().partitionCache.get(schema.getTableNameObj()).get(value, (partitionValue) -> {
-				if (refreshMetaTimeout > 0) {
-					ConnectionUtil.refreshMeta(conn, refreshMetaTimeout);
-				}
-				return MetaUtil.getPartition(conn, tableName.getSchemaName(), tableName.getTableName(), value, isStr);
-			});
-			if (partition == null) {
-				if (dynamicPartition) {
-					try {
-						partition = MetaUtil.retryCreatePartitionChildTable(conn, tableName.getSchemaName(), tableName.getTableName(), value, isStr);
-					} catch (SQLException e) {
-						partition = conn.unwrap(PgConnection.class).getMetaStore().partitionCache.get(tableName).get(value, (partitionValue) -> MetaUtil.getPartition(conn, tableName.getSchemaName(), tableName.getTableName(), value, isStr));
-						if (partition == null) {
-							throw new SQLException(e);
-						}
+	private int fillPreparedStatementForInsert(PreparedStatement ps, int psIndex, Record record) throws SQLException {
+		IntStream columnStream = record.getBitSet().stream();
+		for (PrimitiveIterator.OfInt it = columnStream.iterator(); it.hasNext(); ) {
+			int index = it.next();
+			Column column = record.getSchema().getColumn(index);
+			++psIndex;
+			fillPreparedStatement(ps, psIndex, record.getObject(index), column);
+		}
+		return psIndex;
+	}
+
+	protected void buildInsertStatement(Connection conn, HoloVersion version, TableSchema schema, Tuple<BitSet, BitSet> columnSet, List<Record> recordList, List<PreparedStatementWithBatchInfo> list) throws SQLException {
+		if (recordList.size() == 0) {
+			return;
+		}
+		SqlTemplate sql = insertCache.computeIfAbsent(schema, columnSet, this::buildInsertSql);
+		fillPreparedStatement(conn, sql, list, recordList, Put.MutationType.INSERT, this::fillPreparedStatementForInsert);
+	}
+
+	private void fillPreparedStatement(Connection conn, SqlTemplate sqlTemplate, List<PreparedStatementWithBatchInfo> list, List<Record> recordList, Put.MutationType type, FillPreparedStatementFunc func) throws SQLException {
+		int maxValueBlocks = 1 << sqlTemplate.maxLevel;
+		int unprocessedBatchCount = recordList.size();
+		final int fullValueBlocksCount = unprocessedBatchCount / maxValueBlocks;
+		int remainFullValueBlocksCount = fullValueBlocksCount;
+		boolean first = true;
+		int currentLevel = 0;
+		int rows = 0;
+		int psIndex = 0;
+		PreparedStatementWithBatchInfo ps = null;
+		boolean batchMode = false;
+		long byteSize = 0L;
+		int batchCount = 0;
+		for (Record record : recordList) {
+			if (first) {
+				if (remainFullValueBlocksCount > 0) {
+					batchMode = fullValueBlocksCount > 1 ? true : false;
+					currentLevel = sqlTemplate.getMaxLevel();
+					if (ps == null) {
+						ps = new PreparedStatementWithBatchInfo(conn.prepareStatement(sqlTemplate.getSql(currentLevel)), fullValueBlocksCount > 1, type);
+						list.add(ps);
 					}
-					if (partition != null) {
-						TableSchema newSchema = conn.unwrap(PgConnection.class).getTableSchema(TableName.valueOf(IdentifierUtil.quoteIdentifier(partition.getSchemaName(), true), IdentifierUtil.quoteIdentifier(partition.getTableName(), true)));
-						record.changeToChildSchema(newSchema);
-					} else {
-						throw new SQLException("after create, partition child table is still not exists, tableName:" + tableName.getFullName() + ",partitionValue:" + value);
-					}
+					--remainFullValueBlocksCount;
 				} else {
-					throw new SQLException("partition child table is not exists, tableName:" + tableName.getFullName() + ",partitionValue:" + value);
+					if (ps != null) {
+						ps.setByteSize(byteSize);
+						ps.setBatchCount(batchCount);
+						byteSize = 0L;
+						batchCount = 0;
+					}
+					batchMode = false;
+					currentLevel = 31 - Integer.numberOfLeadingZeros(unprocessedBatchCount);
+					ps = new PreparedStatementWithBatchInfo(conn.prepareStatement(sqlTemplate.getSql(currentLevel)), false, type);
+					list.add(ps);
 				}
-			} else {
-				TableSchema newSchema = conn.unwrap(PgConnection.class).getTableSchema(TableName.valueOf(IdentifierUtil.quoteIdentifier(partition.getSchemaName(), true), IdentifierUtil.quoteIdentifier(partition.getTableName(), true)));
-				record.changeToChildSchema(newSchema);
+				first = false;
+				rows = 1 << currentLevel;
+				psIndex = 0;
+				++batchCount;
+			}
+			--unprocessedBatchCount;
+			if (rows > 0) {
+				psIndex = func.apply(ps.l, psIndex, record);
+				byteSize += record.getByteSize();
+				--rows;
+			}
+			if (rows == 0) {
+				first = true;
+				if (batchMode) {
+					ps.l.addBatch();
+				}
 			}
 		}
-		String sql = insertCache.computeIfAbsent(record.getSchema(), new Tuple<BitSet, BitSet>(record.getBitSet(), record.getOnlyInsertColumnSet()), this::buildInsertSql);
-		PreparedStatement currentPs = map.get(sql);
-		if (currentPs == null) {
-			currentPs = conn.prepareStatement(sql);
-			map.put(sql, currentPs);
+		if (ps != null) {
+			ps.setByteSize(byteSize);
+			ps.setBatchCount(batchCount);
 		}
-		int psIndex = 0;
-		IntStream columnStream = record.getBitSet().stream();
-		for (PrimitiveIterator.OfInt it = columnStream.iterator(); it.hasNext(); ) {
-			int index = it.next();
-			Column column = record.getSchema().getColumn(index);
-			++psIndex;
-			fillPreparedStatement(currentPs, psIndex, record.getObject(index), column);
-		}
-		currentPs.addBatch();
 	}
 
-	private void buildUpdateStatement(Connection conn, Map<String, PreparedStatement> map, Record record) throws SQLException {
-		String sql = updateCache.computeIfAbsent(record.getSchema(), record.getBitSet(), this::buildUpdateSql);
-		PreparedStatement currentPs = map.get(sql);
-		if (currentPs == null) {
-			currentPs = conn.prepareStatement(sql);
-			map.put(sql, currentPs);
-		}
-		int psIndex = 0;
-		IntStream columnStream = record.getBitSet().stream();
-		//填充update语句时，跳过所有的pk列，最后再填充pk列
-		for (PrimitiveIterator.OfInt it = columnStream.iterator(); it.hasNext(); ) {
-			int index = it.next();
-			Column column = record.getSchema().getColumn(index);
-			if (record.getSchema().isPrimaryKey(column.getName())) {
-				continue;
-			}
-			++psIndex;
-			fillPreparedStatement(currentPs, psIndex, record.getObject(index), column);
-		}
+	private int fillPreparedStatementForDelete(PreparedStatement ps, int psIndex, Record record) throws SQLException {
 		for (int index : record.getSchema().getKeyIndex()) {
 			Column column = record.getSchema().getColumn(index);
-			fillPreparedStatement(currentPs, ++psIndex, record.getObject(index), column);
+			fillPreparedStatement(ps, ++psIndex, record.getObject(index), column);
 		}
-		currentPs.addBatch();
+		return psIndex;
 	}
 
-	private void buildDeleteStatement(Connection conn, Map<String, PreparedStatement> map, Record record) throws SQLException {
-		TableSchema schema = record.getSchema();
-		TableName tableName = schema.getTableNameObj();
-		if (record.getSchema().getPartitionIndex() > -1) {
-			boolean isStr = Types.VARCHAR == schema.getColumn(schema.getPartitionIndex()).getType();
-			String value = String.valueOf(record.getObject(schema.getPartitionIndex()));
-			Partition partition = conn.unwrap(PgConnection.class).getMetaStore().partitionCache.get(schema.getTableNameObj()).get(value, (partitionValue) -> {
-				if (refreshMetaTimeout > 0) {
-					ConnectionUtil.refreshMeta(conn, refreshMetaTimeout);
-				}
-				return MetaUtil.getPartition(conn, tableName.getSchemaName(), tableName.getTableName(), value, isStr);
-			});
-			if (partition == null) {
-				LOGGER.warn("delete from partition table {}, partition value={}, but partition child table is not exists, skip this record.{}", tableName.getFullName(), value, record);
-				return;
-			} else {
-				TableSchema newSchema = conn.unwrap(PgConnection.class).getTableSchema(TableName.valueOf(IdentifierUtil.quoteIdentifier(partition.getSchemaName(), true), IdentifierUtil.quoteIdentifier(partition.getTableName(), true)));
-				record.changeToChildSchema(newSchema);
+	protected void buildDeleteStatement(Connection conn, HoloVersion version, TableSchema schema, List<Record> recordList, List<PreparedStatementWithBatchInfo> list) throws SQLException {
+		if (recordList.size() == 0) {
+			return;
+		}
+		SqlTemplate sql = deleteCache.computeIfAbsent(schema, this::buildDeleteSqlTemplate);
+		fillPreparedStatement(conn, sql, list, recordList, Put.MutationType.DELETE, this::fillPreparedStatementForDelete);
+	}
+
+	class SqlTemplate {
+		private final String header;
+		private final String tail;
+		private final String rowText;
+		private final String delimiter;
+		private final int maxLevel;
+
+		public SqlTemplate(String header, String tail, String rowText, String delimiter, int maxLevel) {
+			this.header = header;
+			this.tail = tail;
+			this.rowText = rowText;
+			this.delimiter = delimiter;
+			this.maxLevel = maxLevel;
+			sqls = new String[maxLevel + 1];
+		}
+
+		String[] sqls;
+
+		public String getSql(int level) {
+			if (level >= sqls.length) {
+				throw new RuntimeException(this + " max level is " + sqls.length + ", but input level is " + level);
 			}
+			if (sqls[level] == null) {
+				StringBuilder sb = new StringBuilder();
+				if (header != null) {
+					sb.append(header);
+				}
+				for (int i = 0; i < (1 << level); ++i) {
+					if (i > 0) {
+						sb.append(delimiter);
+					}
+					sb.append(rowText);
+				}
+				if (null != tail) {
+					sb.append(tail);
+				}
+				sqls[level] = sb.toString();
+			}
+			return sqls[level];
 		}
-		String sql = deleteCache.computeIfAbsent(record.getSchema(), this::buildDeleteSql);
-		PreparedStatement currentPs = map.get(sql);
-		if (currentPs == null) {
-			currentPs = conn.prepareStatement(sql);
-			map.put(sql, currentPs);
+
+		public int getMaxLevel() {
+			return maxLevel;
 		}
-		int psIndex = 0;
-		for (int index : record.getSchema().getKeyIndex()) {
-			Column column = record.getSchema().getColumn(index);
-			fillPreparedStatement(currentPs, ++psIndex, record.getObject(index), column);
+
+		@Override
+		public String toString() {
+			return "SqlTemplate{" +
+					"header='" + header + '\'' +
+					", tail='" + tail + '\'' +
+					", rowText='" + rowText + '\'' +
+					", delimiter='" + delimiter + '\'' +
+					'}';
 		}
-		currentPs.addBatch();
 	}
 
-	public PreparedStatement[] buildStatements(Connection conn, Collection<Record> recordList) throws SQLException {
-		Map<String, PreparedStatement> preparedStatementMap = new HashMap<>();
-		Map<String, PreparedStatement> deletePreparedStatementMap = new HashMap<>();
+	/**
+	 * @param conn
+	 * @param recordList 必须都是同一张表的！！！！
+	 * @return
+	 * @throws SQLException
+	 */
+	public List<PreparedStatementWithBatchInfo> buildStatements(Connection conn, HoloVersion version, TableSchema schema, Collection<Record> recordList) throws
+			SQLException {
+		List<Record> deleteRecordList = new ArrayList<>();
+		Map<Tuple<BitSet, BitSet>, List<Record>> insertRecordList = new HashMap<>();
+		List<PreparedStatementWithBatchInfo> preparedStatementList = new ArrayList<>();
 		try {
 			for (Record record : recordList) {
 				prepareRecord(conn, record);
 				switch (record.getType()) {
 					case DELETE:
-						buildDeleteStatement(conn, deletePreparedStatementMap, record);
+						deleteRecordList.add(record);
 						break;
 					case INSERT:
-						buildInsertStatement(conn, preparedStatementMap, record);
-						break;
-					case UPDATE:
-						buildUpdateStatement(conn, preparedStatementMap, record);
+						insertRecordList.computeIfAbsent(new Tuple<>(record.getBitSet(), record.getOnlyInsertColumnSet()), t -> new ArrayList<>()).add(record);
 						break;
 					default:
 						throw new SQLException("unsupported type:" + record.getType() + " for record:" + record);
 				}
 			}
-			int index = -1;
-			PreparedStatement[] ret = new PreparedStatement[preparedStatementMap.size() + deletePreparedStatementMap.size()];
-			for (PreparedStatement ps : deletePreparedStatementMap.values()) {
-				ret[++index] = ps;
+
+			try {
+				if (deleteRecordList.size() > 0) {
+					buildDeleteStatement(conn, version, schema, deleteRecordList, preparedStatementList);
+				}
+				for (Map.Entry<Tuple<BitSet, BitSet>, List<Record>> entry : insertRecordList.entrySet()) {
+					buildInsertStatement(conn, version, schema, entry.getKey(), entry.getValue(), preparedStatementList);
+				}
+			} catch (SQLException e) {
+				for (PreparedStatementWithBatchInfo psWithInfo : preparedStatementList) {
+					PreparedStatement ps = psWithInfo.l;
+					if (null != ps) {
+						try {
+							ps.close();
+						} catch (SQLException e1) {
+
+						}
+					}
+
+				}
+				throw e;
 			}
-			for (PreparedStatement ps : preparedStatementMap.values()) {
-				ret[++index] = ps;
-			}
-			return ret;
+			return preparedStatementList;
+		} catch (SQLException e) {
+			throw e;
 		} catch (Exception e) {
-			for (PreparedStatement ps : preparedStatementMap.values()) {
-				try {
-					ps.close();
-				} catch (SQLException ignore) {
-				}
-			}
-			for (PreparedStatement ps : deletePreparedStatementMap.values()) {
-				try {
-					ps.close();
-				} catch (SQLException ignore) {
-				}
-			}
 			throw new SQLException(e);
 		} finally {
 			if (insertCache.getSize() > 500) {
-				insertCache.clear();
-			}
-			if (updateCache.getSize() > 500) {
 				insertCache.clear();
 			}
 			if (deleteCache.size() > 500) {
@@ -606,4 +686,8 @@ public class UpsertStatementBuilder {
 			}
 		}
 	}
+}
+
+interface FillPreparedStatementFunc {
+	int apply(PreparedStatement ps, int psIndex, Record record) throws SQLException;
 }

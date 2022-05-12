@@ -5,7 +5,7 @@
 package com.alibaba.hologres.client.impl.action;
 
 import com.alibaba.hologres.client.impl.copy.CopyContext;
-import org.postgresql.model.TableSchema;
+import com.alibaba.hologres.client.model.TableSchema;
 
 import java.io.InputStream;
 import java.io.OutputStream;

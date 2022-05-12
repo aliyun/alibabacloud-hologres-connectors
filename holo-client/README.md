@@ -1,27 +1,31 @@
 # 通过holo-client读写Hologres
 
-- [通过holo-client读写Hologres](#通过holo-client读写hologres)
-    - [功能介绍](#功能介绍)
-    - [holo-client引入](#holo-client引入)
-    - [连接数说明](#连接数说明)
-    - [数据写入](#数据写入)
-        - [写入普通表](#写入普通表)
-        - [写入分区表](#写入分区表)
-        - [写入含主键表](#写入含主键表)
-        - [基于主键删除（DELETE占比提高会降低整体的每秒写入）](#基于主键删除delete占比提高会降低整体的每秒写入)
-    - [数据查询](#数据查询)
-        - [基于完整主键查询](#基于完整主键查询)
-        - [Scan查询](#scan查询)
-    - [消费Binlog](#消费Binlog)
-    - [异常处理](#异常处理)
-    - [自定义操作](#自定义操作)
-    - [版本已知问题](#版本已知问题)
-    - [附录](#附录)
-        - [HoloConfig参数说明](#holoconfig参数说明)
-            - [基础配置](#基础配置)
-            - [写入配置](#写入配置)
-            - [查询配置](#查询配置)
-            - [连接配置](#连接配置)
+- [通过holo-client读写Hologres](#%E9%80%9A%E8%BF%87holo-client%E8%AF%BB%E5%86%99hologres)
+  - [功能介绍](#%E5%8A%9F%E8%83%BD%E4%BB%8B%E7%BB%8D)
+  - [holo-client引入](#holo-client%E5%BC%95%E5%85%A5)
+  - [连接数说明](#%E8%BF%9E%E6%8E%A5%E6%95%B0%E8%AF%B4%E6%98%8E)
+  - [数据写入](#%E6%95%B0%E6%8D%AE%E5%86%99%E5%85%A5)
+    - [写入普通表](#%E5%86%99%E5%85%A5%E6%99%AE%E9%80%9A%E8%A1%A8)
+    - [写入分区表](#%E5%86%99%E5%85%A5%E5%88%86%E5%8C%BA%E8%A1%A8)
+    - [写入含主键表](#%E5%86%99%E5%85%A5%E5%90%AB%E4%B8%BB%E9%94%AE%E8%A1%A8)
+    - [基于主键删除（DELETE占比提高会降低整体的每秒写入）](#%E5%9F%BA%E4%BA%8E%E4%B8%BB%E9%94%AE%E5%88%A0%E9%99%A4delete%E5%8D%A0%E6%AF%94%E6%8F%90%E9%AB%98%E4%BC%9A%E9%99%8D%E4%BD%8E%E6%95%B4%E4%BD%93%E7%9A%84%E6%AF%8F%E7%A7%92%E5%86%99%E5%85%A5)
+  - [数据查询](#%E6%95%B0%E6%8D%AE%E6%9F%A5%E8%AF%A2)
+    - [基于完整主键查询](#%E5%9F%BA%E4%BA%8E%E5%AE%8C%E6%95%B4%E4%B8%BB%E9%94%AE%E6%9F%A5%E8%AF%A2)
+    - [Scan查询](#scan%E6%9F%A5%E8%AF%A2)
+  - [消费Binlog](#%E6%B6%88%E8%B4%B9binlog)
+  - [异常处理](#%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86)
+  - [自定义操作](#%E8%87%AA%E5%AE%9A%E4%B9%89%E6%93%8D%E4%BD%9C)
+  - [实现](#%E5%AE%9E%E7%8E%B0)
+    - [写入](#%E5%86%99%E5%85%A5)
+  - [1.X与2.X升级说明](#1x%E4%B8%8E2x%E5%8D%87%E7%BA%A7%E8%AF%B4%E6%98%8E)
+  - [2.X版本已知问题](#2x%E7%89%88%E6%9C%AC%E5%B7%B2%E7%9F%A5%E9%97%AE%E9%A2%98)
+  - [附录](#%E9%99%84%E5%BD%95)
+    - [HoloConfig参数说明](#holoconfig%E5%8F%82%E6%95%B0%E8%AF%B4%E6%98%8E)
+      - [基础配置](#%E5%9F%BA%E7%A1%80%E9%85%8D%E7%BD%AE)
+      - [写入配置](#%E5%86%99%E5%85%A5%E9%85%8D%E7%BD%AE)
+      - [查询配置](#%E6%9F%A5%E8%AF%A2%E9%85%8D%E7%BD%AE)
+      - [连接配置](#%E8%BF%9E%E6%8E%A5%E9%85%8D%E7%BD%AE)
+      - [消费Binlog配置](#%E6%B6%88%E8%B4%B9binlog%E9%85%8D%E7%BD%AE)
 
 ## 功能介绍
 holo-client适用于大批量数据写入（批量、实时同步至holo）和高QPS点查（维表关联）场景。holo-client基于JDBC实现，使用时请确认实例剩余可用连接数。
@@ -41,13 +45,13 @@ select count(*) from pg_stat_activity where backend_type='client backend';
 <dependency>
   <groupId>com.alibaba.hologres</groupId>
   <artifactId>holo-client</artifactId>
-  <version>1.2.16.5</version>
+  <version>2.1.1</version>
 </dependency>
 ```
 
 - Gradle
 ```
-implementation 'com.alibaba.hologres:holo-client:1.2.16.5'
+implementation 'com.alibaba.hologres:holo-client:2.1.1'
 ```
 
 ## 连接数说明
@@ -73,8 +77,9 @@ try (HoloClient client = new HoloClient(config)) {
     put.setObject("address", "address0");
     client.put(put); 
     ...
-    client.flush(); //强制提交所有未提交put请求；HoloClient内部也会根据WriteBatchSize、WriteBatchByteSize、writeMaxIntervalMs三个参数自动提交
-catch(HoloClientException e){
+    //强制提交所有未提交put请求；HoloClient内部也会根据WriteBatchSize、WriteBatchByteSize、writeMaxIntervalMs三个参数自动提交
+    //client.flush(); 
+}catch(HoloClientException e){
 }
 ```
 ### 写入分区表
@@ -98,8 +103,9 @@ try (HoloClient client = new HoloClient(config)) {
     put.setObject("name", "name0");
     client.put(put); 
     ...
-    client.flush(); //强制提交所有未提交put请求；HoloClient内部也会根据WriteBatchSize、WriteBatchByteSize、writeMaxIntervalMs三个参数自动提交
-catch(HoloClientException e){
+    //强制提交所有未提交put请求；HoloClient内部也会根据WriteBatchSize、WriteBatchByteSize、writeMaxIntervalMs三个参数自动提交
+    //client.flush(); 
+}catch(HoloClientException e){
 }
 ```
 ### 写入含主键表
@@ -127,8 +133,9 @@ try (HoloClient client = new HoloClient(config)) {
     put.setObject(2, "newAddress");
     client.put(put);
     ...
-    client.flush();//强制提交所有未提交put请求；HoloClient内部也会根据WriteBatchSize、WriteBatchByteSize、writeMaxIntervalMs三个参数自动提交
-catch(HoloClientException e){
+    //强制提交所有未提交put请求；HoloClient内部也会根据WriteBatchSize、WriteBatchByteSize、writeMaxIntervalMs三个参数自动提交
+    //client.flush();
+}catch(HoloClientException e){
 }
 ```
 
@@ -146,12 +153,13 @@ try (HoloClient client = new HoloClient(config)) {
     //create table t0(id int not null,name0 text,address text,primary key(id))
     TableSchema schema0 = client.getTableSchema("t0");
     Put put = new Put(schema0);
-    put.getRecord().setType(SqlCommandType.DELETE);
+    put.getRecord().setType(Put.MutationType.DELETE);
     put.setObject("id", 1);
     client.put(put); 
     ...
-    client.flush();//强制提交所有未提交put请求；HoloClient内部也会根据WriteBatchSize、WriteBatchByteSize、writeMaxIntervalMs三个参数自动提交
-catch(HoloClientException e){
+    //强制提交所有未提交put请求；HoloClient内部也会根据WriteBatchSize、WriteBatchByteSize、writeMaxIntervalMs三个参数自动提交
+    //client.flush();
+}catch(HoloClientException e){
 }
 
 ```
@@ -171,7 +179,7 @@ try (HoloClient client = new HoloClient(config)) {
     client.get(get).thenAcceptAsync((record)->{
         // do something after get result
     });
-catch(HoloClientException e){
+}catch(HoloClientException e){
 }
     
 ```
@@ -220,44 +228,35 @@ config.setJdbcUrl(url);
 config.setUsername(username);
 config.setPassword(password);
 config.setBinlogReadBatchSize(128);
-// 为所有shard指定起始消费的时间点位
-config.setBinlogReadStartTime("2021-01-01 12:00:00+08");
+config.setBinlogIgnoreDelete(true);
+config.setBinlogIgnoreBeforeUpdate(true);
+HoloClient client = new HoloClient(holoConfig);
 
-try (HoloClient client = new HoloClient(config)) {
-    TableSchema schema = client.getTableSchema(tableName);
-    // offsetMap为可选参数
-    BinlogShardGroupReader reader = client.binlogSubscribe(schema);
-    Record record;
-    while ((record = reader.getRecord()) != null){
-        //handle record
-    }
+// 消费binlog的请求，tableName和slotname为必要参数，Subscribe有StartTimeBuilder和OffsetBuilder两种，此处以前者为例
+Subscribe subscribe = Subscribe.newStartTimeBuilder(tableName, slotName)
+                               .setBinlogReadStartTime("2021-01-01 12:00:00+08")
+                               .build();
+
+// 创建binlog reader
+BinlogShardGroupReader reader = client.binlogSubscribe(subscribe);
+
+BinlogRecord record;
+
+while ((record = reader.getBinlogRecord()) != null) {
+    //handle record
 }
 ```
-如需要，可以为每个shard指定起始消费点位
+(可选)如需要，可以用OffsetBuilder创建Subscribe，从而为每个shard指定起始消费点位
 ```java
-// 配置参数,url格式为 jdbc:postgresql://host:port/db
-HoloConfig config = new HoloConfig();
-config.setJdbcUrl(url);
-config.setUsername(username);
-config.setPassword(password);
-config.setBinlogReadBatchSize(128);
-
 // 此处shardCount为示例，请替换为所消费表对应的实际数量
 int shardCount = 10;
-Map<Integer, BinlogOffset> offsetMap = new HashMap<>(shardCount);
+Subscribe.OffsetBuilder subscribeBuilder = Subscribe.newOffsetBuilder(tableName, slotName);
 for (int i = 0; i < shardCount; i++) {
-// BinlogOffset通过setSequence指定lsn，通过setTimestamp指定单位为us的时间戳，两者同时指定lsn优先级大于时间戳
-offsetMap.put(i, new BinlogOffset().setSequence(0).setTimestamp(1609430400000000););
+    // BinlogOffset通过setSequence指定lsn，通过setTimestamp指定时间，两者同时指定lsn优先级大于时间戳
+    subscribeBuilder.addShardStartOffset(i, new BinlogOffset().setSequence(0).setTimestamp("2021-01-01 12:00:00+08"));
 }
-
-try (HoloClient client = new HoloClient(config)) {
-    TableSchema schema = client.getTableSchema(tableName);
-    BinlogShardGroupReader reader = client.binlogSubscribe(schema, offsetMap);
-    Record record;
-    while ((record = reader.getRecord()) != null){
-        //handle record
-    }
-}
+Subscribe subscribe = subscribeBuilder.build();
+BinlogShardGroupReader reader = client.binlogSubscribe(subscribe);
 ```
 
 ## 异常处理
@@ -314,16 +313,35 @@ try (HoloClient client = new HoloClient(config)) {
 } catch (HoloClientException e) {
 }
 ```
+## 实现
+### 写入
+holoclient写入本质上只将一批Put放入多个队列后，在内存中合并成Batch提交给Worker，worker将batch拆分为若干条sql后提交提交。
+1.X版本，写入的sql格式如下
+```sql
+insert into t0 (c0,c1,c2) values (?,?,?),(?,?,?) on conflict
+```
+2.X版本，默认写入sql格式如下(需要hologres实例版本>=且不存在数组列)
+```sql
+insert into to (c0,c1,c2) select unnest(?),unnest(?),unnest(?) on conflict
+```
 
-## 版本已知问题
-- INSERT_OR_IGNORE和INSERT_OR_UPDATE模式下，insert和delete不保序。 bug引入版本1.2.8，bug修复版本1.2.10.3
-- GetBuilder.withSelectedColumns不生效，每次仍会获取所有列。 bug引入版本1.2.6，bug修复版本1.2.12.1
-- Scan如果设置了withSelectedColumn无法查询。 bug引入版本1.2.9.1，bug修复版本1.2.12.1
-- 当主键包含bytea列时，get请求无法返回结果，put请求无法保序。 bug引入版本1.2.0, bug修复版本1.2.12.1
-- 当pk的hash为Integer.MIN_VALUE时将写入失败。 bug引入版本1,2,0, bug修复版本1.2.12.1
-- jdbc preferQueryMode=simple时，delete失败。 bug引入版本1.2.12.1, bug修复版本1.2.12.6
-- ExecutionPool对象内存泄漏，最后一个实例无法释放。bug引入版本1.2.7, bug修复版本1.2.12.6
-- 列名长度总和过长时，可能发生StackOverflow。 bug引入版本1.2.0, bug修复版本1.2.12.8
+unnest格式相比multi values有如下优点:
+- ？个数等于列数，不再会因攒批过大导致？个数超过Short.MAX_VALUE
+- batchSize不稳定时，不会产生多个PreparedStatement，节省服务端内存
+
+## 1.X与2.X升级说明
+- HoloConfig配置
+  - 删除rewriteSqlMaxBatchSize，目前会自动选择最大的Size
+  - 删除reWriteBatchedDeletes，自动开启
+  - 删除binlogReadStartTime，在Subscribe.Builder中指定
+  - 删除binlogReadTimeoutSeconds，在Subscribe.Builder中指定
+- 包名
+  - org.postgresql.model.*全部切换至com.alibaba.hologres.client.model.*
+- 类型
+  - Record.type从org.postgresql.core.SqlCommandType切换至com.alibaba.hologres.client.Put.MutationType
+
+## 2.X版本已知问题
+- binlog消费时，jdbc无法识别jdbc:postgresql://，必须格式为jdbc:hologres:// bug引入版本2.1.0，bug修复版本2.1.1
 
 ## 附录
 ### HoloConfig参数说明
@@ -343,7 +361,6 @@ try (HoloClient client = new HoloClient(config)) {
 | writeBatchSize | 512 | 每个写入线程的最大批次大小，在经过WriteMode合并后的Put数量达到writeBatchSize时进行一次批量提交 | 1.2.3 |
 | writeBatchByteSize | 2097152（2 * 1024 * 1024） | 每个写入线程的最大批次bytes大小，单位为Byte，默认2MB，<br>在经过WriteMode合并后的Put数据字节数达到writeBatchByteSize时进行一次批量提交 | 1.2.3 |
 | writeBatchTotalByteSize | 20971520（20 * 1024 * 1024） | 所有表最大批次bytes大小，单位为Byte，默认20MB，在经过WriteMode合并后的Put数据字节数达到writeBatchByteSize时进行一次批量提交| 1.2.8.1 |
-| rewriteSqlMaxBatchSize | 1024 | 单条sql进行INSERT/DELETE操作的最大批次大小,<br>比如写入操作，所攒的批会通过 writeBatchSize/rewriteSqlMaxBatchSize 条INSERT语句完成插入 | 1.2.15.5 |
 | writeMaxIntervalMs | 10000 | 距离上次提交超过writeMaxIntervalMs会触发一次批量提交 | 1.2.4 |
 | writeFailStrategy | TYR_ONE_BY_ONE | 当发生写失败时的重试策略:<br>TYR_ONE_BY_ONE 当某一批次提交失败时，会将批次内的记录逐条提交（保序），其中某单条提交失败的记录将会跟随异常被抛出<br> NONE 直接抛出异常| 1.2.4|
 | writerShardCountResizeIntervalMs | 30s | 主动调用flush时，触发resize，两次resize间隔不短于writerShardCountResizeIntervalMs | 1.2.10.1 |
@@ -353,8 +370,9 @@ try (HoloClient client = new HoloClient(config)) {
 | removeU0000InTextColumnValue | true | 当写入Text/Varchar列时，若为true，剔除字符串中的\u0000 | 1.2.10.1 |
 | enableDefaultForNotNullColumn | true | 启用时，not null且未在表上设置default的字段传入null时，将以默认值写入. String 默认“”,Number 默认0,Date/timestamp/timestamptz 默认1970-01-01 00:00:00 | 1.2.6 |
 | defaultTimeStampText | null | enableDefaultForNotNullColumn=true时，Date/timestamp/timestamptz的默认值 | 1.2.6 |
-| reWriteBatchedDeletes | true | true时将多条delete请求合并为一条sql语句提升性能 | 1.2.12.1 |
-
+| useLegacyPutHandler  | false | true时，写入sql格式为insert into xxx(c0,c1,...) values (?,?,...),... on conflict; false时优先使用sql格式为insert into xxx(c0,c1,...) select unnest(?),unnest(?),... on conflict | 2.0.1 |
+| maxRowsPerSql  | Integer.MAX_VALUE | useLegacyPutHandler=false，且通过unnest形式写入时，每条sql的最大行数 | 2.0.1 |
+| maxBytesPerSql  | Long.MAX_VALUE | useLegacyPutHandler=false，且通过unnest形式写入时，每条sql的最大字节数 | 2.0.1 |
 
 #### 查询配置
 | 参数名 | 默认值 | 说明 |引入版本| 
@@ -379,7 +397,6 @@ try (HoloClient client = new HoloClient(config)) {
 | 参数名 | 默认值 | 说明 |引入版本 |
 | --- | --- | --- | --- |
 | binlogReadBatchSize | 1024 | 从每个shard单次获取的Binlog最大批次大小 | 1.2.16.5 |
+| binlogHeartBeatIntervalMs | -1 | binlogRead 发送BinlogHeartBeatRecord的间隔.<br>-1表示不发送,<br>当binlog没有新数据，每间隔binlogHeartBeatIntervalMs会下发一条BinlogHeartBeatRecord，此record的timestamp表示截止到这个时间的数据都已经消费完成.| 2.1.0 |
 | binlogIgnoreDelete |false| 是否忽略消费Delete类型的binlog | 1.2.16.5 |
 | binlogIgnoreBeforeUpdate | false | 是否忽略消费BeforeUpdate类型的binlog | 1.2.16.5 |
-| binlogReadStartTime |"1970-01-01 00:00:00+08"| 表示从某个时间点位开始消费Binlog，示例参数格式: "2021-01-01 12:00:00+08" <br/> 如果没有指定： <br/> 1. 如果是第一次开始消费该Replication slot的Binlog，则从头开始消费，类似Kafka的Oldest <br/> 2. 如果曾经消费过该Replication slot的Binlog，则尝试从之前Commit过的点位开始消费| 1.2.16.5 |
-| binlogReadTimeoutSeconds | 60 |上游没有心跳的超时时间 注意：此处的timeout指的是上游停止通信，消费到最新数据没有可返回的binlog并不会导致超时，可以理解为初始化/卡住的超时时间| 1.2.16.5 |

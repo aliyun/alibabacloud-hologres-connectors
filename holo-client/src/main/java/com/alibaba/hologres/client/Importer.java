@@ -4,7 +4,7 @@
 
 package com.alibaba.hologres.client;
 
-import org.postgresql.model.TableSchema;
+import com.alibaba.hologres.client.model.TableSchema;
 
 import java.io.InputStream;
 import java.security.InvalidParameterException;

@@ -52,8 +52,6 @@ public class HologresJDBCConfigTest extends HologresTestBase {
         long writeBatchTotalByteSize = 20971520L;
         long writeMaxIntervalMs = 10000L;
         boolean enableDefaultForNotNullColumn = true;
-        boolean reWriteBatchedDeletes = true;
-        int rewriteSqlMaxBatchSize = 1024;
 
         // generateHoloConfig
         HologresConnectionParam param = new HologresConnectionParam(configuration);
@@ -83,8 +81,6 @@ public class HologresJDBCConfigTest extends HologresTestBase {
         assertEquals(config.getWriteBatchTotalByteSize(), writeBatchTotalByteSize);
         assertEquals(config.getWriteBatchSize(), writeBatchSize);
         assertEquals(config.getWriteMaxIntervalMs(), writeMaxIntervalMs);
-        assertEquals(config.isReWriteBatchedDeletes(), reWriteBatchedDeletes);
-        assertEquals(config.getRewriteSqlMaxBatchSize(), rewriteSqlMaxBatchSize);
         assertEquals(config.isEnableDefaultForNotNullColumn(), enableDefaultForNotNullColumn);
         assertEquals(config.isDynamicPartition(), dynamicPartition);
     }
@@ -141,8 +137,6 @@ public class HologresJDBCConfigTest extends HologresTestBase {
         long writeBatchTotalByteSize = 12345L;
         long writeMaxIntervalMs = 123456L;
         boolean enableDefaultForNotNullColumn = false;
-        boolean reWriteBatchedDeletes = false;
-        int rewriteSqlMaxBatchSize = 135;
         configuration.set(HologresJDBCConfigs.OPTIONAL_JDBC_WRITE_BATCH_SIZE, writeBatchSize);
         configuration.set(
                 HologresJDBCConfigs.OPTIONAL_JDBC_WRITE_BATCH_BYTE_SIZE, writeBatchByteSize);
@@ -151,11 +145,6 @@ public class HologresJDBCConfigTest extends HologresTestBase {
                 writeBatchTotalByteSize);
         configuration.set(
                 HologresJDBCConfigs.OPTIONAL_JDBC_WRITE_FLUSH_INTERVAL, writeMaxIntervalMs);
-        configuration.set(
-                HologresJDBCConfigs.OPTIONAL_JDBC_REWRITE_BATCHED_DELETES, reWriteBatchedDeletes);
-        configuration.set(
-                HologresJDBCConfigs.OPTIONAL_JDBC_REWRITE_SQL_MAX_BATCH_SIZE,
-                rewriteSqlMaxBatchSize);
         configuration.set(
                 HologresJDBCConfigs.OPTIONAL_JDBC_ENABLE_DEFAULT_FOR_NOT_NULL_COLUMN,
                 enableDefaultForNotNullColumn);
@@ -188,8 +177,6 @@ public class HologresJDBCConfigTest extends HologresTestBase {
         assertEquals(config.getWriteBatchByteSize(), writeBatchByteSize);
         assertEquals(config.getWriteBatchTotalByteSize(), writeBatchTotalByteSize);
         assertEquals(config.getWriteMaxIntervalMs(), writeMaxIntervalMs);
-        assertEquals(config.isReWriteBatchedDeletes(), reWriteBatchedDeletes);
-        assertEquals(config.getRewriteSqlMaxBatchSize(), rewriteSqlMaxBatchSize);
         assertEquals(config.isEnableDefaultForNotNullColumn(), enableDefaultForNotNullColumn);
     }
 

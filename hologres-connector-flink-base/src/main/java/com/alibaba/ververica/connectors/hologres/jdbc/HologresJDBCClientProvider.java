@@ -74,8 +74,6 @@ public class HologresJDBCClientProvider {
         holoConfig.setWriteBatchByteSize(param.getJdbcWriteBatchByteSize());
         holoConfig.setWriteBatchTotalByteSize(param.getJdbcWriteBatchTotalByteSize());
         holoConfig.setWriteMaxIntervalMs(param.getJdbcWriteFlushInterval());
-        holoConfig.setReWriteBatchedDeletes(param.getJdbcReWriteBatchedDeletes());
-        holoConfig.setRewriteSqlMaxBatchSize(param.getJdbcRewriteSqlMaxBatchSize());
         holoConfig.setEnableDefaultForNotNullColumn(param.getJdbcEnableDefaultForNotNullColumn());
         holoConfig.setWriteMode(param.getJDBCWriteMode());
 

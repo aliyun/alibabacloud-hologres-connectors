@@ -6,10 +6,10 @@ import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.LogicalTypeRoot;
 
+import com.alibaba.hologres.client.model.Column;
 import com.alibaba.ververica.connectors.hologres.api.HologresRecordConverter;
 import com.alibaba.ververica.connectors.hologres.api.HologresTableSchema;
 import com.alibaba.ververica.connectors.hologres.config.HologresConnectionParam;
-import org.postgresql.model.Column;
 
 import java.sql.Types;
 import java.util.HashMap;

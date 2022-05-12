@@ -1,11 +1,10 @@
 package com.alibaba.hologres.client.model;
 
+import com.alibaba.hologres.client.exception.InvalidIdentifierException;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-import org.postgresql.model.TableName;
-import org.postgresql.util.InvalidIdentifierException;
 
 /**
  * TableName Tester.

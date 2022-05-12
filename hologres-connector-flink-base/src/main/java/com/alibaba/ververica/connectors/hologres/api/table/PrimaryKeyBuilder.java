@@ -3,9 +3,9 @@ package com.alibaba.ververica.connectors.hologres.api.table;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.types.logical.LogicalType;
 
+import com.alibaba.hologres.client.model.Column;
 import com.alibaba.ververica.connectors.hologres.api.HologresTableSchema;
 import com.alibaba.ververica.connectors.hologres.config.HologresConnectionParam;
-import org.postgresql.model.Column;
 
 import java.io.Serializable;
 import java.util.ArrayList;

@@ -44,8 +44,6 @@ class HologresConfigs(sourceOptions: Map[String, String]) {
   sourceOptions.get("dynamic_partition").map(v => holoConfig.setDynamicPartition(v.toBoolean))
   sourceOptions.get("write_batch_size").map(v => holoConfig.setWriteBatchSize(v.toInt))
   sourceOptions.get("write_batch_byte_size").map(v => holoConfig.setWriteBatchByteSize(v.toLong))
-  holoConfig.setRewriteSqlMaxBatchSize(1024)
-  sourceOptions.get("rewrite_sql_max_batch_size").map(v => holoConfig.setRewriteSqlMaxBatchSize(v.toInt))
   sourceOptions.get("write_max_interval_ms").map(v => holoConfig.setWriteMaxIntervalMs(v.toLong))
   sourceOptions.get("write_thread_size").map(v => holoConfig.setWriteThreadSize(v.toInt))
   sourceOptions.get("retry_count").map(v => holoConfig.setRetryCount(v.toInt))

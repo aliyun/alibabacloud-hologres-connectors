@@ -5,11 +5,11 @@
 package com.alibaba.hologres.client.impl.collector;
 
 import com.alibaba.hologres.client.HoloConfig;
+import com.alibaba.hologres.client.Put;
 import com.alibaba.hologres.client.impl.ExecutionPool;
 import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.model.RecordKey;
 import com.alibaba.hologres.client.model.WriteMode;
-import org.postgresql.core.SqlCommandType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -79,18 +79,13 @@ public class RecordCollector {
 					byteSize += record.getByteSize();
 					deleteMap.put(key, record);
 					break;
-				case UPDATE:
-					byteSize -= origin.getByteSize();
-					origin.merge(record);
-					byteSize += origin.getByteSize();
-					break;
 				case INSERT:
 					switch (mode) {
 						case INSERT_OR_UPDATE:
 							byteSize -= origin.getByteSize();
 							origin.merge(record);
 							byteSize += origin.getByteSize();
-							origin.setType(SqlCommandType.INSERT);
+							origin.setType(Put.MutationType.INSERT);
 							break;
 						case INSERT_OR_IGNORE:
 							origin.addAttachmentList(record.getAttachmentList());
@@ -117,17 +112,6 @@ public class RecordCollector {
 					}
 					byteSize += record.getByteSize();
 					deleteMap.put(key, record);
-					break;
-				case UPDATE:
-					baseRecord = deleteMap.get(key);
-					//就update语意来说，如果这行已经被删掉了，update相当于是无效的，想要insert_or_update的效果，就应该把这个record的类型设置成INSERT
-					if (baseRecord == null) {
-						byteSize += record.getByteSize();
-						recordMap.put(key, record);
-						++size;
-					} else {
-						baseRecord.addAttachmentList(record.getAttachmentList());
-					}
 					break;
 				case INSERT:
 					byteSize += record.getByteSize();

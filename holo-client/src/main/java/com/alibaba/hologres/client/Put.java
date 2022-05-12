@@ -5,8 +5,7 @@
 package com.alibaba.hologres.client;
 
 import com.alibaba.hologres.client.model.Record;
-import org.postgresql.core.SqlCommandType;
-import org.postgresql.model.TableSchema;
+import com.alibaba.hologres.client.model.TableSchema;
 
 import java.security.InvalidParameterException;
 
@@ -16,27 +15,21 @@ import java.security.InvalidParameterException;
 public class Put {
 	Record record;
 
+	/**
+	 * put类型.
+	 */
+	public enum MutationType {
+		INSERT,
+		DELETE
+	}
+
 	public Put(TableSchema schema) {
 		this.record = Record.build(schema);
-		record.setType(SqlCommandType.INSERT);
+		record.setType(MutationType.INSERT);
 	}
 
 	public Put(Record record) {
 		this.record = record;
-	}
-
-	/**
-	 * 设置Put为update请求.
-	 * @param isUpdate 当true，生成update xxx set xxx=?,xxx=? ；当false， 生成insert into xxx values(?,?) [on conflict do];
-	 */
-	@Deprecated
-	public void setUpdate(boolean isUpdate) {
-		record.setType(isUpdate ? SqlCommandType.UPDATE : SqlCommandType.INSERT);
-	}
-
-	@Deprecated
-	public boolean isUpdate() {
-		return record.getType() == SqlCommandType.UPDATE;
 	}
 
 	public Record getRecord() {
@@ -44,10 +37,10 @@ public class Put {
 	}
 
 	/**
-	 * @param i 列序号(在建表字段中的顺序，从0开始）
-	 * @param obj 列值
+	 * @param i          列序号(在建表字段中的顺序，从0开始）
+	 * @param obj        列值
 	 * @param onlyInsert 当writeMode=INSERT_OR_UPDATE生效。
-	 *                  为true时，这一列只会在主键不存在的情况下写入，如果主键已存在则不更新。常见于记录row创建时间的字段。
+	 *                   为true时，这一列只会在主键不存在的情况下写入，如果主键已存在则不更新。常见于记录row创建时间的字段。
 	 * @return
 	 */
 	public Put setObject(int i, Object obj, boolean onlyInsert) {
@@ -69,9 +62,9 @@ public class Put {
 
 	/**
 	 * @param columnName 列名
-	 * @param obj 列值
+	 * @param obj        列值
 	 * @param onlyInsert 当writeMode=INSERT_OR_UPDATE生效。
-	 *                  为true时，这一列只会在主键不存在的情况下写入，如果主键已存在则不更新。常见于记录row创建时间的字段。
+	 *                   为true时，这一列只会在主键不存在的情况下写入，如果主键已存在则不更新。常见于记录row创建时间的字段。
 	 * @return
 	 */
 	public Put setObject(String columnName, Object obj, boolean onlyInsert) {

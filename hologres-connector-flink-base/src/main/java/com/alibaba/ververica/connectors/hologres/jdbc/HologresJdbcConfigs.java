@@ -42,10 +42,6 @@ public class HologresJDBCConfigs {
             key("jdbcWriteBatchTotalByteSize".toLowerCase()).longType().defaultValue(20971520L);
     public static final ConfigOption<Long> OPTIONAL_JDBC_WRITE_FLUSH_INTERVAL =
             key("jdbcWriteFlushInterval".toLowerCase()).longType().defaultValue(10000L);
-    public static final ConfigOption<Boolean> OPTIONAL_JDBC_REWRITE_BATCHED_DELETES =
-            key("jdbcReWriteBatchedDeletes".toLowerCase()).booleanType().defaultValue(true);
-    public static final ConfigOption<Integer> OPTIONAL_JDBC_REWRITE_SQL_MAX_BATCH_SIZE =
-            key("jdbcRewriteSqlMaxBatchSize".toLowerCase()).intType().defaultValue(1024);
     public static final ConfigOption<Boolean> OPTIONAL_JDBC_ENABLE_DEFAULT_FOR_NOT_NULL_COLUMN =
             key("jdbcEnableDefaultForNotNullColumn".toLowerCase()).booleanType().defaultValue(true);
 
