@@ -6,11 +6,13 @@ package com.alibaba.hologres.client;
 
 import com.alibaba.hologres.client.exception.ExceptionCode;
 import com.alibaba.hologres.client.exception.HoloClientException;
-import org.postgresql.model.TableSchema;
+import com.alibaba.hologres.client.model.TableSchema;
 
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
@@ -38,20 +40,22 @@ public class Command {
 		}));
 	}
 
-	public static String getSlotName(HoloClient client, TableSchema schema) throws HoloClientException {
+	public static List<String> getSlotNames(HoloClient client, TableSchema schema) throws HoloClientException {
 		return get(client.sql(conn -> {
-			String slotName = "";
-			try (PreparedStatement ps = conn.prepareStatement("select slot_name from hologres.hg_replication_slot_properties, pg_publication_tables where tablename=? and property_value=pubname;")) {
-				ps.setObject(1, schema.getTableNameObj().getTableName());
+			List<String> slotNames = new ArrayList<>();
+			try (PreparedStatement ps = conn.prepareStatement("select slot_name from hologres.hg_replication_slot_properties, pg_publication_tables where schemaname=? and tablename=? and property_value=pubname;")) {
+				ps.setObject(1, schema.getTableNameObj().getSchemaName());
+				ps.setObject(2, schema.getTableNameObj().getTableName());
 				try (ResultSet rs = ps.executeQuery()) {
-					if (rs.next()) {
-						slotName = rs.getString(1);
-					} else {
-						throw new SQLException("table " + schema.getTableNameObj().getFullName() + " not exists or have not any slot");
+					while (rs.next()) {
+						slotNames.add(rs.getString(1));
 					}
 				}
+				if (slotNames.size() == 0) {
+					throw new SQLException("table " + schema.getTableNameObj().getFullName() + " not exists or not have any slot");
+				}
 			}
-			return slotName;
+			return slotNames;
 		}));
 	}
 

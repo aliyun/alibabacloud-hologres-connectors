@@ -5,11 +5,11 @@
 package com.alibaba.hologres.client;
 
 import com.alibaba.hologres.client.impl.ExecutionPool;
+import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.model.WriteMode;
 import com.alibaba.hologres.client.utils.Metrics;
 import org.junit.Assert;
 import org.junit.Test;
-import org.postgresql.model.TableSchema;
 
 import java.sql.Connection;
 import java.sql.ResultSet;

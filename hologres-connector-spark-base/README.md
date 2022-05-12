@@ -19,4 +19,4 @@
 ```
 mvn install -pl hologres-connector-spark-base clean package -DskipTests -Pscala-2.11 -Pspark-2
 ```
-打包结果名称为 hologres-connector-spark-base_2.11_spark2-1.0-SNAPSHOT.jar
+打包结果名称为 hologres-connector-spark-base_2.11_spark2-1.1-SNAPSHOT.jar

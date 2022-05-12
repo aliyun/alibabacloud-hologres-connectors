@@ -7,29 +7,31 @@ package com.alibaba.hologres.client;
 import com.alibaba.hologres.client.exception.ExceptionCode;
 import com.alibaba.hologres.client.exception.HoloClientException;
 import com.alibaba.hologres.client.exception.HoloClientWithDetailsException;
+import com.alibaba.hologres.client.function.FunctionWithSQLException;
 import com.alibaba.hologres.client.impl.ConnectionHolder;
 import com.alibaba.hologres.client.impl.ExecutionPool;
 import com.alibaba.hologres.client.impl.action.CopyAction;
-import com.alibaba.hologres.client.impl.action.MetaAction;
 import com.alibaba.hologres.client.impl.action.PutAction;
 import com.alibaba.hologres.client.impl.action.ScanAction;
 import com.alibaba.hologres.client.impl.action.SqlAction;
+import com.alibaba.hologres.client.impl.binlog.BinlogOffset;
+import com.alibaba.hologres.client.impl.binlog.Committer;
+import com.alibaba.hologres.client.impl.binlog.TableSchemaSupplier;
+import com.alibaba.hologres.client.impl.binlog.action.BinlogAction;
 import com.alibaba.hologres.client.impl.collector.ActionCollector;
 import com.alibaba.hologres.client.impl.collector.BatchState;
 import com.alibaba.hologres.client.impl.copy.CopyContext;
 import com.alibaba.hologres.client.impl.copy.InternalPipedOutputStream;
-import com.alibaba.hologres.client.model.BinlogOffset;
 import com.alibaba.hologres.client.model.ExportContext;
 import com.alibaba.hologres.client.model.ImportContext;
+import com.alibaba.hologres.client.model.Partition;
 import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.model.RecordScanner;
+import com.alibaba.hologres.client.model.TableName;
+import com.alibaba.hologres.client.model.TableSchema;
+import com.alibaba.hologres.client.utils.IdentifierUtil;
+import com.alibaba.hologres.client.utils.Tuple;
 import org.postgresql.core.SqlCommandType;
-import org.postgresql.model.Column;
-import org.postgresql.model.Partition;
-import org.postgresql.model.TableName;
-import org.postgresql.model.TableSchema;
-import org.postgresql.util.FunctionWithSQLException;
-import org.postgresql.util.IdentifierUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,17 +42,20 @@ import java.io.OutputStream;
 import java.io.PipedInputStream;
 import java.io.PipedOutputStream;
 import java.sql.Connection;
-import java.sql.SQLException;
 import java.sql.Types;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Properties;
 import java.util.TreeMap;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 线程不安全，每个client，最多会创建2个JDBC connection，读写分离.
@@ -139,61 +144,40 @@ public class HoloClient implements Closeable {
 	}
 
 	public TableSchema getTableSchema(TableName tableName, boolean noCache) throws HoloClientException {
-		return doGetTableSchema(tableName, noCache).getResult();
-	}
-
-	public CompletableFuture<TableSchema> getTableSchemaAsync(TableName tableName, boolean noCache) throws HoloClientException {
-		return doGetTableSchema(tableName, noCache).getFuture();
-	}
-
-	private MetaAction doGetTableSchema(TableName tableName, boolean noCache) throws HoloClientException {
 		ensurePoolOpen();
 		return pool.getOrSubmitTableSchema(tableName, noCache);
 	}
 
 	private void checkGet(Get get) throws HoloClientException {
 		if (get == null) {
-			throw new HoloClientException(ExceptionCode.INVALID_REQUEST, "Get cannot be null");
+			throw new HoloClientException(ExceptionCode.CONSTRAINT_VIOLATION, "Get cannot be null");
 		}
 		if (get.getRecord().getSchema().getPrimaryKeys().length == 0) {
-			throw new HoloClientException(ExceptionCode.INVALID_REQUEST, "Get table must have primary key:" + get.getRecord().getSchema().getTableNameObj().getFullName());
+			throw new HoloClientException(ExceptionCode.CONSTRAINT_VIOLATION, "Get table must have primary key:" + get.getRecord().getSchema().getTableNameObj().getFullName());
 		}
 
 		for (int index : get.getRecord().getKeyIndex()) {
 			if (!get.getRecord().isSet(index) || null == get.getRecord().getObject(index)) {
-				throw new HoloClientException(ExceptionCode.INVALID_REQUEST, "Get primary key cannot be null:" + get.getRecord().getSchema().getColumnSchema()[index].getName());
+				throw new HoloClientException(ExceptionCode.CONSTRAINT_VIOLATION, "Get primary key cannot be null:" + get.getRecord().getSchema().getColumnSchema()[index].getName());
 			}
 		}
 	}
 
 	private void checkPut(Put put) throws HoloClientWithDetailsException {
 		if (put == null) {
-			throw new HoloClientWithDetailsException(ExceptionCode.INVALID_REQUEST, "Put cannot be null", put.getRecord());
+			throw new HoloClientWithDetailsException(ExceptionCode.CONSTRAINT_VIOLATION, "Put cannot be null", put.getRecord());
 		}
 		for (int index : put.getRecord().getKeyIndex()) {
 			if ((!put.getRecord().isSet(index) || null == put.getRecord().getObject(index)) && put.getRecord().getSchema().getColumn(index).getDefaultValue() == null) {
-				throw new HoloClientWithDetailsException(ExceptionCode.INVALID_REQUEST, "Put primary key cannot be null:" + put.getRecord().getSchema().getColumnSchema()[index].getName(), put.getRecord());
+				throw new HoloClientWithDetailsException(ExceptionCode.CONSTRAINT_VIOLATION, "Put primary key cannot be null:" + put.getRecord().getSchema().getColumnSchema()[index].getName(), put.getRecord());
 			}
 		}
 		if (put.getRecord().getSchema().isPartitionParentTable() && (!put.getRecord().isSet(put.getRecord().getSchema().getPartitionIndex()) || null == put.getRecord().getObject(put.getRecord().getSchema().getPartitionIndex()))) {
-			throw new HoloClientWithDetailsException(ExceptionCode.INVALID_REQUEST, "Put partition key cannot be null:" + put.getRecord().getSchema().getColumnSchema()[put.getRecord().getSchema().getPartitionIndex()].getName(), put.getRecord());
+			throw new HoloClientWithDetailsException(ExceptionCode.CONSTRAINT_VIOLATION, "Put partition key cannot be null:" + put.getRecord().getSchema().getColumnSchema()[put.getRecord().getSchema().getPartitionIndex()].getName(), put.getRecord());
 
 		}
-		if ((put.getRecord().getType() == SqlCommandType.UPDATE || put.getRecord().getType() == SqlCommandType.DELETE) && put.getRecord().getSchema().getPrimaryKeys().length == 0) {
-			throw new HoloClientWithDetailsException(ExceptionCode.INVALID_REQUEST, "Delete/Update Put table must have primary key:" + put.getRecord().getSchema().getTableNameObj().getFullName(), put.getRecord());
-		}
-		if (put.getRecord().getType() == SqlCommandType.UPDATE) {
-			int columnSize = put.getRecord().getSchema().getColumnSchema().length;
-			int updateColumnSize = 0;
-			for (int i = 0; i < columnSize; ++i) {
-				Column column = put.getRecord().getSchema().getColumnSchema()[i];
-				if (put.getRecord().isSet(i) && !column.getPrimaryKey()) {
-					++updateColumnSize;
-				}
-			}
-			if (updateColumnSize == 0) {
-				throw new HoloClientWithDetailsException(ExceptionCode.INVALID_REQUEST, "Update Put must contain non primary key column" + put.getRecord(), put.getRecord());
-			}
+		if (put.getRecord().getType() == Put.MutationType.DELETE && put.getRecord().getSchema().getPrimaryKeys().length == 0) {
+			throw new HoloClientWithDetailsException(ExceptionCode.CONSTRAINT_VIOLATION, "Delete Put table must have primary key:" + put.getRecord().getSchema().getTableNameObj().getFullName(), put.getRecord());
 		}
 	}
 
@@ -274,69 +258,92 @@ public class HoloClient implements Closeable {
 
 	/**
 	 * 如果put为分区表，修改put的schema为分区字表.
-	 * dynamicPartition=false 且 分区子表不存在则报错
 	 *
 	 * @param put put
+	 * @return 是否可以忽略这条PUT。比如delete，但是分区并不存在的时候.
 	 * @throws HoloClientException
 	 */
-	private void rewritePut(Put put) throws HoloClientException {
+	private boolean rewritePut(Put put) throws HoloClientException {
 		Record record = put.getRecord();
 		TableSchema schema = record.getSchema();
-		if (record.getSchema().getPartitionIndex() > -1 && config.isEnableClientDynamicPartition()) {
+		HoloClientWithDetailsException detailException = null;
+		if (record.getSchema().getPartitionIndex() > -1) {
 			boolean dynamicPartition = config.isDynamicPartition();
 			boolean isStr = Types.VARCHAR == schema.getColumn(schema.getPartitionIndex()).getType();
 			String value = String.valueOf(record.getObject(schema.getPartitionIndex()));
 			Partition partition = pool.getOrSubmitPartition(schema.getTableNameObj(), value, isStr, dynamicPartition && !SqlCommandType.DELETE.equals(put.getRecord().getType()));
 			if (partition != null) {
-				TableSchema newSchema = pool.getOrSubmitTableSchema(TableName.valueOf(IdentifierUtil.quoteIdentifier(partition.getSchemaName(), true), IdentifierUtil.quoteIdentifier(partition.getTableName(), true)), false).getResult();
+				TableSchema newSchema = pool.getOrSubmitTableSchema(TableName.valueOf(IdentifierUtil.quoteIdentifier(partition.getSchemaName(), true), IdentifierUtil.quoteIdentifier(partition.getTableName(), true)), false);
 				record.changeToChildSchema(newSchema);
 			} else if (!SqlCommandType.DELETE.equals(put.getRecord().getType())) {
-				throw new HoloClientWithDetailsException(ExceptionCode.INVALID_REQUEST, "child table is not found", record);
+				throw new HoloClientWithDetailsException(ExceptionCode.TABLE_NOT_FOUND, "child table is not found", record);
+			} else {
+				return true;
 			}
 		}
+		return false;
 	}
 
 	public void put(Put put) throws HoloClientException {
 		ensurePoolOpen();
 		tryThrowException();
 		checkPut(put);
-		rewritePut(put);
-		if (!asyncCommit) {
-			Record r = put.getRecord();
-			PutAction action = new PutAction(Collections.singletonList(r), r.getByteSize(), BatchState.SizeEnough);
-			while (!pool.submit(action)) {
+		if (!rewritePut(put)) {
+			if (!asyncCommit) {
+				Record r = put.getRecord();
+				PutAction action = new PutAction(Collections.singletonList(r), r.getByteSize(), BatchState.SizeEnough);
+				while (!pool.submit(action)) {
 
+				}
+				action.getResult();
+			} else {
+				collector.append(put.getRecord());
 			}
-			action.getResult();
-		} else {
-			collector.append(put.getRecord());
 		}
-
 	}
 
 	public CompletableFuture<Void> putAsync(Put put) throws HoloClientException {
 		ensurePoolOpen();
 		tryThrowException();
 		checkPut(put);
-		rewritePut(put);
 		CompletableFuture<Void> ret = new CompletableFuture<>();
-		put.getRecord().setPutFuture(ret);
-		collector.append(put.getRecord());
+		if (!rewritePut(put)) {
+			put.getRecord().setPutFuture(ret);
+			collector.append(put.getRecord());
+		} else {
+			put.getRecord().setPutFuture(ret);
+			ret.complete(null);
+		}
 		return ret;
 	}
 
 	public void put(List<Put> puts) throws HoloClientException {
 		ensurePoolOpen();
 		tryThrowException();
+		HoloClientWithDetailsException detailException = null;
+		List<Put> putList = new ArrayList<>();
 		for (Put put : puts) {
-			checkPut(put);
-			rewritePut(put);
+			try {
+				checkPut(put);
+				if (!rewritePut(put)) {
+					putList.add(put);
+				}
+			} catch (HoloClientWithDetailsException e) {
+				if (detailException == null) {
+					detailException = e;
+				} else {
+					detailException.merge(e);
+				}
+			}
 		}
-		for (Put put : puts) {
+		for (Put put : putList) {
 			collector.append(put.getRecord());
 		}
 		if (!asyncCommit) {
 			collector.flush(false);
+		}
+		if (detailException != null) {
+			throw detailException;
 		}
 	}
 
@@ -507,19 +514,53 @@ public class HoloClient implements Closeable {
 		return new ConnectionHolder(config, this, isShadingEnv);
 	}
 
-	public BinlogShardGroupReader binlogSubscribe(TableSchema schema, Map<Integer, BinlogOffset> offsetMap) throws HoloClientException, SQLException, IOException {
+	public BinlogShardGroupReader binlogSubscribe(Subscribe subscribe) throws HoloClientException {
+		ensurePoolOpen();
+		TableSchemaSupplier supplier = new TableSchemaSupplier() {
+			@Override
+			public TableSchema apply() throws HoloClientException {
+				return HoloClient.this.getTableSchema(subscribe.getTableName(), true);
+			}
+		};
+		TableSchema schema = supplier.apply();
 		int shardCount = Command.getShardCount(this, schema);
-		if (offsetMap.size() != shardCount) {
-			throw new HoloClientException(ExceptionCode.INVALID_REQUEST, String.format("The offsetMap size %s not equal to shardCount %s", offsetMap.size(), shardCount));
+		if (!Command.getSlotNames(this, schema).contains(subscribe.getSlotName())) {
+			throw new HoloClientException(ExceptionCode.INVALID_REQUEST, String.format("The table %s has no slot named %s", schema.getTableNameObj().getFullName(), subscribe.getSlotName()));
 		}
-		String slotName = Command.getSlotName(this, schema);
-		return BinlogShardGroupReader.newBuilder(this, schema, config).setShardRange(0, shardCount).setSlotName(slotName).setBinlogOffsetMap(offsetMap).build();
-	}
+		Map<Integer, BinlogOffset> offsetMap = subscribe.getOffsetMap();
+		if (null != offsetMap) {
+			for (Integer shardId : offsetMap.keySet()) {
+				if (shardId < 0 || shardId >= shardCount) {
+					throw new HoloClientException(ExceptionCode.INVALID_REQUEST, String.format("invalid shard id [%s] for table %s", shardId, subscribe.getTableName()));
+				}
+			}
+		} else {
+			offsetMap = new HashMap<>();
+			for (int i = 0; i < shardCount; i++) {
+				offsetMap.put(i, new BinlogOffset().setTimestamp(subscribe.getBinlogReadStartTime()));
+			}
+		}
 
-	public BinlogShardGroupReader binlogSubscribe(TableSchema schema) throws HoloClientException, SQLException, IOException {
-		int shardCount = Command.getShardCount(this, schema);
-		String slotName = Command.getSlotName(this, schema);
-		return BinlogShardGroupReader.newBuilder(this, schema, config).setShardRange(0, shardCount).setSlotName(slotName).build();
+		BinlogShardGroupReader reader = null;
+		try {
+			AtomicBoolean started = new AtomicBoolean(true);
+			Map<Integer, Committer> committerMap = new HashMap<>();
+			reader = new BinlogShardGroupReader(config, subscribe, offsetMap.size(), committerMap, started);
+			for (Map.Entry<Integer, BinlogOffset> entry : offsetMap.entrySet()) {
+				BlockingQueue<Tuple<CompletableFuture<Void>, Long>> queue = new ArrayBlockingQueue<>(1);
+				Committer committer = new Committer(queue);
+				committerMap.put(entry.getKey(), committer);
+				BinlogAction action = new BinlogAction(subscribe.getTableName(), subscribe.getSlotName(), entry.getKey(), entry.getValue().getSequence(), entry.getValue().getStartTimeText(), reader.getCollector(), supplier, queue);
+				reader.addThread(pool.submitOneShotAction(started, entry.getKey(), action));
+			}
+
+		} catch (HoloClientException e) {
+			if (null != reader) {
+				reader.close();
+			}
+			throw e;
+		}
+		return reader;
 	}
 
 	public void flush() throws HoloClientException {

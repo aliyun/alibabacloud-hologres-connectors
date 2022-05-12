@@ -61,8 +61,6 @@ public class HologresConnectionParam implements Serializable {
     private final long jdbcWriteBatchByteSize;
     private final long jdbcWriteBatchTotalByteSize;
     private final long jdbcWriteFlushInterval;
-    private final boolean jdbcReWriteBatchedDeletes;
-    private final int jdbcRewriteSqlMaxBatchSize;
     private final boolean jdbcEnableDefaultForNotNullColumn;
     // JDBC dim
     private final boolean insertIfNotExists;
@@ -111,10 +109,6 @@ public class HologresConnectionParam implements Serializable {
                 properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_WRITE_BATCH_TOTAL_BYTE_SIZE);
         this.jdbcWriteFlushInterval =
                 properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_WRITE_FLUSH_INTERVAL);
-        this.jdbcReWriteBatchedDeletes =
-                properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_REWRITE_BATCHED_DELETES);
-        this.jdbcRewriteSqlMaxBatchSize =
-                properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_REWRITE_SQL_MAX_BATCH_SIZE);
         this.jdbcEnableDefaultForNotNullColumn =
                 properties.get(
                         HologresJDBCConfigs.OPTIONAL_JDBC_ENABLE_DEFAULT_FOR_NOT_NULL_COLUMN);
@@ -223,14 +217,6 @@ public class HologresConnectionParam implements Serializable {
 
     public int getScanTimeoutSeconds() {
         return jdbcScanTimeoutSeconds;
-    }
-
-    public boolean getJdbcReWriteBatchedDeletes() {
-        return jdbcReWriteBatchedDeletes;
-    }
-
-    public int getJdbcRewriteSqlMaxBatchSize() {
-        return jdbcRewriteSqlMaxBatchSize;
     }
 
     public boolean getJdbcEnableDefaultForNotNullColumn() {

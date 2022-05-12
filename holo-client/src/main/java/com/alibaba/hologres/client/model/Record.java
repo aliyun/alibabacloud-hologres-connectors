@@ -4,11 +4,12 @@
 
 package com.alibaba.hologres.client.model;
 
+import com.alibaba.hologres.client.Put;
 import com.alibaba.hologres.client.Trace;
-import org.postgresql.core.SqlCommandType;
-import org.postgresql.model.TableSchema;
+import org.postgresql.jdbc.ArrayUtil;
+import org.postgresql.jdbc.PgArray;
+import org.postgresql.util.PGobject;
 
-import java.io.IOException;
 import java.io.Serializable;
 import java.security.InvalidParameterException;
 import java.sql.Types;
@@ -28,13 +29,10 @@ public class Record implements Serializable {
 	BitSet bitSet;
 	BitSet onlyInsertColumnSet;
 	List<Object> attachmentList = null;
-	SqlCommandType type = SqlCommandType.INSERT;
-	boolean isBinlogRecord;
-	long[] binlogParams;
+	Put.MutationType type = Put.MutationType.INSERT;
 	int shardId = -1;
 
 	long byteSize = 0;
-
 
 	/**
 	 * 只在put场景下使用，存储这个Record对应的所有put的future.
@@ -44,12 +42,13 @@ public class Record implements Serializable {
 	transient List<CompletableFuture<Void>> putFutures;
 
 	private Record(TableSchema schema,
-					Object[] values,
-					BitSet bitSet,
-					BitSet onlyInsertColumnSet,
-					List<Object> attachmentList,
-					SqlCommandType type,
-					long byteSize) {
+				   Object[] values,
+				   BitSet bitSet,
+				   BitSet onlyInsertColumnSet,
+				   List<Object> attachmentList,
+				   Put.MutationType type,
+				   long byteSize,
+				   int shardId) {
 		this.schema = schema;
 		this.values = values;
 		this.bitSet = bitSet;
@@ -57,6 +56,7 @@ public class Record implements Serializable {
 		this.attachmentList = attachmentList;
 		this.type = type;
 		this.byteSize = byteSize;
+		this.shardId = shardId;
 	}
 
 	public Record clone() {
@@ -66,7 +66,8 @@ public class Record implements Serializable {
 				(BitSet) onlyInsertColumnSet.clone(),
 				null,
 				type,
-				byteSize);
+				byteSize,
+				shardId);
 	}
 
 	Trace trace;
@@ -90,11 +91,11 @@ public class Record implements Serializable {
 		return values;
 	}
 
-	public SqlCommandType getType() {
+	public Put.MutationType getType() {
 		return type;
 	}
 
-	public void setType(SqlCommandType type) {
+	public void setType(Put.MutationType type) {
 		this.type = type;
 	}
 
@@ -111,12 +112,7 @@ public class Record implements Serializable {
 	}
 
 	public Record(TableSchema schema) {
-		this(schema, false);
-	}
-
-	public Record(TableSchema schema, boolean isBinlogRecord) {
 		this.schema = schema;
-		this.isBinlogRecord = isBinlogRecord;
 		bitSet = new BitSet(schema.getColumnSchema().length);
 		onlyInsertColumnSet = new BitSet(schema.getColumnSchema().length);
 		values = new Object[schema.getColumnSchema().length];
@@ -134,20 +130,71 @@ public class Record implements Serializable {
 		if (obj == null) {
 			return 4;
 		}
-		int ret = 0;
-		switch (schema.getColumnSchema()[index].getType()) {
+		long ret = 0;
+		Column column = schema.getColumnSchema()[index];
+		switch (column.getType()) {
+			case Types.BOOLEAN:
+			case Types.TINYINT:
+			case Types.BIT:
+				ret = 1;
+				break;
+			case Types.SMALLINT:
+				ret = 2;
+				break;
 			case Types.BIGINT:
+			case Types.DOUBLE:
 				ret = 8;
 				break;
 			case Types.TIMESTAMP:
 			case Types.TIME_WITH_TIMEZONE:
 				ret = 12;
 				break;
+			case Types.NUMERIC:
+			case Types.DECIMAL:
+				ret = 24;
+				break;
+			case Types.CHAR:
 			case Types.VARCHAR:
 				ret = String.valueOf(obj).length();
 				break;
+			case Types.ARRAY:
+				if (obj instanceof int[]) {
+					ret = ((int[]) obj).length * 4L;
+				} else if (obj instanceof long[]) {
+					ret = ((long[]) obj).length * 8L;
+				} else if (obj instanceof float[]) {
+					ret = ((float[]) obj).length * 4L;
+				} else if (obj instanceof double[]) {
+					ret = ((double[]) obj).length * 8L;
+				} else if (obj instanceof boolean[]) {
+					ret = ((boolean[]) obj).length;
+				} else if (obj instanceof String[]) {
+					ret = ArrayUtil.getArrayLength((String[]) obj);
+				} else if (obj instanceof Object[]) {
+					ret = ArrayUtil.getArrayLength((Object[]) obj, column.getTypeName());
+				} else if (obj instanceof List) {
+					ret = ArrayUtil.getArrayLength((List<?>) obj, column.getTypeName());
+				} else if (obj instanceof PgArray) {
+					ret = ArrayUtil.getArrayLength((PgArray) obj);
+				} else {
+					ret = 1024;
+				}
+				break;
 			default:
-				ret = 4;
+				if ("json".equalsIgnoreCase(column.getTypeName()) || "jsonb".equalsIgnoreCase(column.getTypeName())) { // json, jsonb 等类型
+					ret = String.valueOf(obj).length();
+					break;
+				}
+				if (obj instanceof PGobject) { // PGmoney 等类型
+					PGobject pObj = (PGobject) obj;
+					if (pObj.getValue() != null) {
+						ret = pObj.getValue().length();
+					}
+				} else if (obj instanceof byte[]) { // RoaringBitmap, bytea 等类型
+					ret = ((byte[]) obj).length;
+				} else {
+					ret = 4;
+				}
 		}
 		return ret;
 	}
@@ -301,43 +348,19 @@ public class Record implements Serializable {
 	}
 
 	/**
-	 * 设置Binlog Record的前三个参数.
-	 */
-	public void setBinlogParams(long hgBinlogLsn, long hgBinlogEventType, long hgBinlogTimestampUs)
-			throws IOException {
-		if (isBinlogRecord) {
-			if (this.binlogParams == null) {
-				this.binlogParams = new long[3];
-			}
-			binlogParams[0] = hgBinlogLsn;
-			binlogParams[1] = hgBinlogEventType;
-			binlogParams[2] = hgBinlogTimestampUs;
-		} else {
-			throw new IOException("not a binlog Record");
-		}
-	}
-
-	public long[] getBinlogParams() throws IOException {
-		if (isBinlogRecord) {
-			return binlogParams;
-		} else {
-			throw new IOException("not a binlog Record");
-		}
-	}
-
-	/**
 	 * 设置Binlog Record所对应的shardId.
 	 */
-	public void setShardId(int shardId){
+	public void setShardId(int shardId) {
 		this.shardId = shardId;
 	}
 
-	public int getShardId() throws IOException {
-		if (shardId > -1){
-			return shardId;
-		} else {
-			throw new IOException("this Record not set shardId");
-		}
+	/*
+	 * -1 表示未设置.
+	 *
+	 * @return
+	 */
+	public int getShardId() {
+		return shardId;
 	}
 
 	@Override

@@ -1,9 +1,9 @@
 package com.alibaba.hologres.client.test;
 
 import com.alibaba.hologres.client.ddl.DDLGenerator;
-import org.postgresql.model.Column;
-import org.postgresql.model.TableName;
-import org.postgresql.model.TableSchema;
+import com.alibaba.hologres.client.model.Column;
+import com.alibaba.hologres.client.model.TableName;
+import com.alibaba.hologres.client.model.TableSchema;
 
 import java.util.ArrayList;
 import java.util.List;

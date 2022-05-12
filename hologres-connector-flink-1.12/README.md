@@ -1,4 +1,5 @@
 ## 依赖hologres-connector-flink-base，实现了Flink 1.12版本的Connector
+- 目前仅支持维表和结果表
 
 ## 准备工作
 - 需要**Hologres 0.9**及以上版本。
@@ -55,7 +56,7 @@
 | jdbcMetaCacheTTL | TableSchema信息的本地缓存时间   | 否 |  默认值：60000 ms| 
 | jdbcMetaAutoRefreshFactor | 当TableSchema cache剩余存活时间短于 metaCacheTTL/metaAutoRefreshFactor 将自动刷新cache |   否|   默认值：-1, 表示不自动刷新| 
 
-### 写入参数
+### 写入结果表参数
 | 参数 | 参数说明 | 是否必填 | 备注 |
 | :---: | :---: | :---: | :---: |
 | mutatetype | 流式写入语义，见下面“流式语义”一节<br /> | 否 | 默认值：insertorignore |
@@ -65,9 +66,11 @@
 | jdbcWriteBatchByteSize| 	Hologres Sink节点单个线程数据攒批的最大字节大小	| 否 | 默认值：20971520（2 * 1024 * 1024），2MB|
 | jdbcWriteBatchTotalByteSize| 	Hologres Sink节点所有数据攒批的最大字节大小	| 否 | 默认值：20971520（20 * 1024 * 1024），20MB|
 | jdbcWriteFlushInterval |Hologres Sink节点数据攒批的最长Flush等待时间）|否 |默认值为10000，即10秒|
-| jdbcReWriteBatchedDeletes|将多条delete请求合并为一条sql语句提升性能|否 | 默认值：true | 
-| jdbcRewriteSqlMaxBatchSize|单条sql进行INSERT/DELETE操作的最大批次大小,比如写入操作，所攒的批会通过 writeBatchSize/rewriteSqlMaxBatchSize 条INSERT语句完成插入	| 否	| 默认值：1024|
-| jdbcEnableDefaultForNotNullColumn|设置为true时，not null且未在表上设置default的字段传入null时，将以默认值写入. String 默认“”,Number 默认0,Date/timestamp/timestamptz 默认1970-01-01 00:00:00| 	否| 	默认值：true| 
+| jdbcEnableDefaultForNotNullColumn|设置为true时，not null且未在表上设置default的字段传入null时，将以默认值写入. String 默认“”,Number 默认0,Date/timestamp/timestamptz 默认1970-01-01 00:00:00| 	否| 	默认值：true|
+
+### 维表查询参数
+| 参数 | 参数说明 | 是否必填 | 备注 |
+| :---: | :---: | :---: | :---: |
 |jdbcReadBatchSize|	维表点查最大批次大小|	否|	默认值：128 |
 |jdbcReadBatchQueueSize|维表点查请求缓冲队列大小|否|默认值：256 |
 

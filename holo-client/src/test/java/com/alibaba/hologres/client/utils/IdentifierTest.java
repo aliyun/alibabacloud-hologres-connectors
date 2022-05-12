@@ -2,7 +2,6 @@ package com.alibaba.hologres.client.utils;
 
 import org.junit.Assert;
 import org.junit.Test;
-import org.postgresql.util.IdentifierUtil;
 
 /**
  * Test Postgres Identifier quotation.

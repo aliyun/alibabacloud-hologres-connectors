@@ -25,9 +25,9 @@
 
 #### 加载jar包（以下两种方式可选，此处以放在工作目录为例）
 * KAFKA_HOME：
-    * 将hologres-connector-kafka-1.0-SNAPSHOT-jar-with-dependencies.jar放在Kafka安装目录的libs中。即 `$KAFKA_HOME/libs`
+    * 将hologres-connector-kafka-1.1-SNAPSHOT-jar-with-dependencies.jar放在Kafka安装目录的libs中。即 `$KAFKA_HOME/libs`
 * 工作目录
-    * 将hologres-connector-kafka-1.0-SNAPSHOT-jar-with-dependencies.jar放入你的工作目录，以下示例皆以`/user/xxx/workspace`为例
+    * 将hologres-connector-kafka-1.1-SNAPSHOT-jar-with-dependencies.jar放入你的工作目录，以下示例皆以`/user/xxx/workspace`为例
     * 在`connect-standalone.properties`中设置jar包路径，`plugin.path=/user/xxx/workspace`
     * kafka-1.0.0版本之前，不支持设置工作目录，只能将jar文件放入`$KAFKA_HOME/libs`中
 
@@ -53,7 +53,7 @@
 ### 1.将jar包、配置文件复制到工作目录，本示例以单节点模式standalone为例:
 
 ```bash
-cp hologres-connector-kafka/target/hologres-connector-kafka-1.0-SNAPSHOT-jar-with-dependencies.jar /user/xxx/workspace/
+cp hologres-connector-kafka/target/hologres-connector-kafka-1.1-SNAPSHOT-jar-with-dependencies.jar /user/xxx/workspace/
 cp hologres-connector-kafka/src/main/resources/connect-standalone.properties /user/xxx/workspace/
 cp hologres-connector-kafka/src/main/resources/holo-sink.properties /user/xxx/workspace/
 ```
@@ -142,7 +142,7 @@ connect-standalone.sh connect-standalone.properties holo-sink.properties
 ### 1.将jar包、配置文件复制到工作目录，本示例以单节点模式standalone为例:
 
 ```bash
-cp hologres-connector-kafka/target/hologres-connector-kafka-1.0-SNAPSHOT-jar-with-dependencies.jar /user/xxx/workspace/
+cp hologres-connector-kafka/target/hologres-connector-kafka-1.1-SNAPSHOT-jar-with-dependencies.jar /user/xxx/workspace/
 cp hologres-connector-kafka/src/main/resources/connect-standalone.properties /user/xxx/workspace/
 cp hologres-connector-kafka/src/main/resources/holo-sink.properties /user/xxx/workspace/
 ```
@@ -332,7 +332,7 @@ connect-standalone.sh connect-standalone.properties holo-sink.properties
 ### 1.将jar包、配置文件复制到工作目录，本示例以单节点模式standalone为例:
 
 ```bash
-cp hologres-connector-kafka/target/hologres-connector-kafka-1.0-SNAPSHOT-jar-with-dependencies.jar /user/xxx/workspace/
+cp hologres-connector-kafka/target/hologres-connector-kafka-1.1-SNAPSHOT-jar-with-dependencies.jar /user/xxx/workspace/
 cp hologres-connector-kafka/src/main/resources/connect-standalone.properties /user/xxx/workspace/
 cp hologres-connector-kafka/src/main/resources/holo-sink.properties /user/xxx/workspace/
 ```
@@ -450,7 +450,7 @@ connect-standalone.sh connect-standalone.properties holo-sink.properties
 
 ```
 com.alibaba.hologres.kafka.exception.KafkaHoloException: 
-If you want to skip this dirty data, please add < dirty_date_strategy=SKIP_ONCE > and < dirty_date_to_skip_once=kafka_sink_test,0,0 > in holo-sink.properties; or add < dirty_date_strategy=SKIP > to skip all dirty data(not recommended).
+If you want to skip this dirty data, please add < dirty_data_strategy=SKIP_ONCE > and < dirty_data_to_skip_once=kafka_sink_test,0,0 > in holo-sink.properties; or add < dirty_data_strategy=SKIP > to skip all dirty data(not recommended).
 
 ```
 
@@ -459,8 +459,8 @@ If you want to skip this dirty data, please add < dirty_date_strategy=SKIP_ONCE 
 #### 2.1 配置脏数据处理策略
 
 ```properties
-dirty_date_strategy=SKIP_ONCE
-dirty_date_to_skip_once=kafka_sink_test,0,0
+dirty_data_strategy=SKIP_ONCE
+dirty_data_to_skip_once=kafka_sink_test,0,0
 ```
 
 #### 2.1 脏数据SKIP日志
@@ -518,7 +518,6 @@ curl -s -X POST -H 'Content-Type: application/json' --data @holo-sink.json http:
 | connection.writeMode | INSERT_OR_REPLACE | 否 | 当INSERT目标表为有主键的表时采用不同策略:<br>INSERT_OR_IGNORE 当主键冲突时，不写入<br>INSERT_OR_UPDATE 当主键冲突时，更新相应列<br>INSERT_OR_REPLACE 当主键冲突时，更新所有列|
 | connection.writeBatchSize | 512 | 否 | 每个写入线程的最大批次大小，<br>在经过WriteMode合并后的Put数量达到writeBatchSize时进行一次批量提交 |
 | connection.writeBatchByteSize | 2097152（2 * 1024 * 1024） | 否 | 每个写入线程的最大批次bytes大小，单位为Byte，默认2MB，<br>在经过WriteMode合并后的Put数据字节数达到writeBatchByteSize时进行一次批量提交 |
-| connection.rewriteSqlMaxBatchSize | 1024 | 否 | 单条sql进行INSERT/DELETE操作的最大批次大小,<br>比如写入操作，所攒的批会通过 writeBatchSize/rewriteSqlMaxBatchSize 条INSERT语句完成插入 |
 | connection.writeMaxIntervalMs | 10000 | 否 | 距离上次提交超过writeMaxIntervalMs会触发一次批量提交 |
 | connection.writeFailStrategy | TYR_ONE_BY_ONE | 否 | 当发生写失败时的重试策略:<br>TYR_ONE_BY_ONE 当某一批次提交失败时，会将批次内的记录逐条提交（保序），其中某单条提交失败的记录将会跟随异常被抛出<br> NONE 直接抛出异常 |
 | connection.writeThreadSize | 1 | 否 | 写入并发线程数（每个并发占用1个数据库连接） |
@@ -528,8 +527,8 @@ curl -s -X POST -H 'Content-Type: application/json' --data @holo-sink.json http:
 | connection.retrySleepStepMs | 10000 | 否 | 每次重试的等待时间=retrySleepInitMs+retry*retrySleepStepMs |
 | connection.connectionMaxIdleMs | 60000 | 否 | 写入线程和点查线程数据库连接的最大Idle时间，超过连接将被释放 |
 | initial_timestamp | -1 | 否 | 从某个时间点开始消费kafka数据写入hologres |
-| dirty_date_strategy | EXCEPTION | 否 | 脏数据处理策略，只对空数据或者schema错误的脏数据有效，不能处理格式错误的数据（input_format错误，乱码等）<br>EXCEPTION: 脏数据抛出异常 <br>SKIP: 跳过脏数据，打印warn日志<br>SKIP_ONCE: 跳过特定的一条脏数据，详见dirty_date_to_skip_once参数 |
-| dirty_date_to_skip_once | `null,-1,-1` | 否 | 在dirty_date_strategy=SKIP_ONCE 时生效，由三个部分组成，分别是需要跳过的脏数据对应的topic，partition，offset，通过`,`隔开 |
+| dirty_data_strategy | EXCEPTION | 否 | 脏数据处理策略，只对空数据或者schema错误的脏数据有效，不能处理格式错误的数据（input_format错误，乱码等）<br>EXCEPTION: 脏数据抛出异常 <br>SKIP: 跳过脏数据，打印warn日志<br>SKIP_ONCE: 跳过特定的一条脏数据，详见dirty_data_to_skip_once参数 |
+| dirty_data_to_skip_once | `null,-1,-1` | 否 | 在dirty_data_strategy=SKIP_ONCE 时生效，由三个部分组成，分别是需要跳过的脏数据对应的topic，partition，offset，通过`,`隔开 |
 | metrics_report_interval | 60 | 否 | metrics report间隔，单位为s<br>设置为 -1 表示不开启 |
 
 

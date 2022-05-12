@@ -61,7 +61,7 @@ public class HoloSinkConfigManager {
 
         // dirty data strategy
         String dirtyDataStrategyStr =
-                config.getString(HoloSinkConfig.DIRTY_DATE_STRATEGY).toLowerCase();
+                config.getString(HoloSinkConfig.DIRTY_DATA_STRATEGY).toLowerCase();
         switch (dirtyDataStrategyStr) {
             case "exception":
                 dirtyDataUtils.setDirtyDataStrategy(DirtyDataStrategy.EXCEPTION);
@@ -69,7 +69,7 @@ public class HoloSinkConfigManager {
             case "skip_once":
                 dirtyDataUtils.setDirtyDataStrategy(DirtyDataStrategy.SKIP_ONCE);
                 dirtyDataUtils.setDirtyDataToSkipOnce(
-                        config.getList(HoloSinkConfig.DIRTY_DATE_TO_SKIP_ONCE));
+                        config.getList(HoloSinkConfig.DIRTY_DATA_TO_SKIP_ONCE));
                 break;
             case "skip":
                 dirtyDataUtils.setDirtyDataStrategy(DirtyDataStrategy.SKIP);

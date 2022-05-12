@@ -8,8 +8,8 @@ import com.alibaba.hologres.client.exception.HoloClientException;
 import com.alibaba.hologres.client.impl.RecordReader;
 import com.alibaba.hologres.client.model.ExportContext;
 import com.alibaba.hologres.client.model.Record;
+import com.alibaba.hologres.client.model.TableSchema;
 import org.postgresql.jdbc.TimestampUtils;
-import org.postgresql.model.TableSchema;
 
 import java.io.IOException;
 import java.util.concurrent.ArrayBlockingQueue;

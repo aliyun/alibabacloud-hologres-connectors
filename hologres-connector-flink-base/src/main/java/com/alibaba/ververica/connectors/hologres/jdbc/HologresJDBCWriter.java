@@ -5,6 +5,7 @@ import org.apache.flink.table.api.TableSchema;
 import org.apache.flink.table.data.RowData;
 
 import com.alibaba.hologres.client.Put;
+import com.alibaba.hologres.client.Put.MutationType;
 import com.alibaba.hologres.client.exception.HoloClientException;
 import com.alibaba.hologres.client.model.Record;
 import com.alibaba.ververica.connectors.hologres.api.HologresRecordConverter;
@@ -12,7 +13,6 @@ import com.alibaba.ververica.connectors.hologres.api.HologresTableSchema;
 import com.alibaba.ververica.connectors.hologres.api.HologresWriter;
 import com.alibaba.ververica.connectors.hologres.api.table.HologresRowDataConverter;
 import com.alibaba.ververica.connectors.hologres.config.HologresConnectionParam;
-import org.postgresql.core.SqlCommandType;
 
 import java.io.IOException;
 
@@ -61,7 +61,7 @@ public class HologresJDBCWriter<T> extends HologresWriter<T> {
     @Override
     public long writeAddRecord(T record) throws IOException {
         Record jdbcRecord = (Record) recordConverter.convertFrom(record);
-        jdbcRecord.setType(SqlCommandType.INSERT);
+        jdbcRecord.setType(MutationType.INSERT);
         try {
             clientProvider.getClient().put(new Put(jdbcRecord));
         } catch (HoloClientException e) {
@@ -73,7 +73,7 @@ public class HologresJDBCWriter<T> extends HologresWriter<T> {
     @Override
     public long writeDeleteRecord(T record) throws IOException {
         Record jdbcRecord = recordConverter.convertFrom(record);
-        jdbcRecord.setType(SqlCommandType.DELETE);
+        jdbcRecord.setType(MutationType.DELETE);
         try {
             clientProvider.getClient().put(new Put(jdbcRecord));
         } catch (HoloClientException e) {

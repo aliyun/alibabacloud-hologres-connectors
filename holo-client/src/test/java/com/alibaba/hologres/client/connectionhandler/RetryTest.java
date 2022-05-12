@@ -4,16 +4,17 @@
 
 package com.alibaba.hologres.client.connectionhandler;
 
+import com.alibaba.hologres.client.Get;
 import com.alibaba.hologres.client.HoloClient;
 import com.alibaba.hologres.client.HoloClientTestBase;
 import com.alibaba.hologres.client.HoloConfig;
 import com.alibaba.hologres.client.Put;
 import com.alibaba.hologres.client.exception.HoloClientException;
 import com.alibaba.hologres.client.exception.HoloClientWithDetailsException;
+import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.utils.Metrics;
 import org.junit.Assert;
 import org.junit.Test;
-import org.postgresql.model.TableSchema;
 
 import java.sql.Connection;
 import java.sql.ResultSet;
@@ -259,6 +260,7 @@ public class RetryTest extends HoloClientTestBase {
 		HoloConfig config = buildConfig();
 		config.setWriteThreadSize(10);
 		config.setWriteBatchSize(4);
+		config.setRetryCount(6);
 		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
 			String tableName = "holo_client_retry_004";
 			String dropSql = "drop table if exists " + tableName;
@@ -373,4 +375,95 @@ public class RetryTest extends HoloClientTestBase {
 			}
 		}
 	}
+
+	/**
+	 * TABLE_NOT_FOUND，脏数据，非分区表.
+	 * Method: put(Put put).
+	 */
+	@Test
+	public void testRetry006() throws Exception {
+		if (properties == null) {
+			return;
+		}
+		HoloConfig config = buildConfig();
+		config.setWriteThreadSize(10);
+		config.setWriteBatchSize(4);
+		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
+			String tableName = "holo_client_retry_006";
+			String dropSql = "drop table if exists " + tableName;
+			String createSql = "create table " + tableName + "(id int8 not null,name text,primary key(id))";
+
+			execute(conn, new String[]{dropSql, createSql});
+
+			try {
+				TableSchema schema = client.getTableSchema(tableName);
+				execute(conn, new String[]{dropSql});
+				for (int i = 0; i < 5; ++i) {
+					Put put = new Put(schema);
+					put.setObject(0, i);
+					put.setObject(1, i);
+					client.put(put);
+				}
+			} catch (HoloClientWithDetailsException e) {
+				Assert.assertEquals(5, e.size());
+			} catch (Exception e) {
+				Assert.assertTrue(e.getMessage(), false);
+			} finally {
+				execute(conn, new String[]{dropSql});
+			}
+		}
+	}
+
+	/**
+	 * 插入分区表，不符合要求的应该算脏数据.
+	 * Method: put(Put put).
+	 * 必须要多个few的实例才可能抛异常进而出发retry！！！
+	 */
+	@Test
+	public void testRetry007() throws Exception {
+		HoloConfig config = buildConfig();
+		config.setWriteThreadSize(10);
+		config.setWriteBatchSize(4);
+		try (Connection conn = buildConnection()) {
+			String tableName = "holo_client_retry_007";
+			String childTableName = "holo_client_retry_007_a";
+			String dropSql = "drop table if exists " + tableName;
+			String createSql = "create table " + tableName + "(id int8 not null,name text,ds text not null, primary key(id,ds)) partition by list(ds);create table " + childTableName + " partition of " + tableName + " for values in ('a')";
+
+			execute(conn, new String[]{dropSql, createSql});
+
+			try (HoloClient client = new HoloClient(config)) {
+				TableSchema schema = client.getTableSchema(childTableName);
+				{
+					Put put = new Put(schema);
+					put.setObject(0, 1);
+					put.setObject(1, "name0");
+					put.setObject(2, "b");
+					client.put(put);
+				}
+				{
+					Put put = new Put(schema);
+					put.setObject(0, 2);
+					put.setObject(1, "name0");
+					put.setObject(2, "a");
+					client.put(put);
+				}
+
+				int dirtySize = 0;
+				try {
+					client.flush();
+				} catch (HoloClientWithDetailsException e) {
+					dirtySize = e.size();
+				}
+				Assert.assertEquals(1, dirtySize);
+				Assert.assertNull(client.get(Get.newBuilder(schema).setPrimaryKey("id", 1).setPrimaryKey("ds", "a").build()).get());
+				Assert.assertNotNull(client.get(Get.newBuilder(schema).setPrimaryKey("id", 2).setPrimaryKey("ds", "a").build()).get());
+				Assert.assertNull(client.get(Get.newBuilder(schema).setPrimaryKey("id", 3).setPrimaryKey("ds", "a").build()).get());
+				Metrics.reporter().report();
+			} finally {
+				execute(conn, new String[]{dropSql});
+			}
+		}
+	}
+
 }

@@ -2,9 +2,9 @@ package com.alibaba.hologres.client.ddl;
 
 import com.alibaba.hologres.client.exception.ExceptionCode;
 import com.alibaba.hologres.client.exception.HoloClientException;
+import com.alibaba.hologres.client.model.Column;
+import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.utils.CommonUtil;
-import org.postgresql.model.Column;
-import org.postgresql.model.TableSchema;
 
 import java.util.Arrays;
 import java.util.Map;

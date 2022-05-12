@@ -3,6 +3,7 @@ package com.alibaba.hologres.kafka.sink;
 import com.alibaba.hologres.client.HoloClient;
 import com.alibaba.hologres.client.Put;
 import com.alibaba.hologres.client.exception.HoloClientException;
+import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.kafka.exception.KafkaHoloException;
 import com.alibaba.hologres.kafka.model.DirtyDataStrategy;
 import com.alibaba.hologres.kafka.model.InputFormat;
@@ -15,7 +16,6 @@ import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.data.Struct;
 import org.apache.kafka.connect.data.Timestamp;
 import org.apache.kafka.connect.sink.SinkRecord;
-import org.postgresql.model.TableSchema;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -216,8 +216,8 @@ public class HoloSinkWriter {
     public String makeSkipProperties(SinkRecord record) {
         return String.format(
                 "\nIf you want to skip this dirty data, please add "
-                        + "< dirty_date_strategy=SKIP_ONCE > and < dirty_date_to_skip_once=%s,%s,%s > in holo-sink.properties; "
-                        + "or add < dirty_date_strategy=SKIP > to skip all dirty data(not recommended).",
+                        + "< dirty_data_strategy=SKIP_ONCE > and < dirty_data_to_skip_once=%s,%s,%s > in holo-sink.properties; "
+                        + "or add < dirty_data_strategy=SKIP > to skip all dirty data(not recommended).",
                 record.topic(), record.kafkaPartition(), record.kafkaOffset());
     }
 }

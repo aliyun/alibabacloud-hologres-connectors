@@ -6,12 +6,12 @@ package com.alibaba.hologres.client;
 
 import com.alibaba.hologres.client.impl.collector.shard.DistributionKeyShardPolicy;
 import com.alibaba.hologres.client.impl.collector.shard.ShardPolicy;
+import com.alibaba.hologres.client.model.Column;
 import com.alibaba.hologres.client.model.ImportContext;
 import com.alibaba.hologres.client.model.Record;
+import com.alibaba.hologres.client.model.TableSchema;
 import org.postgresql.jdbc.ArrayUtil;
 import org.postgresql.jdbc.TimestampUtils;
-import org.postgresql.model.Column;
-import org.postgresql.model.TableSchema;
 
 import java.io.Closeable;
 import java.io.IOException;

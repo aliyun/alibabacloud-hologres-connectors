@@ -15,6 +15,8 @@
 
 package com.alibaba.hologres.hive;
 
+import com.alibaba.hologres.client.model.Column;
+import com.alibaba.hologres.client.model.TableSchema;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.serde.serdeConstants;
 import org.apache.hadoop.hive.serde2.AbstractSerDe;
@@ -33,8 +35,6 @@ import org.apache.hadoop.io.MapWritable;
 import org.apache.hadoop.io.NullWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.Writable;
-import org.postgresql.model.Column;
-import org.postgresql.model.TableSchema;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

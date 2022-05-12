@@ -5,12 +5,11 @@ import com.alibaba.hologres.client.exception.HoloClientWithDetailsException;
 import com.alibaba.hologres.client.impl.ExecutionPool;
 import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.model.RecordScanner;
+import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.model.WriteMode;
 import com.alibaba.hologres.client.utils.Metrics;
 import org.junit.Assert;
 import org.junit.Test;
-import org.postgresql.core.SqlCommandType;
-import org.postgresql.model.TableSchema;
 
 import java.math.BigDecimal;
 import java.sql.Connection;
@@ -450,9 +449,7 @@ public class HoloClientTest extends HoloClientTestBase {
 			final Put put = new Put(schema);
 			put.setObject(0, 0);
 			put.setObject(1, "name0");
-			Assert.assertThrows(HoloClientException.class, () -> {
-				client.put(put);
-			});
+			// 此处不应该报错
 			Put put2 = new Put(schema);
 			put2.setObject(0, 1);
 			put2.setObject(1, "name1");
@@ -544,7 +541,7 @@ public class HoloClientTest extends HoloClientTestBase {
 			try {
 				TableSchema schema = client.getTableSchema(tableName, true);
 
-				Assert.assertEquals("a\"b", schema.getColumns()[1]);
+				Assert.assertEquals("a\"b", schema.getColumnSchema()[1].getName());
 
 				Put put2 = new Put(schema);
 				put2.setObject(0, 1);
@@ -595,7 +592,7 @@ public class HoloClientTest extends HoloClientTestBase {
 			try {
 				TableSchema schema = client.getTableSchema(tableName);
 
-				Assert.assertEquals("a\"b", schema.getColumns()[1]);
+				Assert.assertEquals("a\"b", schema.getColumnSchema()[1].getName());
 
 				Put put = new Put(schema);
 				put.setObject(0, 1);
@@ -668,7 +665,7 @@ public class HoloClientTest extends HoloClientTestBase {
 			try {
 				TableSchema schema = client.getTableSchema(tableName, true);
 
-				Assert.assertEquals("a\"b", schema.getColumns()[1]);
+				Assert.assertEquals("a\"b", schema.getColumnSchema()[1].getName());
 
 				Put put2 = new Put(schema);
 				put2.setObject("id", 1);
@@ -721,7 +718,7 @@ public class HoloClientTest extends HoloClientTestBase {
 			try {
 				TableSchema schema = client.getTableSchema(tableName, true);
 
-				Assert.assertEquals("a\"b", schema.getColumns()[1]);
+				Assert.assertEquals("a\"b", schema.getColumnSchema()[1].getName());
 
 				Put put2 = new Put(schema);
 				put2.setObject("id", 1);
@@ -890,7 +887,7 @@ public class HoloClientTest extends HoloClientTestBase {
 				client.put(put2);
 				//client.flush();
 				put2 = new Put(schema);
-				put2.getRecord().setType(SqlCommandType.DELETE);
+				put2.getRecord().setType(Put.MutationType.DELETE);
 				put2.setObject("id", 1);
 				put2.setObject("a\"b", "name1");
 				put2.setObject("address", "ccc");
@@ -906,65 +903,6 @@ public class HoloClientTest extends HoloClientTestBase {
 					}
 				}
 				Assert.assertEquals(3, count);
-			} finally {
-				execute(conn, new String[]{dropSql});
-			}
-		}
-	}
-
-	/**
-	 * Put then update
-	 * Method: put(Put put).
-	 */
-	@Test
-	public void testPutPut016() throws Exception {
-		if (properties == null) {
-			return;
-		}
-		HoloConfig config = buildConfig();
-		config.setWriteMode(WriteMode.INSERT_OR_REPLACE);
-		config.setDynamicPartition(true);
-		config.setConnectionMaxIdleMs(10000L);
-		config.setAppName("testPutPut016");
-		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
-			String tableName = "test_schema.\"holO_client_put_016\"";
-			String createSchema = "create schema if not exists test_schema";
-			String dropSql = "drop table if exists " + tableName;
-			String createSql = "create table " + tableName + "(id int not null,\"a\"\"b\" text,\"address\" text not null,primary key(id,\"a\"\"b\"))";
-
-			execute(conn, new String[]{createSchema, dropSql, createSql});
-
-			try {
-				TableSchema schema = client.getTableSchema(tableName, true);
-
-				Put put2 = new Put(schema);
-				put2.setObject("id", 1);
-				put2.setObject("a\"b", "name1");
-				put2.setObject("address", "address2");
-				client.put(put2);
-				client.flush();
-				put2 = new Put(schema);
-				put2.getRecord().setType(SqlCommandType.UPDATE);
-				put2.setObject("id", 1);
-				put2.setObject("a\"b", "name1");
-				put2.setObject("address", "ccc");
-				client.put(put2);
-
-				client.flush();
-				int count = 0;
-				try (Statement stat = conn.createStatement()) {
-					try (ResultSet rs = stat.executeQuery("select count(*) from " + tableName)) {
-						if (rs.next()) {
-							count = rs.getInt(1);
-						}
-					}
-				}
-				Assert.assertEquals(1, count);
-				Get get = new Get(schema, new Object[]{1, "name1"});
-				get.addSelectColumn("address");
-				get.addSelectColumn("id");
-				Record r = client.get(get).get();
-				Assert.assertEquals("ccc", r.getObject("address"));
 			} finally {
 				execute(conn, new String[]{dropSql});
 			}
@@ -1008,7 +946,7 @@ public class HoloClientTest extends HoloClientTestBase {
 			client.flush();
 
 			put = new Put(schema);
-			put.getRecord().setType(SqlCommandType.DELETE);
+			put.getRecord().setType(Put.MutationType.DELETE);
 			put.setObject(0, 0);
 			client.put(put);
 
@@ -1019,7 +957,7 @@ public class HoloClientTest extends HoloClientTestBase {
 			client.put(put);
 
 			put = new Put(schema);
-			put.getRecord().setType(SqlCommandType.DELETE);
+			put.getRecord().setType(Put.MutationType.DELETE);
 			put.setObject(0, 1);
 			client.put(put);
 
@@ -1580,6 +1518,7 @@ public class HoloClientTest extends HoloClientTestBase {
 		config.setDynamicPartition(true);
 		config.setConnectionMaxIdleMs(10000L);
 		config.setAppName("testPutPut027");
+		//config.setUseLegacyPutHandler(true);
 		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
 			String tableName = "test_schema.\"holO_client_put_027\"";
 			String createSchema = "create schema if not exists test_schema";
@@ -2283,7 +2222,7 @@ public class HoloClientTest extends HoloClientTestBase {
 				for (int i = 0; i < 500; ++i) {
 					put2 = new Put(schema);
 					put2.setObject("id", i);
-					put2.getRecord().setType(SqlCommandType.DELETE);
+					put2.getRecord().setType(Put.MutationType.DELETE);
 					client.put(put2);
 					put2 = new Put(schema);
 					put2.setObject("id", i);
@@ -2337,7 +2276,7 @@ public class HoloClientTest extends HoloClientTestBase {
 				for (int i = 0; i < 500; ++i) {
 					put2 = new Put(schema);
 					put2.setObject("id", i);
-					put2.getRecord().setType(SqlCommandType.DELETE);
+					put2.getRecord().setType(Put.MutationType.DELETE);
 					client.put(put2);
 					put2 = new Put(schema);
 					put2.setObject("id", i);
@@ -2391,7 +2330,7 @@ public class HoloClientTest extends HoloClientTestBase {
 				for (int i = 0; i < 500; ++i) {
 					put2 = new Put(schema);
 					put2.setObject("id", i);
-					put2.getRecord().setType(SqlCommandType.DELETE);
+					put2.getRecord().setType(Put.MutationType.DELETE);
 					client.put(put2);
 					put2 = new Put(schema);
 					put2.setObject("id", i);
@@ -2450,7 +2389,7 @@ public class HoloClientTest extends HoloClientTestBase {
 				for (int i = 0; i < count - 2; ++i) {
 					Put put2 = new Put(schema);
 					put2.setObject("id", i);
-					put2.getRecord().setType(SqlCommandType.DELETE);
+					put2.getRecord().setType(Put.MutationType.DELETE);
 					client.put(put2);
 				}
 				client.flush();
@@ -2504,7 +2443,7 @@ public class HoloClientTest extends HoloClientTestBase {
 					Put put2 = new Put(schema);
 					put2.setObject("id", i);
 					put2.setObject("id2", i + 1);
-					put2.getRecord().setType(SqlCommandType.DELETE);
+					put2.getRecord().setType(Put.MutationType.DELETE);
 					client.put(put2);
 				}
 				client.flush();
@@ -2722,7 +2661,7 @@ public class HoloClientTest extends HoloClientTestBase {
 
 				put2 = new Put(schema);
 				put2.setObject("id", 0);
-				put2.getRecord().setType(SqlCommandType.DELETE);
+				put2.getRecord().setType(Put.MutationType.DELETE);
 				client.put(put2);
 
 				put2 = new Put(schema);
@@ -2732,7 +2671,7 @@ public class HoloClientTest extends HoloClientTestBase {
 
 				put2 = new Put(schema);
 				put2.setObject("id", 2);
-				put2.getRecord().setType(SqlCommandType.DELETE);
+				put2.getRecord().setType(Put.MutationType.DELETE);
 				client.put(put2);
 
 				client.flush();
@@ -2792,7 +2731,7 @@ public class HoloClientTest extends HoloClientTestBase {
 					{
 						Put put2 = new Put(schema);
 						put2.setObject("id", 1);
-						put2.getRecord().setType(SqlCommandType.DELETE);
+						put2.getRecord().setType(Put.MutationType.DELETE);
 						client.put(put2);
 					}
 					client.flush();
@@ -2806,7 +2745,7 @@ public class HoloClientTest extends HoloClientTestBase {
 						put2.setObject("id", 2);
 						put2.setObject("amount", i);
 						if (i == 98) {
-							put2.getRecord().setType(SqlCommandType.DELETE);
+							put2.getRecord().setType(Put.MutationType.DELETE);
 						}
 						client.put(put2);
 					}
@@ -2821,7 +2760,7 @@ public class HoloClientTest extends HoloClientTestBase {
 						put2.setObject("id", 2);
 						put2.setObject("amount", i);
 						if (i == 90) {
-							put2.getRecord().setType(SqlCommandType.DELETE);
+							put2.getRecord().setType(Put.MutationType.DELETE);
 						}
 						client.put(put2);
 					}
@@ -2926,7 +2865,7 @@ public class HoloClientTest extends HoloClientTestBase {
 					Put put2 = new Put(schema);
 					put2.setObject("id", i);
 					put2.setObject("id2", i + 1);
-					put2.getRecord().setType(SqlCommandType.DELETE);
+					put2.getRecord().setType(Put.MutationType.DELETE);
 					client.put(put2);
 				}
 				client.flush();
@@ -2980,7 +2919,7 @@ public class HoloClientTest extends HoloClientTestBase {
 					Put put2 = new Put(schema);
 					put2.setObject("id", i / 1000);
 					put2.setObject("id2", i + 1);
-					put2.getRecord().setType(SqlCommandType.DELETE);
+					put2.getRecord().setType(Put.MutationType.DELETE);
 					client.put(put2);
 				}
 				client.flush();
@@ -3034,7 +2973,7 @@ public class HoloClientTest extends HoloClientTestBase {
 					Put put2 = new Put(schema);
 					put2.setObject("id", i / 1000);
 					put2.setObject("id2", i + 1);
-					put2.getRecord().setType(SqlCommandType.DELETE);
+					put2.getRecord().setType(Put.MutationType.DELETE);
 					client.put(put2);
 				}
 				client.flush();
@@ -3087,7 +3026,7 @@ public class HoloClientTest extends HoloClientTestBase {
 					Put put2 = new Put(schema);
 					put2.setObject("id", i / 1000);
 					put2.setObject("id2", i + 1);
-					put2.getRecord().setType(SqlCommandType.DELETE);
+					put2.getRecord().setType(Put.MutationType.DELETE);
 					client.put(put2);
 				}
 				client.flush();
@@ -3408,6 +3347,108 @@ public class HoloClientTest extends HoloClientTestBase {
 						if (rs.next()) {
 							Assert.assertEquals(1, rs.getInt(1));
 						}
+					}
+				}
+			} finally {
+				execute(conn, new String[]{dropSql});
+			}
+		}
+	}
+
+	/**
+	 * boolean and bit(1)
+	 * Method: put(Put put).
+	 */
+	@Test
+	public void testPutPut055() throws Exception {
+		if (properties == null) {
+			return;
+		}
+		HoloConfig config = buildConfig();
+		config.setWriteMode(WriteMode.INSERT_OR_UPDATE);
+		config.setDynamicPartition(true);
+		config.setWriteMaxIntervalMs(10000L);
+		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
+			String tableName = "\"holO_client_put_055\"";
+			String dropSql = "drop table if exists " + tableName;
+			String createSql = "create table " + tableName + "(iD int not null,c_bool boolean,c_bit1 bit(1),c_bit5 bit(5),c_bit6v bit varying(6) ,b_a boolean[], primary key(id))";
+			execute(conn, new String[]{dropSql, createSql});
+
+			try {
+				TableSchema schema = client.getTableSchema(tableName, true);
+
+				{
+					Put put = new Put(schema);
+					put.setObject("id", 0);
+					put.setObject("c_bool", true);
+					put.setObject("c_bit1", "0");
+					put.setObject("c_bit5", "0");
+					put.setObject("c_bit6v", "0");
+					put.setObject("b_a", new boolean[]{true, false});
+					client.put(put);
+				}
+				execute(conn, new String[]{dropSql});
+				Thread.sleep(15000L);
+				try {
+					Put put = new Put(schema);
+					put.setObject("id", 0);
+					put.setObject("c_bool", true);
+					put.setObject("c_bit1", "0");
+					put.setObject("c_bit5", "0");
+					put.setObject("c_bit6v", "0");
+					put.setObject("b_a", new boolean[]{true, false});
+					client.put(put);
+				} catch (HoloClientWithDetailsException detailException) {
+					LOG.error("", detailException);
+				} catch (HoloClientException e) {
+					LOG.error("", e);
+				}
+			} finally {
+				execute(conn, new String[]{dropSql});
+			}
+		}
+	}
+
+	/**
+	 * 大列.
+	 * Method: put(Put put).
+	 */
+	@Test
+	public void testPutPut056() throws Exception {
+		if (properties == null) {
+			return;
+		}
+		HoloConfig config = buildConfig();
+		config.setWriteMode(WriteMode.INSERT_OR_UPDATE);
+		config.setDynamicPartition(true);
+		config.setWriteMaxIntervalMs(10000L);
+		config.setWriteBatchSize(255);
+		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
+			String tableName = "\"holO_client_put_056\"";
+			String dropSql = "drop table if exists " + tableName;
+			String createSql = "create table " + tableName + "(iD int not null";
+			for (int i = 0; i < 500; ++i) {
+				createSql += ",c" + i + " int";
+			}
+			createSql += ",primary key(id))";
+			execute(conn, new String[]{dropSql, createSql});
+
+			try {
+				TableSchema schema = client.getTableSchema(tableName, true);
+
+				for (int i = 0; i < 1000; ++i) {
+					Put put = new Put(schema);
+					put.setObject("id", i);
+					for (int j = 0; j < 500; ++j) {
+						put.setObject(j + 1, i);
+					}
+					client.put(put);
+				}
+				client.flush();
+				try (Statement stat = conn.createStatement()) {
+					try (ResultSet rs = stat.executeQuery("select count(*) from " + tableName)) {
+						rs.next();
+						Assert.assertEquals(1000, rs.getInt(1));
 					}
 				}
 			} finally {

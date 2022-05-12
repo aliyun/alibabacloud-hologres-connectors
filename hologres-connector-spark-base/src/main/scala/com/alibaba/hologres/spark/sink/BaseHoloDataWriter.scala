@@ -2,13 +2,12 @@ package com.alibaba.hologres.spark.sink
 
 import com.alibaba.hologres.client.{HoloClient, Put}
 import com.alibaba.hologres.client.exception.{HoloClientException, HoloClientWithDetailsException}
-import com.alibaba.hologres.client.model.Record
+import com.alibaba.hologres.client.model.{Record, TableName, TableSchema}
 import com.alibaba.hologres.spark.exception.SparkHoloException
 import com.alibaba.hologres.spark.table.{Column, ColumnType, TableColumn}
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.types._
-import org.postgresql.model.{TableName, TableSchema}
 import org.slf4j.LoggerFactory
 
 import scala.collection.immutable

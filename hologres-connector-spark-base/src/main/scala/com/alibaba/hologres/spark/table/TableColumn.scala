@@ -1,9 +1,8 @@
 package com.alibaba.hologres.spark.table
 
-import com.alibaba.hologres.client.model.Record
+import com.alibaba.hologres.client.model.{Record, TableSchema}
 import com.alibaba.hologres.spark.exception.SparkHoloException
 import org.apache.spark.sql.types.StructType
-import org.postgresql.model.TableSchema
 
 /** TableColumn statistics of a schema. */
 class TableColumn(sparkSchema: StructType, holoSchema: TableSchema) {

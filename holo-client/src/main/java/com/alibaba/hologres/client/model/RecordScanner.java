@@ -6,8 +6,7 @@ package com.alibaba.hologres.client.model;
 
 import com.alibaba.hologres.client.exception.ExceptionCode;
 import com.alibaba.hologres.client.exception.HoloClientException;
-import com.alibaba.hologres.client.impl.Worker;
-import org.postgresql.model.TableSchema;
+import com.alibaba.hologres.client.impl.handler.ActionHandler;
 
 import java.io.Closeable;
 import java.sql.ResultSet;
@@ -53,12 +52,12 @@ public class RecordScanner implements Closeable {
 			Record record = new Record(schema);
 			if (selectedColumns == null) {
 				for (int i = 0; i < schema.getColumnSchema().length; ++i) {
-					Worker.fillRecord(record, i, rs, i + 1, schema.getColumn(i));
+					ActionHandler.fillRecord(record, i, rs, i + 1, schema.getColumn(i));
 				}
 			} else {
 				int index = 0;
 				for (int i = selectedColumns.nextSetBit(0); i >= 0; i = selectedColumns.nextSetBit(i + 1)) {
-					Worker.fillRecord(record, i, rs, ++index, schema.getColumn(i));
+					ActionHandler.fillRecord(record, i, rs, ++index, schema.getColumn(i));
 					if (i == Integer.MAX_VALUE) {
 						break; // or (i+1) would overflow
 					}
