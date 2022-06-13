@@ -64,6 +64,11 @@ public class HoloSinkConfig extends AbstractConfig {
             "当某一批次提交失败时，会将批次内的记录逐条提交（保序），单条提交失败的记录将会跟随异常被抛出";
     private static final String WRITE_FAIL_STRATEGY_DISPLAY = "Write Fail Strategy";
 
+    public static final String USE_LEGACY_PUT_HANDLER = "connection.useLegacyPutHandler";
+    public static final Boolean USE_LEGACY_PUT_HANDLER_DEFAULT = false;
+    private static final String USE_LEGACY_PUT_HANDLER_DOC = "不使用unnest，而是使用values()的方式生成攒批sql";
+    private static final String USE_LEGACY_PUT_HANDLER_DISPLAY = "USE LEGACY PUT HANDLER";
+
     public static final String DYNAMIC_PARTITION = "connection.dynamicPartition";
     public static final Boolean DYNAMIC_PARTITION_DEFAULT = false;
     private static final String DYNAMIC_PARTITION_DOC = "写入分区表父表时是否支持自动创建不存在的分区";
@@ -257,6 +262,17 @@ public class HoloSinkConfig extends AbstractConfig {
                 1,
                 ConfigDef.Width.LONG,
                 WRITE_FAIL_STRATEGY_DISPLAY);
+
+        config.define(
+                USE_LEGACY_PUT_HANDLER,
+                ConfigDef.Type.BOOLEAN,
+                USE_LEGACY_PUT_HANDLER_DEFAULT,
+                ConfigDef.Importance.HIGH,
+                USE_LEGACY_PUT_HANDLER_DOC,
+                CONFIG_CONNECTION_GROUP,
+                1,
+                ConfigDef.Width.LONG,
+                USE_LEGACY_PUT_HANDLER_DISPLAY);
 
         config.define(
                 DYNAMIC_PARTITION,

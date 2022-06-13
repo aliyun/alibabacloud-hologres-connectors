@@ -45,9 +45,8 @@
 
     <modules>
         <module>hologres-connector-flink-base</module>
-        <module>hologres-connector-flink-1.11</module>
-        <module>hologres-connector-flink-1.12</module>
         <module>hologres-connector-flink-1.13</module>
+        <module>hologres-connector-flink-1.14</module>
         <module>hologres-connector-spark-base</module>
         <module>hologres-connector-spark-2.x</module>
         <module>hologres-connector-spark-3.x</module>

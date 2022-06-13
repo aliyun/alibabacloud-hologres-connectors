@@ -10,6 +10,8 @@ public class HologresJDBCConfigs {
     // connection options
     public static final ConfigOption<Integer> OPTIONAL_CLIENT_CONNECTION_POOL_SIZE =
             key("connectionSize".toLowerCase()).intType().defaultValue(3);
+    public static final ConfigOption<String> OPTIONAL_JDBC_SHARED_CONNECTION_POOL_NAME =
+            key("connectionPoolName".toLowerCase()).stringType().noDefaultValue();
     public static final ConfigOption<Integer> OPTIONAL_JDBC_RETRY_COUNT =
             key("jdbcRetryCount".toLowerCase()).intType().defaultValue(10);
     public static final ConfigOption<Long> OPTIONAL_RETRY_SLEEP_INIT_MS =
@@ -42,6 +44,8 @@ public class HologresJDBCConfigs {
             key("jdbcWriteBatchTotalByteSize".toLowerCase()).longType().defaultValue(20971520L);
     public static final ConfigOption<Long> OPTIONAL_JDBC_WRITE_FLUSH_INTERVAL =
             key("jdbcWriteFlushInterval".toLowerCase()).longType().defaultValue(10000L);
+    public static final ConfigOption<Boolean> OPTIONAL_JDBC_USE_LEGACY_PUT_HANDLER =
+            key("jdbcUseLegacyPutHandler".toLowerCase()).booleanType().defaultValue(false);
     public static final ConfigOption<Boolean> OPTIONAL_JDBC_ENABLE_DEFAULT_FOR_NOT_NULL_COLUMN =
             key("jdbcEnableDefaultForNotNullColumn".toLowerCase()).booleanType().defaultValue(true);
 

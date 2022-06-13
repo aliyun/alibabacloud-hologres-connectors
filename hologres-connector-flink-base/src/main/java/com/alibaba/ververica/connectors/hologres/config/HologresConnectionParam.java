@@ -49,6 +49,7 @@ public class HologresConnectionParam implements Serializable {
     private final long jdbcConnectionMaxIdleMs;
     private final long jdbcMetaCacheTTL;
     private final int jdbcMetaAutoRefreshFactor;
+    private final String connectionPoolName;
     private final int connectionPoolSize;
     // JDBC source
     private final int jdbcReadBatchSize;
@@ -61,6 +62,7 @@ public class HologresConnectionParam implements Serializable {
     private final long jdbcWriteBatchByteSize;
     private final long jdbcWriteBatchTotalByteSize;
     private final long jdbcWriteFlushInterval;
+    private final Boolean jdbcUseLegacyPutHandler;
     private final boolean jdbcEnableDefaultForNotNullColumn;
     // JDBC dim
     private final boolean insertIfNotExists;
@@ -93,6 +95,8 @@ public class HologresConnectionParam implements Serializable {
         this.jdbcMetaCacheTTL = properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_META_CACHE_TTL);
         this.jdbcMetaAutoRefreshFactor =
                 properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_META_AUTO_REFRESH_FACTOR);
+        this.connectionPoolName =
+                properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_SHARED_CONNECTION_POOL_NAME);
         this.connectionPoolSize =
                 properties.get(HologresJDBCConfigs.OPTIONAL_CLIENT_CONNECTION_POOL_SIZE);
         this.jdbcReadBatchSize = properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_READ_BATCH_SIZE);
@@ -109,6 +113,8 @@ public class HologresConnectionParam implements Serializable {
                 properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_WRITE_BATCH_TOTAL_BYTE_SIZE);
         this.jdbcWriteFlushInterval =
                 properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_WRITE_FLUSH_INTERVAL);
+        this.jdbcUseLegacyPutHandler =
+                properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_USE_LEGACY_PUT_HANDLER);
         this.jdbcEnableDefaultForNotNullColumn =
                 properties.get(
                         HologresJDBCConfigs.OPTIONAL_JDBC_ENABLE_DEFAULT_FOR_NOT_NULL_COLUMN);
@@ -219,6 +225,10 @@ public class HologresConnectionParam implements Serializable {
         return jdbcScanTimeoutSeconds;
     }
 
+    public boolean isJdbcUseLegacyPutHandler() {
+        return jdbcUseLegacyPutHandler;
+    }
+
     public boolean getJdbcEnableDefaultForNotNullColumn() {
         return jdbcEnableDefaultForNotNullColumn;
     }
@@ -249,6 +259,10 @@ public class HologresConnectionParam implements Serializable {
 
     public boolean isInsertIfNotExists() {
         return this.insertIfNotExists;
+    }
+
+    public String getJdbcSharedConnectionPoolName() {
+        return connectionPoolName;
     }
 
     public WriteMode getJDBCWriteMode() {

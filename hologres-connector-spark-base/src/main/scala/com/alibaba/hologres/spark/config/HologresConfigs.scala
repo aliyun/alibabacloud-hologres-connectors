@@ -46,6 +46,7 @@ class HologresConfigs(sourceOptions: Map[String, String]) {
   sourceOptions.get("write_batch_byte_size").map(v => holoConfig.setWriteBatchByteSize(v.toLong))
   sourceOptions.get("write_max_interval_ms").map(v => holoConfig.setWriteMaxIntervalMs(v.toLong))
   sourceOptions.get("write_thread_size").map(v => holoConfig.setWriteThreadSize(v.toInt))
+  sourceOptions.get("use_legacy_put_handler").map(v => holoConfig.setUseLegacyPutHandler(v.toBoolean))
   sourceOptions.get("retry_count").map(v => holoConfig.setRetryCount(v.toInt))
   sourceOptions.get("retry_sleep_init_ms").map(v => holoConfig.setRetrySleepInitMs(v.toLong))
   sourceOptions.get("retry_sleep_step_ms").map(v => holoConfig.setRetrySleepStepMs(v.toLong))

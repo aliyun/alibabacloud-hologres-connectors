@@ -1,15 +1,16 @@
-## 依赖hologres-connector-flink-base，实现了Flink 1.13版本的Connector
+## 依赖hologres-connector-flink-base和hologres-connector-flink-1.13，实现了Flink 1.14版本的Connector
+- 目前仅支持维表和结果表
 
 ## 准备工作
 - 需要**Hologres 0.9**及以上版本。
-- 需要Flink1.13
+- 需要Flink1.14
 
 ### 从中央仓库获取jar
 可以在项目pom文件中通过如下方式引入依赖，其中`<classifier>`必须加上，防止发生依赖冲突。
 ```xml
 <dependency>
     <groupId>com.alibaba.hologres</groupId>
-    <artifactId>hologres-connector-flink-1.13</artifactId>
+    <artifactId>hologres-connector-flink-1.14</artifactId>
     <version>1.1.0</version>
     <classifier>jar-with-dependencies</classifier>
 </dependency>
@@ -17,15 +18,18 @@
 ### 自行编译
 #### build base jar 并 install 到本地maven仓库
 - -P指定相关版本参数
+- 为了精简代码，Flink1.14的connector依赖了Flink1.13的connector，需要先编译安装1.13的connector至本地
 
   ```
   mvn install -pl hologres-connector-flink-base clean package -DskipTests -Pflink-1.13
+  mvn install -pl hologres-connector-flink-1.13 clean package -DskipTests
+  mvn install -pl hologres-connector-flink-base clean package -DskipTests -Pflink-1.14
   ```
 
 #### build jar
 
   ```
-    mvn install -pl hologres-connector-flink-1.13 clean package -DskipTests
+    mvn install -pl hologres-connector-flink-1.14 clean package -DskipTests
   ```
 
 ## 使用示例
@@ -66,7 +70,7 @@
 | jdbcWriteBatchByteSize| 	Hologres Sink节点单个线程数据攒批的最大字节大小	| 否 | 默认值：20971520（2 * 1024 * 1024），2MB|
 | jdbcWriteBatchTotalByteSize| 	Hologres Sink节点所有数据攒批的最大字节大小	| 否 | 默认值：20971520（20 * 1024 * 1024），20MB|
 | jdbcWriteFlushInterval |Hologres Sink节点数据攒批的最长Flush等待时间）|否 |默认值为10000，即10秒|
-| jdbcUseLegacyPutHandler|true时，写入sql格式为insert into xxx(c0,c1,...) values (?,?,...),... on conflict; false时优先使用sql格式为insert into xxx(c0,c1,...) select unnest(?),unnest(?),... on conflict|否 | 默认值：false | 
+| jdbcUseLegacyPutHandler|true时，写入sql格式为insert into xxx(c0,c1,...) values (?,?,...),... on conflict; false时优先使用sql格式为insert into xxx(c0,c1,...) select unnest(?),unnest(?),... on conflict|否 | 默认值：false |
 | jdbcEnableDefaultForNotNullColumn|设置为true时，not null且未在表上设置default的字段传入null时，将以默认值写入. String 默认“”,Number 默认0,Date/timestamp/timestamptz 默认1970-01-01 00:00:00| 	否| 	默认值：true|
 
 ### 维表查询参数

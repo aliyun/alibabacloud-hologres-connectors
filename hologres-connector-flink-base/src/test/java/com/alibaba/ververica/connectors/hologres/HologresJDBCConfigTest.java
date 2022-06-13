@@ -51,6 +51,7 @@ public class HologresJDBCConfigTest extends HologresTestBase {
         long writeBatchByteSize = 2097152L;
         long writeBatchTotalByteSize = 20971520L;
         long writeMaxIntervalMs = 10000L;
+        boolean useLegacyPutHandler = false;
         boolean enableDefaultForNotNullColumn = true;
 
         // generateHoloConfig
@@ -81,6 +82,7 @@ public class HologresJDBCConfigTest extends HologresTestBase {
         assertEquals(config.getWriteBatchTotalByteSize(), writeBatchTotalByteSize);
         assertEquals(config.getWriteBatchSize(), writeBatchSize);
         assertEquals(config.getWriteMaxIntervalMs(), writeMaxIntervalMs);
+        assertEquals(config.isUseLegacyPutHandler(), useLegacyPutHandler);
         assertEquals(config.isEnableDefaultForNotNullColumn(), enableDefaultForNotNullColumn);
         assertEquals(config.isDynamicPartition(), dynamicPartition);
     }
@@ -136,6 +138,7 @@ public class HologresJDBCConfigTest extends HologresTestBase {
         long writeBatchByteSize = 1234L;
         long writeBatchTotalByteSize = 12345L;
         long writeMaxIntervalMs = 123456L;
+        boolean useLegacyPutHandler = true;
         boolean enableDefaultForNotNullColumn = false;
         configuration.set(HologresJDBCConfigs.OPTIONAL_JDBC_WRITE_BATCH_SIZE, writeBatchSize);
         configuration.set(
@@ -145,6 +148,8 @@ public class HologresJDBCConfigTest extends HologresTestBase {
                 writeBatchTotalByteSize);
         configuration.set(
                 HologresJDBCConfigs.OPTIONAL_JDBC_WRITE_FLUSH_INTERVAL, writeMaxIntervalMs);
+        configuration.set(
+                HologresJDBCConfigs.OPTIONAL_JDBC_USE_LEGACY_PUT_HANDLER, useLegacyPutHandler);
         configuration.set(
                 HologresJDBCConfigs.OPTIONAL_JDBC_ENABLE_DEFAULT_FOR_NOT_NULL_COLUMN,
                 enableDefaultForNotNullColumn);
@@ -177,6 +182,7 @@ public class HologresJDBCConfigTest extends HologresTestBase {
         assertEquals(config.getWriteBatchByteSize(), writeBatchByteSize);
         assertEquals(config.getWriteBatchTotalByteSize(), writeBatchTotalByteSize);
         assertEquals(config.getWriteMaxIntervalMs(), writeMaxIntervalMs);
+        assertEquals(config.isUseLegacyPutHandler(), useLegacyPutHandler);
         assertEquals(config.isEnableDefaultForNotNullColumn(), enableDefaultForNotNullColumn);
     }
 

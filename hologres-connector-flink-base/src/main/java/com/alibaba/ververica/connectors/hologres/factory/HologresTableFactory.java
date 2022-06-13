@@ -21,12 +21,12 @@ import com.alibaba.ververica.connectors.hologres.utils.JDBCUtils;
 import java.util.HashSet;
 import java.util.Set;
 
+import static com.alibaba.ververica.connectors.common.util.ContextUtil.normalizeContext;
 import static com.alibaba.ververica.connectors.hologres.config.HologresConfigs.DATABASE;
 import static com.alibaba.ververica.connectors.hologres.config.HologresConfigs.ENDPOINT;
 import static com.alibaba.ververica.connectors.hologres.config.HologresConfigs.PASSWORD;
 import static com.alibaba.ververica.connectors.hologres.config.HologresConfigs.TABLE;
 import static com.alibaba.ververica.connectors.hologres.config.HologresConfigs.USERNAME;
-import static com.alibaba.ververica.connectors.hologres.utils.FlinkUtil.transformContext;
 import static org.apache.flink.table.factories.FactoryUtil.createTableFactoryHelper;
 
 /** Factory for sink. */
@@ -34,8 +34,8 @@ public class HologresTableFactory implements DynamicTableSinkFactory, DynamicTab
 
     @Override
     public DynamicTableSink createDynamicTableSink(Context context) {
-        transformContext(this, context);
-        FactoryUtil.TableFactoryHelper helper = createTableFactoryHelper(this, context);
+        Context normalizedContext = normalizeContext(this, context);
+        FactoryUtil.TableFactoryHelper helper = createTableFactoryHelper(this, normalizedContext);
         helper.validate();
         final ReadableConfig config = helper.getOptions();
         TableSchema tableSchema =
@@ -45,9 +45,8 @@ public class HologresTableFactory implements DynamicTableSinkFactory, DynamicTab
 
     @Override
     public DynamicTableSource createDynamicTableSource(Context context) {
-        transformContext(this, context);
-        final FactoryUtil.TableFactoryHelper helper =
-                FactoryUtil.createTableFactoryHelper(this, context);
+        Context normalizedContext = normalizeContext(this, context);
+        FactoryUtil.TableFactoryHelper helper = createTableFactoryHelper(this, normalizedContext);
         helper.validate();
         final ReadableConfig config = helper.getOptions();
         String tableName = context.getObjectIdentifier().getObjectName();
