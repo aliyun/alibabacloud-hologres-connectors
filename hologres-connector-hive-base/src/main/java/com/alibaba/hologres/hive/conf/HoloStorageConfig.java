@@ -10,7 +10,7 @@ public enum HoloStorageConfig {
     WRITE_MODE("write_mode", false),
     WRITE_BATCH_SIZE("write_batch_size", false),
     WRITE_BATCH_BYTE_SIZE("write_batch_byte_size", false),
-    REWRITE_SQL_MAX_BATCH_SIZE("rewrite_sql_max_batch_size", false),
+    USE_LEGACY_PUT_HANDLER("use_legacy_put_handler", false),
     WRITE_MAX_INTERVAL_MS("write_max_interval_ms", false),
     WRITE_FAIL_STRATEGY("write_fail_strategy", false),
     WRITE_THREAD_SIZE("write_thread_size", false),

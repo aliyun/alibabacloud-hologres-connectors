@@ -40,12 +40,6 @@
         </dependency>
         <dependency>
             <groupId>org.apache.flink</groupId>
-            <artifactId>flink-table-runtime-blink_2.11</artifactId>
-            <version>${flink.version}</version>
-            <scope>provided</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.flink</groupId>
             <artifactId>flink-java</artifactId>
             <version>${flink.version}</version>
             <scope>provided</scope>
@@ -79,19 +73,6 @@
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>org.apache.flink</groupId>
-            <artifactId>flink-table-planner-blink_${scala.binary.version}</artifactId>
-            <version>${flink.version}</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.flink</groupId>
-            <artifactId>flink-table-planner-blink_${scala.binary.version}</artifactId>
-            <version>${flink.version}</version>
-            <type>test-jar</type>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>
             <scope>test</scope>
@@ -100,27 +81,20 @@
 
     <profiles>
         <profile>
-            <id>flink-1.11</id>
-            <properties>
-                <flinkVvrVersion>1.11-vvr-2.1.3</flinkVvrVersion>
-                <flinkVersion>1.11.3</flinkVersion>
-            </properties>
-        </profile>
-        <profile>
-            <id>flink-1.12</id>
-            <properties>
-                <flinkVvrVersion>1.12-vvr-3.0.2</flinkVvrVersion>
-                <flinkVersion>1.12.2</flinkVersion>
-            </properties>
-        </profile>
-        <profile>
             <id>flink-1.13</id>
             <activation>
                 <activeByDefault>true</activeByDefault>
             </activation>
             <properties>
                 <flinkVvrVersion>1.13-vvr-4.0.7</flinkVvrVersion>
-                <flinkVersion>1.13.2</flinkVersion>
+                <flinkVersion>1.13.5</flinkVersion>
+            </properties>
+        </profile>
+        <profile>
+            <id>flink-1.14</id>
+            <properties>
+                <flinkVvrVersion>1.14-vvr-5.0-SNAPSHOT</flinkVvrVersion>
+                <flinkVersion>1.14.4</flinkVersion>
             </properties>
         </profile>
     </profiles>

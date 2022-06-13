@@ -2,9 +2,14 @@ package com.alibaba.ververica.connectors.hologres.source;
 
 import org.apache.flink.configuration.ReadableConfig;
 import org.apache.flink.table.api.TableSchema;
+import org.apache.flink.table.connector.ChangelogMode;
 import org.apache.flink.table.connector.source.AsyncTableFunctionProvider;
 import org.apache.flink.table.connector.source.DynamicTableSource;
+import org.apache.flink.table.connector.source.InputFormatProvider;
 import org.apache.flink.table.connector.source.LookupTableSource;
+import org.apache.flink.table.connector.source.ScanTableSource;
+import org.apache.flink.table.connector.source.ScanTableSource.ScanContext;
+import org.apache.flink.table.connector.source.ScanTableSource.ScanRuntimeProvider;
 import org.apache.flink.table.connector.source.TableFunctionProvider;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.functions.AsyncTableFunction;
@@ -20,13 +25,14 @@ import com.alibaba.ververica.connectors.hologres.api.HologresTableSchema;
 import com.alibaba.ververica.connectors.hologres.config.HologresConnectionParam;
 import com.alibaba.ververica.connectors.hologres.config.JDBCOptions;
 import com.alibaba.ververica.connectors.hologres.jdbc.HologresJDBCReader;
+import com.alibaba.ververica.connectors.hologres.source.bulkread.HologresBulkreadInputFormat;
 
 import java.util.Arrays;
 import java.util.ServiceLoader;
 import java.util.stream.Collectors;
 
 /** Table Source. */
-public class HologresTableSource implements DynamicTableSource, LookupTableSource {
+public class HologresTableSource implements DynamicTableSource, LookupTableSource, ScanTableSource {
     private String tableName;
     private TableSchema tableSchema;
     private CacheConfig cacheConfig;
@@ -113,5 +119,15 @@ public class HologresTableSource implements DynamicTableSource, LookupTableSourc
                                     hasPrimaryKey));
             return TableFunctionProvider.of(lookupFunc);
         }
+    }
+
+    @Override
+    public ChangelogMode getChangelogMode() {
+        return ChangelogMode.insertOnly();
+    }
+
+    @Override
+    public ScanRuntimeProvider getScanRuntimeProvider(ScanContext scanContext) {
+        return InputFormatProvider.of(new HologresBulkreadInputFormat(jdbcOptions, tableSchema));
     }
 }

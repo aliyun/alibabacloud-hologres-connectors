@@ -13,7 +13,7 @@ class BaseSourceProvider() {
   val WRITE_MODE = "write_mode"
   val WRITE_BATCH_SIZE = "write_batch_size"
   val WRITE_BATCH_BYTE_SIZE = "write_batch_byte_size"
-  val REWRITE_SQL_MAX_BATCH_SIZE = "rewrite_sql_max_batch_size"
+  val USE_LEGACY_PUT_HANDLER = "use_legacy_put_handler"
   val WRITE_MAX_INTERVAL_MS = "write_max_interval_ms"
   val WRITE_FAIL_STRATEGY = "write_fail_strategy"
   val WRITE_THREAD_SIZE = "write_thread_size"

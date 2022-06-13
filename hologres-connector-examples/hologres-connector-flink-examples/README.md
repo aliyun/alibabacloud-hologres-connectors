@@ -10,9 +10,18 @@
 * 3.FlinkDataStreamToHoloExample
   
     一个使用纯Flink DataStream接口实现的应用，将数据写入至Hologres
-* 4.FlinkRoaringBitmapAggJob
+* 4.FlinkSQLSourceAndSinkExample
+
+  一个使用纯Flink SQL接口实现的应用，从holo源表读取数据并写入holo结果表
+* 5.FlinkRoaringBitmapAggJob
 
     一个使用FLink及RoaringBitmap，结合Hologres维表，实现实时去重统计UV的应用，并将统计结果写入Hologres
+
+## 在IDEA中运行和调试
+* 以下是针对提交作业到Flink集群的情况，用户也可以在IDEA等编辑器中运行代码，只需要将pom.xml文件中各flink依赖的`<scope>provided</scope>`删除即可
+
+## Flink 1.14
+* 当前example使用Flink 1.13版本, 如需使用Flink 1.14, 由于版本依赖变动，需要将pom.xml文件中各flink依赖的`-blink`后缀去掉
 
 ## 运行Example 1,2,3
 
@@ -29,17 +38,38 @@
 当前example默认使用Flink 1.13版本，实际使用时connector版本请与Flink集群的版本保持一致
 
 ```
-flink run -c com.alibaba.ververica.connectors.hologres.example.FlinkDSAndSQLToHoloExample target/hologres-connector-flink-examples-1.0.0-jar-with-dependencies.jar --endpoint ${ip:port} --username ${user_name} --password ${password} --database {database} --tablename sink_table
+flink run -c com.alibaba.ververica.connectors.hologres.example.FlinkDSAndSQLToHoloExample target/hologres-connector-flink-examples-1.1.0-jar-with-dependencies.jar --endpoint ${ip:port} --username ${user_name} --password ${password} --database {database} --tablename sink_table
 ```
 其中需要替换对应的endpoint、username、password、database参数
 
-### 在IDEA中运行和调试
-* 以上是针对提交作业到Flink集群的情况，用户也可以在IDEA等编辑器中运行代码，只需要讲pom.xml文件中各flink依赖的`<scope>provided</scope>`删除即可
+## 运行Example 4
 
+### 编译
 
-## 运行Example 4 
+在本项目(hologres-connector-flink-examples)根目录运行```mvn package -DskipTests```
+
+### 创建Hologres结果表用于接收数据
+在自己的Hologres实例，创建结果表并插入数据，创建结果表:
+
+```
+create table source_table(user_id bigint, user_name text, price decimal(38,2),sale_timestamp timestamptz);
+insert into source_table values(123,'Adam',123.11,'2022-05-19 14:33:05.418+08');
+insert into source_table values(456,'Bob',123.456,'2022-05-19 14:33:05.418+08');
+create table sink_table(user_id bigint, user_name text, price decimal(38,2), sale_timestamp timestamptz);
+```
+
+### 提交Flink Example作业
+当前example默认使用Flink 1.13版本，实际使用时connector版本请与Flink集群的版本保持一致
+
+```
+flink run -c com.alibaba.ververica.connectors.hologres.example.FlinkSQLSourceAndSinkExample target/hologres-connector-flink-examples-1.1-SNAPSHOT-jar-with-dependencies.jar --endpoint ${ip:port} --username ${user_name} --password ${password} --database {database} --source source_table --sink sink_table
+```
+其中需要替换对应的endpoint、username、password、database参数
+
+## 运行Example 5 
 
 ### 使用Flink+RoaringBitmap进行实时用户标签去重(UV)
+PGUSER=LTAI5tKqqvTjRuPCq9DibCUA PGPASSWORD=RrZEfYohphwdqBH3xZpryTtXw4ZvDF psql -p 8099 -h hologres-public3-cn-internal-zhangbei-cd.hologres.aliyuncs.com -d yt_test
 
 ### 案例介绍
 
