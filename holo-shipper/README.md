@@ -10,7 +10,7 @@ holo-shipper 是支持将Holo Instance的部分表导入导出的备份工具。
 ### 命令行参数
 -s ship的源头，可以为Holo instance, OSS或本地存储， required 
 
-    Holo的格式： -s holo -h endpoint -p port_number -u username -w password
+    Holo的格式： -s holo -h ip_number -p port_number -u username -w password
 
     OSS的格式: -s oss -h endpoint -u accessKeyId -w accessKeySecret -b bucketName -p folder_path
 
@@ -18,7 +18,7 @@ holo-shipper 是支持将Holo Instance的部分表导入导出的备份工具。
 
 -d ship的终点，可以为Holo instance， OSS或本地存储， required
 
-    Holo的格式： -d holo -h endpoint -p port_number -u username -w password
+    Holo的格式： -d holo -h ip_number -p port_number -u username -w password
 
     OSS的格式: -s oss -h endpoint -u accessKeyId -w accessKeySecret -b bucketName -p folder_path
 
@@ -86,6 +86,7 @@ json 文件格式：
    - key: "blackList" value: JSONObject(其中每个key为schema名，value为不要ship的表名的list), optional。在blackList中的表和他们的子表不会被ship
    - key: "sinkDB" value: 目的地数据库名称(String), optional. 不提供的话默认和“dbName"相同。 当源和目的实例为同一个holo实例时可以视为将表从 "dbName"移到"sinkDB"
    - key: "schemaMapping" value: JSONObject(其中每个key为源schema名， value为在目标的schema名)， optional。如果需要改变schema就在这里指定，如果不指定默认schema不变
+   - key: "tgMapping" value: JSONObject(其中每个key为源table group名， value为在目标的table group名)， optional。如果需要改变table group就在这里指定，如果不指定将默认使用目标库的默认table group
 
 example.json
    ```
@@ -108,6 +109,9 @@ example.json
         },
         "schemaMapping": {
             "schema4": "schema5"
+        },
+        "tgMapping": {
+            "tablegroup1": "tablegroup2"
         }
     },
     {
@@ -125,3 +129,10 @@ DB1中schema1的所有表（除了table3和他的子表）和schema2的table1,ta
 DB2中schema3的所有表，和schema4的table4,table5和他们的子表将被ship
 DB2中schema4下的表会变为schema5下，i.e. schema4.table4在destination会是schema5.table4. （如果源是slpm模式并且ship时选择保留权限，那么某个用户在源schema4拥有的权限会ship去目的地schema5中）  
 将源实例中DB3 public schema下的所有表移到目标实例的DB3_backup public schema下
+
+## 生成jar包
+在holo-shipper文件夹下执行
+```
+$ mvn package
+```
+holo-shipper/target/holo-shipper-1.2.jar 即为生成的可执行jar包
