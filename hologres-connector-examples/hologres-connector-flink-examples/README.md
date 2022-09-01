@@ -38,7 +38,7 @@
 当前example默认使用Flink 1.13版本，实际使用时connector版本请与Flink集群的版本保持一致
 
 ```
-flink run -c com.alibaba.ververica.connectors.hologres.example.FlinkDSAndSQLToHoloExample target/hologres-connector-flink-examples-1.1.0-jar-with-dependencies.jar --endpoint ${ip:port} --username ${user_name} --password ${password} --database {database} --tablename sink_table
+flink run -c com.alibaba.ververica.connectors.hologres.example.FlinkDSAndSQLToHoloExample target/hologres-connector-flink-examples-1.1.1-jar-with-dependencies.jar --endpoint ${ip:port} --username ${user_name} --password ${password} --database {database} --tablename sink_table
 ```
 其中需要替换对应的endpoint、username、password、database参数
 

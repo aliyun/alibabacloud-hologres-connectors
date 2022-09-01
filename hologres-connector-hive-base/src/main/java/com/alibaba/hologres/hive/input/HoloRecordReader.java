@@ -69,10 +69,11 @@ public class HoloRecordReader implements RecordReader<LongWritable, MapWritable>
 
                 Scan.Builder scanBuilder = Scan.newBuilder(schema);
                 scanner = client.scan(scanBuilder.setSortKeys(SortKeys.NONE).build());
-                ExprNodeDesc conditionNode =
-                        SerializationUtilities.deserializeExpression(filterXml);
-                walk(conditionNode, scanBuilder);
-
+                if (filterXml != null) {
+                    ExprNodeDesc conditionNode =
+                            SerializationUtilities.deserializeExpression(filterXml);
+                    walk(conditionNode, scanBuilder);
+                }
                 isScan = true;
             }
         } catch (HoloClientException e) {
