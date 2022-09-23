@@ -39,6 +39,7 @@ public class HologresJDBCConfigTest extends HologresTestBase {
         long connectionMaxIdleMs = 60000L;
         long metaCacheTTL = 60000L;
         int metaAutoRefreshFactor = -1;
+        boolean fixedConnectionMode = false;
 
         // jdbc read
         int readBatchSize = 128;
@@ -65,6 +66,7 @@ public class HologresJDBCConfigTest extends HologresTestBase {
 
         assertEquals(config.getWriteThreadSize(), connectionPoolSize);
         assertEquals(config.getReadThreadSize(), connectionPoolSize);
+        assertEquals(config.isUseFixedFe(), fixedConnectionMode);
 
         assertEquals(config.getRetryCount(), retryCount);
         assertEquals(config.getRetrySleepInitMs(), retrySleepInitMs);
@@ -110,6 +112,8 @@ public class HologresJDBCConfigTest extends HologresTestBase {
         long connectionMaxIdleMs = 60123L;
         long metaCacheTTL = 60234L;
         int metaAutoRefreshFactor = 6;
+        boolean fixedConnectionMode = true;
+
         configuration.set(
                 HologresJDBCConfigs.OPTIONAL_CLIENT_CONNECTION_POOL_SIZE, connectionPoolSize);
         configuration.set(HologresJDBCConfigs.OPTIONAL_JDBC_RETRY_COUNT, retryCount);
@@ -120,6 +124,8 @@ public class HologresJDBCConfigTest extends HologresTestBase {
         configuration.set(HologresJDBCConfigs.OPTIONAL_JDBC_META_CACHE_TTL, metaCacheTTL);
         configuration.set(
                 HologresJDBCConfigs.OPTIONAL_JDBC_META_AUTO_REFRESH_FACTOR, metaAutoRefreshFactor);
+        configuration.set(
+                HologresJDBCConfigs.OPTIONAL_JDBC_FIXED_CONNECTION_MODE, fixedConnectionMode);
 
         // jdbc read
         int readBatchSize = 98765;
@@ -170,6 +176,7 @@ public class HologresJDBCConfigTest extends HologresTestBase {
         assertEquals(config.getConnectionMaxIdleMs(), connectionMaxIdleMs);
         assertEquals(config.getMetaCacheTTL(), metaCacheTTL);
         assertEquals(config.getMetaAutoRefreshFactor(), metaAutoRefreshFactor);
+        assertEquals(config.isUseFixedFe(), fixedConnectionMode);
 
         assertEquals(config.getReadThreadSize(), connectionPoolSize);
         assertEquals(config.getReadBatchSize(), readBatchSize);

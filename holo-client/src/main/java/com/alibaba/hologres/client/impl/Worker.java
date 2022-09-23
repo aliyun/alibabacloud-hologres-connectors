@@ -50,10 +50,14 @@ public class Worker implements Runnable {
 	Map<Class, ActionHandler> handlerMap = new HashMap<>();
 
 	public Worker(HoloConfig config, AtomicBoolean started, int index, boolean isShardEnv) {
+		this(config, started, index, isShardEnv, false);
+	}
+
+	public Worker(HoloConfig config, AtomicBoolean started, int index, boolean isShardEnv, boolean isFixed) {
 		this.config = config;
-		connectionHolder = new ConnectionHolder(config, this, isShardEnv);
+		connectionHolder = new ConnectionHolder(config, this, isShardEnv, isFixed);
 		this.started = started;
-		this.name = "Worker-" + index;
+		this.name = (isFixed ? "Fixed-" : "") + "Worker-" + index;
 		handlerMap.put(EmptyAction.class, new EmptyActionHandler(config));
 		handlerMap.put(GetAction.class, new GetActionHandler(connectionHolder, config));
 		handlerMap.put(MetaAction.class, new MetaActionHandler(connectionHolder, config));

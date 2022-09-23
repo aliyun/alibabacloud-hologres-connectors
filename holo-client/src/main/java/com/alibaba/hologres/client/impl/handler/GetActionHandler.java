@@ -10,6 +10,7 @@ import com.alibaba.hologres.client.impl.ConnectionHolder;
 import com.alibaba.hologres.client.impl.action.GetAction;
 import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.model.RecordKey;
+import com.alibaba.hologres.client.model.TableName;
 import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.utils.IdentifierUtil;
 import com.alibaba.hologres.client.utils.Metrics;
@@ -30,23 +31,25 @@ public class GetActionHandler extends ActionHandler<GetAction> {
 
 	private static final String NAME = "get";
 
+	private final HoloConfig config;
 	private final ConnectionHolder connectionHolder;
+
 	public GetActionHandler(ConnectionHolder connectionHolder, HoloConfig config) {
 		super(config);
+		this.config = config;
 		this.connectionHolder = connectionHolder;
 	}
 
 	@Override
 	public void handle(GetAction getAction) {
 		if (getAction.getGetList().size() > 0) {
-			doHandleGetAction(getAction.getGetList().get(0).getRecord().getSchema(), getAction.getGetList());
+			doHandleGetAction(getAction.getGetList().get(0).getRecord().getSchema(), getAction.getGetList().get(0).getRecord().getTableName(), getAction.getGetList());
 		}
 	}
 
-	private void doHandleGetAction(TableSchema schema, List<Get> recordList) {
+	private void doHandleGetAction(TableSchema schema, TableName tableName, List<Get> recordList) {
 		long startTime = System.currentTimeMillis();
 		BitSet columnMask = new BitSet(schema.getColumnSchema().length);
-		String tableName = schema.getTableNameObj().getFullName();
 		for (Get get : recordList) {
 			columnMask.or(get.getRecord().getBitSet());
 		}
@@ -60,7 +63,7 @@ public class GetActionHandler extends ActionHandler<GetAction> {
 			first = false;
 			sb.append(IdentifierUtil.quoteIdentifier(schema.getColumn(it.next()).getName(), true));
 		}
-		sb.append(" from ").append(schema.getTableNameObj().getFullName()).append(" where ");
+		sb.append(" from ").append(tableName.getFullName()).append(" where ");
 		for (int i = 0; i < recordList.size(); ++i) {
 			if (i > 0) {
 				sb.append(" or ");
@@ -92,6 +95,7 @@ public class GetActionHandler extends ActionHandler<GetAction> {
 
 						}
 					}
+					ps.setQueryTimeout(config.getReadTimeoutMilliseconds() > 0 ? Math.max(config.getReadTimeoutMilliseconds() / 1000, 1) : 0);
 					try (ResultSet rs = ps.executeQuery()) {
 						while (rs.next()) {
 							Record record = Record.build(schema);
@@ -111,7 +115,7 @@ public class GetActionHandler extends ActionHandler<GetAction> {
 					registry.meter(Metrics.METRICS_DIMLOOKUP_RPS_ALL).mark(recordList.size());
 				}
 				return resultMap;
-			}, 1);
+			}, config.getReadRetryCount());
 
 			for (Get get : recordList) {
 				Record record = get.getRecord();

@@ -70,6 +70,7 @@ public class HologresJDBCClientProvider {
         holoConfig.setConnectionMaxIdleMs(param.getJdbcConnectionMaxIdleMs());
         holoConfig.setMetaCacheTTL(param.getJdbcMetaCacheTTL());
         holoConfig.setMetaAutoRefreshFactor(param.getJdbcMetaAutoRefreshFactor());
+        holoConfig.setUseFixedFe(param.isFixedConnectionMode());
 
         // reader config
         holoConfig.setReadThreadSize(param.getConnectionPoolSize());

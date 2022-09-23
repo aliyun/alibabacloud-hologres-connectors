@@ -10,7 +10,7 @@
 <dependency>
     <groupId>com.alibaba.hologres</groupId>
     <artifactId>hologres-connector-spark-3.x</artifactId>
-    <version>1.1.1</version>
+    <version>1.2.0</version>
     <classifier>jar-with-dependencies</classifier>
 </dependency>
 ```
@@ -22,7 +22,7 @@
   mvn install -pl hologres-connector-spark-base clean package -DskipTests -Pscala-2.12 -Pspark-3
   ```
 
-  打包结果名称为 hologres-connector-spark-base_2.12_spark3-1.1-SNAPSHOT.jar
+  打包结果名称为 hologres-connector-spark-base_2.12_spark3-1.2-SNAPSHOT.jar
 
 #### build jar
 
@@ -57,7 +57,7 @@ CREATE TABLE tb008 (
 
 #### 1.2 组织数据并存入Holo
 
-- 可以 spark-shell --jars hologres-connector-spark-3.x-1.1-SNAPSHOT-jar-with-dependencies.jar，然后spark-shell里执行测试
+- 可以 spark-shell --jars hologres-connector-spark-3.x-1.2-SNAPSHOT-jar-with-dependencies.jar，然后spark-shell里执行测试
 - 可以使用 :load spark-test.scala 执行测试文件
 - spark-test.scala 文件示例：
 
@@ -213,6 +213,7 @@ df.write
 | RETRY_SLEEP_STEP_MS | 10000 | 否 | 每次重试的等待时间=retrySleepInitMs+retry*retrySleepStepMs|
 | CONNECTION_MAX_IDLE_MS| 60000 | 否 | 写入线程和点查线程数据库连接的最大Idle时间，超过连接将被释放|
 | DYNAMIC_PARTITION| false|	否 |若为true，写入分区表父表时，当分区不存在时自动创建分区 |
+| FIXED_CONNECTION_MODE| false|   否| 写入和点查不占用连接数（beta功能，需要connector版本>=1.2.0，hologres引擎版本>=1.3）|
 
 ## 类型映射
 |spark|holo|

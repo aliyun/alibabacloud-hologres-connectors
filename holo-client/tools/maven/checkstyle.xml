@@ -91,6 +91,19 @@ This file is based on the checkstyle file of Apache Beam.
 			<property name="checkFormat" value="$1"/>
 		</module>
 
+		<!--
+
+		FLINK CUSTOM CHECKS
+
+		-->
+
+		<!--<module name="RegexpSinglelineJava">
+			<property name="format" value="^\t* +\t*\S"/>
+			<property name="message"
+			          value="Line has leading space characters; indentation should be performed with tabs only."/>
+			<property name="ignoreComments" value="true"/>
+		</module>-->
+
 		<!-- Prohibit T.getT() methods for standard boxed types -->
 		<module name="Regexp">
 			<property name="format" value="Boolean\.getBoolean"/>

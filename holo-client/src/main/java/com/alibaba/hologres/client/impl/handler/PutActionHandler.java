@@ -16,6 +16,7 @@ import com.alibaba.hologres.client.impl.UpsertStatementBuilder;
 import com.alibaba.hologres.client.impl.action.PutAction;
 import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.model.WriteFailStrategy;
+import com.alibaba.hologres.client.model.WriteMode;
 import com.alibaba.hologres.client.utils.Metrics;
 import com.codahale.metrics.MetricRegistry;
 import org.slf4j.Logger;
@@ -87,9 +88,10 @@ public class PutActionHandler extends ActionHandler<PutAction> {
 	@Override
 	public void handle(PutAction action) {
 		final List<Record> recordList = action.getRecordList();
+		WriteMode mode = action.getWriteMode();
 		HoloClientException exception = null;
 		try {
-			doHandlePutAction(recordList);
+			doHandlePutAction(recordList, mode);
 			for (Record record : recordList) {
 				markRecordPutSuccess(record);
 			}
@@ -110,7 +112,7 @@ public class PutActionHandler extends ActionHandler<PutAction> {
 						for (Record record : recordList) {
 							try {
 								single.add(record);
-								doHandlePutAction(single);
+								doHandlePutAction(single, mode);
 								markRecordPutSuccess(record);
 							} catch (HoloClientException subE) {
 								if (!isDirtyDataException(subE)) {
@@ -159,10 +161,10 @@ public class PutActionHandler extends ActionHandler<PutAction> {
 		}
 	}
 
-	protected void doHandlePutAction(List<Record> list) throws HoloClientException {
+	protected void doHandlePutAction(List<Record> list, WriteMode mode) throws HoloClientException {
 		connectionHolder.retryExecuteWithVersion((connWithVersion) -> {
 			Connection conn = connWithVersion.getConn();
-			List<PreparedStatementWithBatchInfo> psArray = builder.buildStatements(conn, connWithVersion.getVersion(), list.get(0).getSchema(), list);
+			List<PreparedStatementWithBatchInfo> psArray = builder.buildStatements(conn, connWithVersion.getVersion(), list.get(0).getSchema(), list.get(0).getTableName(), list, mode);
 			try {
 
 				long startTime = System.nanoTime() / 1000000L;

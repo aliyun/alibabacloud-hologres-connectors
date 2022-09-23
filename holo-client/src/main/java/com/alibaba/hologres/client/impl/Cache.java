@@ -147,10 +147,6 @@ public class Cache<K, V> {
 		this.builder = builder;
 	}
 
-	public void setTtl(long ttl) {
-		this.ttl = ttl;
-	}
-
 	public V get(K key) throws SQLException {
 		return get(key, null);
 	}

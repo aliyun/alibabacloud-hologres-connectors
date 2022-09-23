@@ -29,6 +29,7 @@ public enum ExceptionCode {
 	TOO_MANY_WAL_SENDERS(107),
 	INTERNAL_ERROR(300),
 	INTERRUPTED(301),
+	NOT_SUPPORTED(302),
 
 	/* 不重试，脏数据 */
 	TABLE_NOT_FOUND(200),

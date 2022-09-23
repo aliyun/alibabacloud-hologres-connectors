@@ -22,6 +22,7 @@ class BaseSourceProvider() {
   val RETRY_SLEEP_STEP_MS = "retry_sleep_step_ms"
   val CONNECTION_MAX_IDLE_MS = "connection_max_idle_ms"
   val DYNAMIC_PARTITION = "dynamic_partition"
+  val FIXED_CONNECTION_MODE = "fixed_connection_mode"
 
   def getOrCreateHoloClient(sourceOptions: Map[String, String]): HoloClient = {
     val hologresConfigs: HologresConfigs = new HologresConfigs(sourceOptions)

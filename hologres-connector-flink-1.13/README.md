@@ -10,7 +10,7 @@
 <dependency>
     <groupId>com.alibaba.hologres</groupId>
     <artifactId>hologres-connector-flink-1.13</artifactId>
-    <version>1.1.1</version>
+    <version>1.2.0</version>
     <classifier>jar-with-dependencies</classifier>
 </dependency>
 ```
@@ -49,6 +49,7 @@
 | :---: | :---: | :---: | :---: |
 | connectionSize| 单个Flink Hologres Task所创建的JDBC连接池大小。|否|默认值为3，和吞吐成正比。|
 | connectionPoolName| 连接池名称，同一个TaskManager中，表配置同名的连接池名称可以共享连接池 |否|无默认值，每个表默认使用自己的连接池。如果设置连接池名称，则所有表的connectionSize需要相同|
+| fixedConnectionMode| 写入和点查不占用连接数（beta功能，需要connector版本>=1.2.0，hologres引擎版本>=1.3）|   否|   默认值：false|
 | jdbcRetryCount| 当连接故障时，写入和查询的重试次数|   否|   默认值：10| 
 | jdbcRetrySleepInitMs | 每次重试的等待时间=retrySleepInitMs+retry*retrySleepStepMs |  否 |  默认值：1000 ms| 
 | jdbcRetrySleepStepMs | 每次重试的等待时间=retrySleepInitMs+retry*retrySleepStepMs  | 否|   默认值：5000 ms| 

@@ -8,7 +8,6 @@ import com.alibaba.hologres.client.exception.ExceptionCode;
 import com.alibaba.hologres.client.exception.HoloClientException;
 import com.alibaba.hologres.client.exception.HoloClientWithDetailsException;
 import com.alibaba.hologres.client.function.FunctionWithSQLException;
-import com.alibaba.hologres.client.impl.ConnectionHolder;
 import com.alibaba.hologres.client.impl.ExecutionPool;
 import com.alibaba.hologres.client.impl.action.CopyAction;
 import com.alibaba.hologres.client.impl.action.PutAction;
@@ -31,7 +30,6 @@ import com.alibaba.hologres.client.model.TableName;
 import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.utils.IdentifierUtil;
 import com.alibaba.hologres.client.utils.Tuple;
-import org.postgresql.core.SqlCommandType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -49,7 +47,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
-import java.util.Properties;
 import java.util.TreeMap;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
@@ -73,6 +70,13 @@ public class HoloClient implements Closeable {
 	}
 
 	private ActionCollector collector;
+
+	/**
+	 * 是否使用fixed fe.
+	 * 开启的话会创建fixed pool，用于执行点查、写入以及prefix scan.
+	 */
+	private final boolean useFixedFe;
+	private ExecutionPool fixedPool = null;
 
 	private ExecutionPool pool = null;
 	private final HoloConfig config;
@@ -110,6 +114,7 @@ public class HoloClient implements Closeable {
 		}
 		checkConfig(config);
 		this.config = config;
+		this.useFixedFe = config.isUseFixedFe();
 	}
 
 	private void checkConfig(HoloConfig config) throws HoloClientException {
@@ -184,6 +189,22 @@ public class HoloClient implements Closeable {
 	public CompletableFuture<Record> get(Get get) throws HoloClientException {
 		ensurePoolOpen();
 		checkGet(get);
+		get.setStartTime(System.nanoTime());
+		get.setFuture(new CompletableFuture<>());
+		if (get.isFullColumn()) {
+			for (int i = 0; i < get.getRecord().getSchema().getColumnSchema().length; ++i) {
+				if (!get.getRecord().isSet(i)) {
+					get.getRecord().setObject(i, null);
+				}
+			}
+		}
+		try {
+			if (rewriteForPartitionTable(get.getRecord(), false, false)) {
+				get.getFuture().complete(null);
+			}
+		} catch (HoloClientException e) {
+			get.getFuture().completeExceptionally(e);
+		}
 		collector.appendGet(get);
 		return get.getFuture();
 	}
@@ -192,6 +213,22 @@ public class HoloClient implements Closeable {
 		ensurePoolOpen();
 		for (Get get : gets) {
 			checkGet(get);
+			get.setStartTime(System.nanoTime());
+			get.setFuture(new CompletableFuture<>());
+			if (get.isFullColumn()) {
+				for (int i = 0; i < get.getRecord().getSchema().getColumnSchema().length; ++i) {
+					if (!get.getRecord().isSet(i)) {
+						get.getRecord().setObject(i, null);
+					}
+				}
+			}
+			try {
+				if (rewriteForPartitionTable(get.getRecord(), false, false)) {
+					get.getFuture().complete(null);
+				}
+			} catch (HoloClientException e) {
+				get.getFuture().completeExceptionally(e);
+			}
 		}
 		List<CompletableFuture<Record>> ret = new ArrayList<>();
 		collector.appendGet(gets);
@@ -221,7 +258,8 @@ public class HoloClient implements Closeable {
 	private ScanAction doScan(Scan scan) throws HoloClientException {
 		ensurePoolOpen();
 		ScanAction action = new ScanAction(scan);
-		while (!pool.submit(action)) {
+		ExecutionPool execPool = useFixedFe ? fixedPool : pool;
+		while (!execPool.submit(action)) {
 
 		}
 		return action;
@@ -231,7 +269,8 @@ public class HoloClient implements Closeable {
 		if (pool == null) {
 			synchronized (this) {
 				if (pool == null) {
-					ExecutionPool temp = new ExecutionPool("embedded-" + config.getAppName(), config, isShadingEnv);
+					ExecutionPool temp = new ExecutionPool("embedded-" + config.getAppName(), config, isShadingEnv, false);
+					// 当useFixedFe为true时, 这里创建的collector会被下面fixedPool创建的覆盖，调用这个函数仅仅为了把pool标记为started.
 					collector = temp.register(this, config);
 					pool = temp;
 					isEmbeddedPool = true;
@@ -241,8 +280,24 @@ public class HoloClient implements Closeable {
 		if (!pool.isRunning()) {
 			throw new HoloClientException(ExceptionCode.ALREADY_CLOSE, "already close");
 		}
+		if (useFixedFe && fixedPool == null) {
+			synchronized (this) {
+				if (fixedPool == null) {
+					ExecutionPool temp = new ExecutionPool("embedded-fixed-" + config.getAppName(), config, isShadingEnv, true);
+					// 当useFixedFe为true时, 只会使用这个fixedPool注册的collector.
+					collector = temp.register(this, config);
+					fixedPool = temp;
+				}
+			}
+		}
+		if (useFixedFe && !fixedPool.isRunning()) {
+			throw new HoloClientException(ExceptionCode.ALREADY_CLOSE, "already close");
+		}
 	}
 
+	/**
+	 * fixedPool 不需要复用.
+	 */
 	public synchronized void setPool(ExecutionPool pool) throws HoloClientException {
 		ExecutionPool temp = pool;
 		collector = temp.register(this, config);
@@ -254,28 +309,30 @@ public class HoloClient implements Closeable {
 		if (pool != null) {
 			pool.tryThrowException();
 		}
+		if (fixedPool != null) {
+			fixedPool.tryThrowException();
+		}
 	}
 
 	/**
-	 * 如果put为分区表，修改put的schema为分区字表.
+	 * 如果读写分区表，修改对应操作的schema为分区子表.
 	 *
-	 * @param put put
-	 * @return 是否可以忽略这条PUT。比如delete，但是分区并不存在的时候.
-	 * @throws HoloClientException
+	 * @param record 操作的Record
+	 * @param createIfNotExists dynamicPartition为true，且是非delete的put操作时，自动创建分区
+	 * @param exceptionIfNotExists 分区表不存在时是否抛出异常，get和delete操作发现子表不存在不会抛出异常
+	 * @return 是否可以忽略本次操作，比如delete(PUT)但是分区子表不存在的时候；GET但分区子表不存在的时候
+	 * @throws HoloClientException 获取分区或者根据分区信息获取TableSchema异常 那么complete exception
 	 */
-	private boolean rewritePut(Put put) throws HoloClientException {
-		Record record = put.getRecord();
+	private boolean rewriteForPartitionTable(Record record, boolean createIfNotExists, boolean exceptionIfNotExists) throws HoloClientException {
 		TableSchema schema = record.getSchema();
-		HoloClientWithDetailsException detailException = null;
-		if (record.getSchema().getPartitionIndex() > -1) {
-			boolean dynamicPartition = config.isDynamicPartition();
+		if (schema.isPartitionParentTable()) {
 			boolean isStr = Types.VARCHAR == schema.getColumn(schema.getPartitionIndex()).getType();
 			String value = String.valueOf(record.getObject(schema.getPartitionIndex()));
-			Partition partition = pool.getOrSubmitPartition(schema.getTableNameObj(), value, isStr, dynamicPartition && !SqlCommandType.DELETE.equals(put.getRecord().getType()));
+			Partition partition = pool.getOrSubmitPartition(schema.getTableNameObj(), value, isStr, createIfNotExists);
 			if (partition != null) {
 				TableSchema newSchema = pool.getOrSubmitTableSchema(TableName.valueOf(IdentifierUtil.quoteIdentifier(partition.getSchemaName(), true), IdentifierUtil.quoteIdentifier(partition.getTableName(), true)), false);
 				record.changeToChildSchema(newSchema);
-			} else if (!SqlCommandType.DELETE.equals(put.getRecord().getType())) {
+			} else if (exceptionIfNotExists) {
 				throw new HoloClientWithDetailsException(ExceptionCode.TABLE_NOT_FOUND, "child table is not found", record);
 			} else {
 				return true;
@@ -288,11 +345,12 @@ public class HoloClient implements Closeable {
 		ensurePoolOpen();
 		tryThrowException();
 		checkPut(put);
-		if (!rewritePut(put)) {
+		ExecutionPool execPool = useFixedFe ? fixedPool : pool;
+		if (!rewriteForPartitionTable(put.getRecord(), config.isDynamicPartition() && !Put.MutationType.DELETE.equals(put.getRecord().getType()), !Put.MutationType.DELETE.equals(put.getRecord().getType()))) {
 			if (!asyncCommit) {
 				Record r = put.getRecord();
-				PutAction action = new PutAction(Collections.singletonList(r), r.getByteSize(), BatchState.SizeEnough);
-				while (!pool.submit(action)) {
+				PutAction action = new PutAction(Collections.singletonList(r), r.getByteSize(), config.getWriteMode(), BatchState.SizeEnough);
+				while (!execPool.submit(action)) {
 
 				}
 				action.getResult();
@@ -307,7 +365,7 @@ public class HoloClient implements Closeable {
 		tryThrowException();
 		checkPut(put);
 		CompletableFuture<Void> ret = new CompletableFuture<>();
-		if (!rewritePut(put)) {
+		if (!rewriteForPartitionTable(put.getRecord(), config.isDynamicPartition() && !Put.MutationType.DELETE.equals(put.getRecord().getType()), !Put.MutationType.DELETE.equals(put.getRecord().getType()))) {
 			put.getRecord().setPutFuture(ret);
 			collector.append(put.getRecord());
 		} else {
@@ -325,7 +383,7 @@ public class HoloClient implements Closeable {
 		for (Put put : puts) {
 			try {
 				checkPut(put);
-				if (!rewritePut(put)) {
+				if (!rewriteForPartitionTable(put.getRecord(), config.isDynamicPartition() && !Put.MutationType.DELETE.equals(put.getRecord().getType()), !Put.MutationType.DELETE.equals(put.getRecord().getType()))) {
 					putList.add(put);
 				}
 			} catch (HoloClientWithDetailsException e) {
@@ -502,18 +560,6 @@ public class HoloClient implements Closeable {
 		}
 	}
 
-	public ConnectionHolder createConnectionHolder(Properties info) {
-		if (info != null) {
-			return new ConnectionHolder(config, this, isShadingEnv, info);
-		} else {
-			return new ConnectionHolder(config, this, isShadingEnv);
-		}
-	}
-
-	public ConnectionHolder createConnectionHolder() {
-		return new ConnectionHolder(config, this, isShadingEnv);
-	}
-
 	public BinlogShardGroupReader binlogSubscribe(Subscribe subscribe) throws HoloClientException {
 		ensurePoolOpen();
 		TableSchemaSupplier supplier = new TableSchemaSupplier() {
@@ -589,6 +635,10 @@ public class HoloClient implements Closeable {
 			if (isEmbeddedPool) {
 				pool.close();
 			}
+		}
+		if (fixedPool != null && fixedPool.isRegister(this)) {
+			fixedPool.unregister(this);
+			fixedPool.close();
 		}
 	}
 

@@ -219,6 +219,10 @@ public class RecordCollector {
 		return list;
 	}
 
+	public WriteMode getMode() {
+		return mode;
+	}
+
 	public void clear() {
 		startTimeMs = -1;
 		size = 0;

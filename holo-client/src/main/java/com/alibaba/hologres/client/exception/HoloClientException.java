@@ -31,7 +31,8 @@ public class HoloClientException extends Exception {
 
 	public static HoloClientException fromSqlException(SQLException e) {
 		ExceptionCode code = ExceptionCode.UNKNOWN_ERROR;
-		if (PSQLState.isConnectionError(e.getSQLState()) || (e.getMessage() != null && e.getMessage().contains("This connection has been closed"))) {
+		if (PSQLState.isConnectionError(e.getSQLState()) || (e.getMessage() != null && (e.getMessage().contains("This connection has been closed")
+				|| e.getMessage().contains("kConnectError") || e.getMessage().contains("Connection refused")))) {
 			code = ExceptionCode.CONNECTION_ERROR;
 		} else if (e.getMessage() != null && e.getMessage().contains("not allowed in readonly mode")) {
 			code = ExceptionCode.READ_ONLY;
@@ -43,18 +44,22 @@ public class HoloClientException extends Exception {
 			code = ExceptionCode.TOO_MANY_WAL_SENDERS;
 		} else if (e.getMessage() != null && e.getMessage().contains("violates partition constraint")) {
 			code = ExceptionCode.CONSTRAINT_VIOLATION;
+		} else if (e.getMessage() != null && e.getMessage().contains("Could not generate fixed plan")) {
+			code = ExceptionCode.NOT_SUPPORTED;
 		} else {
 			String state = e.getSQLState();
 			if ("42501".equalsIgnoreCase(state)) {
 				code = ExceptionCode.PERMISSION_DENY;
 			} else if (PSQLState.SYNTAX_ERROR.getState().equals(state)) {
 				code = ExceptionCode.SYNTAX_ERROR;
+			} else if (PSQLState.UNDEFINED_COLUMN.getState().equals(state) || (e.getMessage() != null && (e.getMessage().contains("Invalid table id") || e.getMessage().contains("Refresh meta timeout") ||
+					e.getMessage().contains("mismatches the version of the table") || e.getMessage().contains("could not open relation with OID") || e.getMessage().contains("replay not finished yet")))) {
+				//大量删分区的时, 查表分区是否存在 会报could not open relation with OID
+				//Invalid table id , SQLState = UNDEFINED_TABLE
+				//Check META_NOT_MATCH First.
+				code = ExceptionCode.META_NOT_MATCH;
 			} else if (PSQLState.UNDEFINED_TABLE.getState().equals(state)) {
 				code = ExceptionCode.TABLE_NOT_FOUND;
-			} else if (PSQLState.UNDEFINED_COLUMN.getState().equals(state) || (e.getMessage() != null && (e.getMessage().contains("Invalid table id") || e.getMessage().contains("Refresh meta timeout") ||
-					e.getMessage().contains("mismatches the version of the table") || e.getMessage().contains("could not open relation with OID")))) {
-				//大量删分区的时, 查表分区是否存在 会报could not open relation with OID
-				code = ExceptionCode.META_NOT_MATCH;
 			} else if (PSQLState.INVALID_AUTHORIZATION_SPECIFICATION.getState().equals(state) || PSQLState.INVALID_PASSWORD.getState().equals(state)) {
 				code = ExceptionCode.AUTH_FAIL;
 			} else if (PSQLState.NOT_NULL_VIOLATION.getState().equals(state) || PSQLState.UNIQUE_VIOLATION.getState().equals(state) || PSQLState.CHECK_VIOLATION.getState().equals(state)) {

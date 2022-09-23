@@ -96,6 +96,12 @@ public class HoloSinkConfig extends AbstractConfig {
     private static final String CONNECTION_MAX_IDLE_MS_DOC = "写入线程和点查线程数据库连接的最大Idle时间，超过连接将被释放";
     private static final String CONNECTION_MAX_IDLE_MS_DISPLAY = "Connection Max Idle Ms";
 
+    public static final String FIXED_CONNECTION_MODE = "connection.fixedConnectionMode";
+    public static final boolean FIXED_CONNECTION_MODE_DEFAULT = false;
+    private static final String FIXED_CONNECTION_MODE_DOC =
+            "写入和点查不占用连接数（beta功能，需要connector版本>=1.2.0，hologres引擎版本>=1.3）";
+    private static final String FIXED_CONNECTION_MODE_DISPLAY = "fixed Connection Mode";
+
     /** CONVERT CONFIG. */
     private static final String CONFIG_CONVERT_GROUP = "Convert";
 
@@ -339,6 +345,17 @@ public class HoloSinkConfig extends AbstractConfig {
                 1,
                 ConfigDef.Width.LONG,
                 CONNECTION_MAX_IDLE_MS_DISPLAY);
+
+        config.define(
+                FIXED_CONNECTION_MODE,
+                ConfigDef.Type.BOOLEAN,
+                FIXED_CONNECTION_MODE_DEFAULT,
+                ConfigDef.Importance.HIGH,
+                FIXED_CONNECTION_MODE_DOC,
+                CONFIG_CONNECTION_GROUP,
+                1,
+                ConfigDef.Width.LONG,
+                FIXED_CONNECTION_MODE_DISPLAY);
 
         // CONFIG_CONVERT_GROUP
         config.define(

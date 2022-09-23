@@ -51,6 +51,7 @@ class HologresConfigs(sourceOptions: Map[String, String]) {
   sourceOptions.get("retry_sleep_init_ms").map(v => holoConfig.setRetrySleepInitMs(v.toLong))
   sourceOptions.get("retry_sleep_step_ms").map(v => holoConfig.setRetrySleepStepMs(v.toLong))
   sourceOptions.get("connection_max_idle_ms").map(v => holoConfig.setConnectionMaxIdleMs(v.toLong))
+  sourceOptions.get("fixed_connection_mode").map(v => holoConfig.setUseFixedFe(v.toBoolean))
 
   holoConfig.setInputNumberAsEpochMsForDatetimeColumn(true)
 }

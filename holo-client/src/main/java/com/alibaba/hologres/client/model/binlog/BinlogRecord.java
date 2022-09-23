@@ -9,6 +9,7 @@ import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.model.TableSchema;
 
 import java.io.Serializable;
+import java.util.Arrays;
 
 /**
  * Binlog Record, 包含binlog相关参数.
@@ -39,5 +40,17 @@ public class BinlogRecord extends Record implements Serializable {
 
 	public boolean isHeartBeat() {
 		return false;
+	}
+
+	@Override
+	public String toString() {
+		return "BinlogRecord{" +
+			"schema=" + getSchema() +
+			", binlog lsn=" + lsn +
+			", binlog eventType=" + eventType +
+			", binlog timestamp=" + timestamp +
+			", values=" + Arrays.toString(getValues()) +
+			", bitSet=" + getBitSet() +
+			'}';
 	}
 }

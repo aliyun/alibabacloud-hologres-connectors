@@ -1,6 +1,7 @@
 package com.alibaba.hologres.client.impl.binlog;
 
 import java.sql.Timestamp;
+import java.time.Instant;
 
 /**
  * BinlogOffset
@@ -26,6 +27,7 @@ public class BinlogOffset {
 	public BinlogOffset(long sequence, long timestamp) {
 		this.sequence = sequence;
 		this.timestamp = timestamp;
+		this.startTimeText = Timestamp.from(Instant.ofEpochMilli(timestamp / 1000L)).toString();
 	}
 
 	public long getSequence() {

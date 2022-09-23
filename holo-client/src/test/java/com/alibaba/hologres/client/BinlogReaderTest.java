@@ -155,7 +155,11 @@ public class BinlogReaderTest extends HoloClientTestBase {
 					}
 				}
 			} finally {
-				execute(conn, new String[]{dropSql1, dropSql2, dropSql3});
+				try {
+					execute(conn, new String[]{dropSql1, dropSql2, dropSql3});
+				} catch (SQLException e) {
+					LOG.warn("", e);
+				}
 			}
 		}
 	}
@@ -1217,6 +1221,132 @@ public class BinlogReaderTest extends HoloClientTestBase {
 
 	/**
 	 * binlogGroupShardReader.
+	 * 多shard表 BinlogOffset 仅设置timestamp 测试
+	 */
+	@Test
+	public void binlogReader028() throws Exception {
+		if (properties == null || holoVersion.compareTo(needVersion) < 0) {
+			return;
+		}
+		HoloConfig config = buildConfig();
+		config.setWriteMode(WriteMode.INSERT_OR_REPLACE);
+		config.setBinlogReadBatchSize(128);
+		int shardCount = 3;
+
+		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
+			String tableName = "holo_client_binlog_reader_028";
+			String publicationName = "holo_client_binlog_reader_028_publication_test";
+			String slotName = "holo_client_binlog_reader_028_slot_1";
+
+			String dropSql1 = "drop table if exists " + tableName + "; drop publication if exists " + publicationName
+				+ ";\n";
+			String dropSql2 = "delete from hologres.hg_replication_progress where slot_name='" + slotName + "';\n";
+			String dropSql3 = "call hg_drop_logical_replication_slot('" + slotName + "');";
+			String createSql1 = "create extension if not exists hg_binlog;\n";
+			String createSql2 = "create table " + tableName
+				+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], "
+				+ "primary key(id));\n "
+				+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
+				+ "call set_table_property('" + tableName + "', 'shard_count', '" + shardCount + "');\n";
+			String createSql3 = "create publication " + publicationName + " for table " + tableName + ";\n";
+			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '"
+				+ publicationName + "');\n";
+
+			execute(conn, new String[] {CREATE_EXTENSION_SQL, dropSql1, dropSql2});
+			try {
+				execute(conn, new String[] {dropSql3});
+			} catch (SQLException e) {
+				LOG.info(slotName + " not exists.");
+			}
+			execute(conn, new String[] {createSql1, "begin;", createSql2, "commit;", createSql3});
+			execute(conn, new String[] {createSql4});
+
+			BinlogShardGroupReader reader = null;
+
+			try {
+				TableSchema schema = client.getTableSchema(tableName, true);
+
+				for (int i = 0; i < 1000; ++i) {
+					Put put2 = new Put(schema);
+					put2.setObject("id", i);
+					put2.setObject("amount", "16.211");
+					put2.setObject("t", "abc,d");
+					if (i == 2) {
+						put2.setObject("t", null);
+					} else if (i == 3) {
+						put2.setObject("t", "NULL");
+					}
+					put2.setObject("ts", "2021-04-12 12:12:12");
+					put2.setObject("ba", new byte[] {(byte) (i % 128)});
+					put2.setObject("t_a", new String[] {"a", "b,c"});
+					put2.setObject("i_a", new int[] {1, 2, 3, 4, 5});
+					client.put(put2);
+				}
+				client.flush();
+
+				Thread.sleep(1000L);
+				Timestamp now = new Timestamp(System.currentTimeMillis());
+
+				for (int i = 1000; i < 2000; ++i) {
+					Put put2 = new Put(schema);
+					put2.setObject("id", i);
+					put2.setObject("amount", "16.211");
+					put2.setObject("t", "abc,d");
+					if (i == 2) {
+						put2.setObject("t", null);
+					} else if (i == 3) {
+						put2.setObject("t", "NULL");
+					}
+					put2.setObject("ts", "2021-04-12 12:12:12");
+					put2.setObject("ba", new byte[] {(byte) (i % 128)});
+					put2.setObject("t_a", new String[] {"a", "b,c"});
+					put2.setObject("i_a", new int[] {1, 2, 3, 4, 5});
+					client.put(put2);
+				}
+				client.flush();
+
+				Map<Integer, Long> lsnExpects = new ConcurrentHashMap<>(shardCount);
+				try (Statement stat = conn.createStatement()) {
+					ResultSet rs = stat.executeQuery(
+						"select hg_shard_id, max(hg_binlog_lsn) from " + tableName + " group by hg_shard_id;");
+					while (rs.next()) {
+						lsnExpects.put(rs.getInt(1), rs.getLong(2));
+					}
+				}
+
+				Subscribe.OffsetBuilder offsetBuilder = Subscribe.newOffsetBuilder(tableName, slotName);
+				for (int i = 0; i < shardCount; i++) {
+					// BinlogOffset 的sequence等于-1但timestamp有效时，根据timestamp开始消费
+					offsetBuilder.addShardStartOffset(i, new BinlogOffset(-1, now.getTime() * 1000L));
+				}
+				reader = client.binlogSubscribe(offsetBuilder.build());
+				Map<Integer, Long> lsnResults = new ConcurrentHashMap<>(shardCount);
+				int count = 0;
+				BinlogRecord r;
+				while ((r = reader.getBinlogRecord()) != null) {
+					count++;
+					lsnResults.put(r.getShardId(), r.getBinlogLsn());
+					if (count == 1000) {
+						reader.cancel();
+						break;
+					}
+				}
+				LOG.info("reader cancel");
+
+				Assert.assertEquals(count, 1000);
+				Assert.assertEquals(lsnExpects, lsnResults);
+
+			} finally {
+				if (reader != null) {
+					reader.cancel();
+				}
+				execute(conn, new String[] {dropSql1, dropSql2, dropSql3});
+			}
+		}
+	}
+
+	/**
+	 * binlogGroupShardReader.
 	 * 多shard表 BinlogOffset 测试
 	 */
 	@Test
@@ -1440,7 +1570,11 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				try (HoloClient client2 = new HoloClient(config)) {
 					// 不设置offsetMap，config也未设置startTime，因此从holo保存的消费位点启动
 					reader = client2.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName, slotName).build());
-
+					// Committer的lsn初始化为-1，调用getBinlogRecord之前进行commit, -1不能被flush到holo
+					reader.commit(5000L);
+					reader.cancel();
+					// 从holo保存的消费位点启动, 验证上方commit是否将-1错误的写入holo
+					reader = client2.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName, slotName).build());
 					while ((record = reader.getBinlogRecord()) != null) {
 						count++;
 						offsetMap.replace(record.getShardId(), new BinlogOffset(record.getBinlogLsn(), record.getBinlogTimestamp()));

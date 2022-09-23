@@ -12,7 +12,7 @@
 <dependency>
     <groupId>com.alibaba.hologres</groupId>
     <artifactId>hologres-connector-kafka</artifactId>
-    <version>1.1.1</version>
+    <version>1.2.0</version>
     <classifier>jar-with-dependencies</classifier>
 </dependency>
 ```
@@ -25,9 +25,9 @@
 
 #### 加载jar包（以下两种方式可选，此处以放在工作目录为例）
 * KAFKA_HOME：
-    * 将hologres-connector-kafka-1.1-SNAPSHOT-jar-with-dependencies.jar放在Kafka安装目录的libs中。即 `$KAFKA_HOME/libs`
+    * 将hologres-connector-kafka-1.2-SNAPSHOT-jar-with-dependencies.jar放在Kafka安装目录的libs中。即 `$KAFKA_HOME/libs`
 * 工作目录
-    * 将hologres-connector-kafka-1.1-SNAPSHOT-jar-with-dependencies.jar放入你的工作目录，以下示例皆以`/user/xxx/workspace`为例
+    * 将hologres-connector-kafka-1.2-SNAPSHOT-jar-with-dependencies.jar放入你的工作目录，以下示例皆以`/user/xxx/workspace`为例
     * 在`connect-standalone.properties`中设置jar包路径，`plugin.path=/user/xxx/workspace`
     * kafka-1.0.0版本之前，不支持设置工作目录，只能将jar文件放入`$KAFKA_HOME/libs`中
 
@@ -53,7 +53,7 @@
 ### 1.将jar包、配置文件复制到工作目录，本示例以单节点模式standalone为例:
 
 ```bash
-cp hologres-connector-kafka/target/hologres-connector-kafka-1.1-SNAPSHOT-jar-with-dependencies.jar /user/xxx/workspace/
+cp hologres-connector-kafka/target/hologres-connector-kafka-1.2-SNAPSHOT-jar-with-dependencies.jar /user/xxx/workspace/
 cp hologres-connector-kafka/src/main/resources/connect-standalone.properties /user/xxx/workspace/
 cp hologres-connector-kafka/src/main/resources/holo-sink.properties /user/xxx/workspace/
 ```
@@ -142,7 +142,7 @@ connect-standalone.sh connect-standalone.properties holo-sink.properties
 ### 1.将jar包、配置文件复制到工作目录，本示例以单节点模式standalone为例:
 
 ```bash
-cp hologres-connector-kafka/target/hologres-connector-kafka-1.1-SNAPSHOT-jar-with-dependencies.jar /user/xxx/workspace/
+cp hologres-connector-kafka/target/hologres-connector-kafka-1.2-SNAPSHOT-jar-with-dependencies.jar /user/xxx/workspace/
 cp hologres-connector-kafka/src/main/resources/connect-standalone.properties /user/xxx/workspace/
 cp hologres-connector-kafka/src/main/resources/holo-sink.properties /user/xxx/workspace/
 ```
@@ -332,7 +332,7 @@ connect-standalone.sh connect-standalone.properties holo-sink.properties
 ### 1.将jar包、配置文件复制到工作目录，本示例以单节点模式standalone为例:
 
 ```bash
-cp hologres-connector-kafka/target/hologres-connector-kafka-1.1-SNAPSHOT-jar-with-dependencies.jar /user/xxx/workspace/
+cp hologres-connector-kafka/target/hologres-connector-kafka-1.2-SNAPSHOT-jar-with-dependencies.jar /user/xxx/workspace/
 cp hologres-connector-kafka/src/main/resources/connect-standalone.properties /user/xxx/workspace/
 cp hologres-connector-kafka/src/main/resources/holo-sink.properties /user/xxx/workspace/
 ```
@@ -527,6 +527,7 @@ curl -s -X POST -H 'Content-Type: application/json' --data @holo-sink.json http:
 | connection.retrySleepInitMs | 1000 | 否 | 每次重试的等待时间=retrySleepInitMs+retry*retrySleepStepMs |
 | connection.retrySleepStepMs | 10000 | 否 | 每次重试的等待时间=retrySleepInitMs+retry*retrySleepStepMs |
 | connection.connectionMaxIdleMs | 60000 | 否 | 写入线程和点查线程数据库连接的最大Idle时间，超过连接将被释放 |
+| connection.fixedConnectionMode| false|   否| 写入和点查不占用连接数（beta功能，需要connector版本>=1.2.0，hologres引擎版本>=1.3）|
 | initial_timestamp | -1 | 否 | 从某个时间点开始消费kafka数据写入hologres |
 | dirty_data_strategy | EXCEPTION | 否 | 脏数据处理策略，只对空数据或者schema错误的脏数据有效，不能处理格式错误的数据（input_format错误，乱码等）<br>EXCEPTION: 脏数据抛出异常 <br>SKIP: 跳过脏数据，打印warn日志<br>SKIP_ONCE: 跳过特定的一条脏数据，详见dirty_data_to_skip_once参数 |
 | dirty_data_to_skip_once | `null,-1,-1` | 否 | 在dirty_data_strategy=SKIP_ONCE 时生效，由三个部分组成，分别是需要跳过的脏数据对应的topic，partition，offset，通过`,`隔开 |

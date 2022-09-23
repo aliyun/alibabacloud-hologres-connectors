@@ -9,20 +9,15 @@ import com.alibaba.hologres.client.HoloConfig;
 import com.alibaba.hologres.client.exception.HoloClientException;
 import com.alibaba.hologres.client.exception.HoloClientWithDetailsException;
 import com.alibaba.hologres.client.impl.ExecutionPool;
-import com.alibaba.hologres.client.model.Partition;
 import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.model.TableName;
-import com.alibaba.hologres.client.model.TableSchema;
-import com.alibaba.hologres.client.utils.IdentifierUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.sql.Types;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -69,7 +64,7 @@ public class ActionCollector {
 	public void append(Record record) throws HoloClientException {
 		flushLock.readLock().lock();
 		try {
-			TableCollector pairArray = map.computeIfAbsent(record.getSchema().getTableNameObj(), (tableName) -> new TableCollector(config, pool));
+			TableCollector pairArray = map.computeIfAbsent(record.getTableName(), (tableName) -> new TableCollector(config, pool));
 			pairArray.append(record);
 			HoloClientException exception = lastException.getAndSet(null);
 			if (null != exception) {
@@ -80,51 +75,7 @@ public class ActionCollector {
 		}
 	}
 
-	/**
-	 * 当Get一张分区主表时，重写Get请求的TableSchema.
-	 *
-	 * @param get get请求
-	 * @return true，跳过对get的处理
-	 * 跳过有2种情况
-	 * 1 分区不存在，那么complete null
-	 * 2 获取分区或者根据分区信息获取TableSchema异常 那么complete exception
-	 */
-	private boolean rewriteForPartitionTable(Get get) {
-		Record record = get.getRecord();
-		TableSchema schema = record.getSchema();
-		TableName tableName = schema.getTableNameObj();
-
-		if (schema.isPartitionParentTable() && schema.getPartitionIndex() > -1) {
-			try {
-				Partition partition = pool.getOrSubmitPartition(tableName, String.valueOf(record.getObject(schema.getPartitionIndex())), Types.VARCHAR == schema.getColumn(schema.getPartitionIndex()).getType());
-				if (partition == null) {
-					//分区不存在，结果肯定是null
-					get.getFuture().complete(null);
-					return true;
-				} else {
-					TableSchema newSchema = pool.getOrSubmitTableSchema(TableName.valueOf(IdentifierUtil.quoteIdentifier(partition.getSchemaName(), true), IdentifierUtil.quoteIdentifier(partition.getTableName(), true)), false);
-					record.changeToChildSchema(newSchema);
-				}
-			} catch (HoloClientException e) {
-				get.getFuture().completeExceptionally(e);
-				return true;
-			}
-		}
-		return false;
-	}
-
 	public void appendGet(Get get) {
-		get.setFuture(new CompletableFuture<>());
-		if (get.isFullColumn()) {
-			for (int i = 0; i < get.getRecord().getSchema().getColumnSchema().length; ++i) {
-				if (!get.getRecord().isSet(i)) {
-					get.getRecord().setObject(i, null);
-				}
-			}
-		}
-		if (rewriteForPartitionTable(get)) {
-			return;
-		}
 		try {
 			if (!queue.offer(get, 10000L, TimeUnit.MILLISECONDS)) {
 				get.getFuture().completeExceptionally(new TimeoutException());
@@ -135,27 +86,12 @@ public class ActionCollector {
 	}
 
 	public void appendGet(List<Get> list) {
-		for (Get get : list) {
-			get.setFuture(new CompletableFuture<>());
-			if (get.isFullColumn()) {
-				for (int i = 0; i < get.getRecord().getSchema().getColumnSchema().length; ++i) {
-					if (!get.getRecord().isSet(i)) {
-						get.getRecord().setObject(i, null);
-					}
-				}
-			}
-		}
 		try {
-
-			long start = System.currentTimeMillis();
 			boolean timeout = false;
 			for (Iterator<Get> iter = list.iterator(); iter.hasNext(); ) {
 				Get get = iter.next();
 				if (timeout) {
 					get.getFuture().completeExceptionally(new TimeoutException());
-					continue;
-				}
-				if (rewriteForPartitionTable(get)) {
 					continue;
 				}
 				if (!queue.offer(get, 10000L, TimeUnit.MILLISECONDS)) {

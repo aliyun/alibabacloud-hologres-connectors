@@ -1,0 +1,11 @@
+/target
+/.idea
+.classpath
+.project
+*.iml
+/.settings
+/.vscode
+.DS_Store
+dependency-reduced-pom.xml
+endpoint.properties
+*.swp

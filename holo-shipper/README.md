@@ -135,4 +135,4 @@ DB2中schema4下的表会变为schema5下，i.e. schema4.table4在destination会
 ```
 $ mvn package
 ```
-holo-shipper/target/holo-shipper-1.2.jar 即为生成的可执行jar包
+holo-shipper/target/holo-shipper-1.2.x.jar 即为生成的可执行jar包

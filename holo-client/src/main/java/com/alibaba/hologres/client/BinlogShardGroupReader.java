@@ -182,7 +182,7 @@ public class BinlogShardGroupReader implements Closeable {
 	public CompletableFuture<Void> commitFlushedLsn(Committer committer, int shardId, long lsn, long timeoutMs) throws
 			TimeoutException, InterruptedException {
 		LOGGER.info("begin commit {} shardId {} flushedLsn to {}", subscribe.getTableName(), shardId, lsn);
-		return committer.commit(lsn, 1000L).thenRun(() -> {
+		return committer.commit(lsn, timeoutMs).thenRun(() -> {
 			LOGGER.info("done commit {} shardId {} flushedLsn to {}", subscribe.getTableName(), shardId, lsn);
 		});
 	}

@@ -7,6 +7,7 @@ package com.alibaba.hologres.client.impl.action;
 import com.alibaba.hologres.client.impl.collector.BatchState;
 import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.model.TableSchema;
+import com.alibaba.hologres.client.model.WriteMode;
 
 import java.security.InvalidParameterException;
 import java.util.List;
@@ -20,6 +21,7 @@ public class PutAction extends AbstractAction<Void> {
 	final long byteSize;
 	BatchState state;
 	TableSchema schema;
+	WriteMode writeMode;
 
 	/**
 	 * 提供的recordList必须都是相同tableSchema下的.
@@ -28,10 +30,11 @@ public class PutAction extends AbstractAction<Void> {
 	 * @param byteSize
 	 * @param state
 	 */
-	public PutAction(List<Record> recordList, long byteSize, BatchState state) {
+	public PutAction(List<Record> recordList, long byteSize, WriteMode mode, BatchState state) {
 		this.recordList = recordList;
 		this.byteSize = byteSize;
 		this.state = state;
+		this.writeMode = mode;
 		if (recordList.size() > 0) {
 			schema = recordList.get(0).getSchema();
 			for (Record record : recordList) {
@@ -46,6 +49,10 @@ public class PutAction extends AbstractAction<Void> {
 
 	public List<Record> getRecordList() {
 		return recordList;
+	}
+
+	public WriteMode getWriteMode() {
+		return writeMode;
 	}
 
 	public long getByteSize() {

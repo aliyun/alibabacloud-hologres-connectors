@@ -11,6 +11,7 @@ import com.alibaba.hologres.client.exception.HoloClientWithDetailsException;
 import com.alibaba.hologres.client.impl.ExecutionPool;
 import com.alibaba.hologres.client.impl.action.PutAction;
 import com.alibaba.hologres.client.model.Record;
+import com.alibaba.hologres.client.model.TableSchema;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,6 +31,11 @@ public class TableShardCollector {
 	public static final Logger LOGGER = LoggerFactory.getLogger(TableShardCollector.class);
 
 	private RecordCollector buffer;
+
+	/**
+	 * 当前buffer中的TableSchema.
+	 */
+	private TableSchema currentTableSchema;
 	private PutAction activeAction;
 	private long activeActionByteSize = 0L;
 	private final ExecutionPool pool;
@@ -43,30 +49,52 @@ public class TableShardCollector {
 	}
 
 	public synchronized void append(Record record) throws HoloClientException {
+		HoloClientException exception = null;
+		if (currentTableSchema == null) {
+			currentTableSchema = record.getSchema();
+		} else if (!currentTableSchema.equals(record.getSchema())) {
+			try {
+				flush(true, false, null);
+			} catch (HoloClientException e) {
+				exception = e;
+			}
+		}
 		boolean full = buffer.append(record);
 		if (full) {
-			HoloClientException exception = null;
 			try {
 				waitActionDone();
+			} catch (HoloClientWithDetailsException e) {
+				if (exception == null) {
+					exception = e;
+				} else if (exception instanceof HoloClientWithDetailsException) {
+					((HoloClientWithDetailsException) exception).merge(e);
+				}
 			} catch (HoloClientException e) {
 				exception = e;
 			}
 			commit(buffer.getBatchState());
-			if (exception != null) {
-				throw exception;
-			}
+
 		} else {
 			try {
 				isActionDone();
+			} catch (HoloClientWithDetailsException e) {
+				if (exception == null) {
+					exception = e;
+				} else if (exception instanceof HoloClientWithDetailsException) {
+					((HoloClientWithDetailsException) exception).merge(e);
+				}
 			} catch (HoloClientException e) {
-				throw e;
+				exception = e;
 			}
+		}
+		if (exception != null) {
+			throw exception;
 		}
 	}
 
 	private void commit(BatchState state) throws HoloClientException {
 		stat.add(state);
-		activeAction = new PutAction(buffer.getRecords(), buffer.getByteSize(), state);
+		activeAction = new PutAction(buffer.getRecords(), buffer.getByteSize(), buffer.getMode(), state);
 		try {
 			while (!pool.submit(activeAction)) {
 			}
@@ -91,6 +119,8 @@ public class TableShardCollector {
 			}
 		} finally {
 			buffer.clear();
+			// currentTableSchema = tableSchema in buffer.
+			currentTableSchema = null;
 		}
 
 	}

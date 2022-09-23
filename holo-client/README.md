@@ -32,7 +32,7 @@ holo-client适用于大批量数据写入（批量、实时同步至holo）和�
 
 - 查看最大连接数
 ```sql
-show max_connections;
+select instance_max_connections(); -- holo实例版本需大于等于1.3.22，否则请参考官网文档实例规格与连接数的计算方式
 ```
 
 - 查看已使用连接数
@@ -45,13 +45,13 @@ select count(*) from pg_stat_activity where backend_type='client backend';
 <dependency>
   <groupId>com.alibaba.hologres</groupId>
   <artifactId>holo-client</artifactId>
-  <version>2.1.1</version>
+  <version>2.2.0</version>
 </dependency>
 ```
 
 - Gradle
 ```
-implementation 'com.alibaba.hologres:holo-client:2.1.1'
+implementation 'com.alibaba.hologres:holo-client:2.2.0'
 ```
 
 ## 连接数说明
@@ -220,7 +220,7 @@ catch(HoloClientException e){
 
 ## 消费Binlog
 Hologres V1.1版本之后，支持使用holo-client进行表的Binlog消费。
-Binlog相关知识可以参考文档 [订阅Hologres Binlog](https://help.aliyun.com/document_detail/201024.html) 以及 [通过JDBC消费Hologres Binlog](https://help.aliyun.com/document_detail/321431.html) 
+Binlog相关知识可以参考文档 [订阅Hologres Binlog](https://help.aliyun.com/document_detail/201024.html) , 使用Holo-client消费Binlog的建表、权限等准备工作和注意事项可以参考 [通过JDBC消费Hologres Binlog](https://help.aliyun.com/document_detail/321431.html) 
 ```java
 // 配置参数,url格式为 jdbc:postgresql://host:port/db
 HoloConfig config = new HoloConfig();
@@ -230,21 +230,37 @@ config.setPassword(password);
 config.setBinlogReadBatchSize(128);
 config.setBinlogIgnoreDelete(true);
 config.setBinlogIgnoreBeforeUpdate(true);
+config.setBinlogHeartBeatIntervalMs(5000L);
+
 HoloClient client = new HoloClient(holoConfig);
 
 // 消费binlog的请求，tableName和slotname为必要参数，Subscribe有StartTimeBuilder和OffsetBuilder两种，此处以前者为例
 Subscribe subscribe = Subscribe.newStartTimeBuilder(tableName, slotName)
-                               .setBinlogReadStartTime("2021-01-01 12:00:00+08")
-                               .build();
+        .setBinlogReadStartTime("2021-01-01 12:00:00")
+        .build();
 
 // 创建binlog reader
 BinlogShardGroupReader reader = client.binlogSubscribe(subscribe);
 
 BinlogRecord record;
-
+long count = 0;
 while ((record = reader.getBinlogRecord()) != null) {
+    // 消费到最新
+    if (record instanceof BinlogHeartBeatRecord) {
+        // do something
+        continue;
+    }
+
+    // 每1000条数据保存一次消费点位，可以自行选择条件，比如按时间周期等等
+    if (count % 1000 == 0) {
+        // 保存消费点位，参数表示超时时间，单位为ms
+        reader.commit(5000L);
+    }
+
     //handle record
+    count++;
 }
+
 ```
 (可选)如需要，可以用OffsetBuilder创建Subscribe，从而为每个shard指定起始消费点位
 ```java
@@ -342,7 +358,11 @@ unnest格式相比multi values有如下优点:
 
 ## 2.X版本已知问题
 - binlog消费时，jdbc无法识别jdbc:postgresql://，必须格式为jdbc:hologres:// bug引入版本2.1.0，bug修复版本2.1.1
-
+- 调用HoloClient.put接口，当holo引擎版本<1.1.38时会错误使用高版本才支持的insert into select unnest模式，导致写入失败 bug引入版本2.1.0，bug修复版本2.1.4
+- binlog消费调用commit方法时，尚未消费到数据的shard会错误的将已消费lsn更新为-1 bug引入版本2.1.0，bug修复版本2.1.5
+- 调用Put方法时表发生增减列，导致写入失败 bug引入版本1.X， bug修复版本2.1.5
+- 当readWriteThread和writeThreadSize都为1时，getTableSchema可能触发死锁 bug引入版本1.X, bug修复版本2.2.0
+  
 ## 附录
 ### HoloConfig参数说明
 #### 基础配置
@@ -353,10 +373,16 @@ unnest格式相比multi values有如下优点:
 | password | 无 | 必填 | 1.2.3 |
 | appName | holo-client | jdbc的applicationName参数 | 1.2.9.1 |
 
-#### 写入配置
+#### 通用配置
 | 参数名 | 默认值 | 说明 |引入版本| 
 | --- | --- | --- | --- |
 | dynamicPartition | false | 若为true，当分区不存在时自动创建分区 | 1.2.3 |
+| useFixedFe | false | 当hologres引擎版本>=1.3，开启FixedFe后，Get/Put将不消耗连接数（beta功能），连接池大小为writeThreadSize和readThreadSize | 2.2.0 |
+| connectionSizeWhenUseFixedFe | 1  | 仅useFixedFe=true时生效，表示除了Get/Put之外的调用使用的连接池大小 | 2.2.0 |
+
+#### 写入配置
+| 参数名 | 默认值 | 说明 |引入版本| 
+| --- | --- | --- | --- |
 | writeMode | INSERT_OR_REPLACE | 当INSERT目标表为有主键的表时采用不同策略<br>INSERT_OR_IGNORE 当主键冲突时，不写入<br>INSERT_OR_UPDATE 当主键冲突时，更新相应列<br>INSERT_OR_REPLACE当主键冲突时，更新所有列| 1.2.3|
 | writeBatchSize | 512 | 每个写入线程的最大批次大小，在经过WriteMode合并后的Put数量达到writeBatchSize时进行一次批量提交 | 1.2.3 |
 | writeBatchByteSize | 2097152（2 * 1024 * 1024） | 每个写入线程的最大批次bytes大小，单位为Byte，默认2MB，<br>在经过WriteMode合并后的Put数据字节数达到writeBatchByteSize时进行一次批量提交 | 1.2.3 |
@@ -382,6 +408,8 @@ unnest格式相比multi values有如下优点:
 | readBatchQueueSize | 256 | 点查请求缓冲队列大小| 1.2.4|
 | scanFetchSize | 256 | Scan操作一次fetch的行数 | 1.2.9.1|
 | scanTimeoutSeconds | 256 | Scan操作的超时时间 | 1.2.9.1|
+| readTimeoutMilliseconds | 0 | Get操作的超时时间，0表示不超时 | 2.1.5 |
+| readRetryCount | 1 | Get操作的尝试次数，1表示不重试 | 2.1.5 |
 
 #### 连接配置
 | 参数名 | 默认值 | 说明 |引入版本| 
@@ -400,3 +428,4 @@ unnest格式相比multi values有如下优点:
 | binlogHeartBeatIntervalMs | -1 | binlogRead 发送BinlogHeartBeatRecord的间隔.<br>-1表示不发送,<br>当binlog没有新数据，每间隔binlogHeartBeatIntervalMs会下发一条BinlogHeartBeatRecord，此record的timestamp表示截止到这个时间的数据都已经消费完成.| 2.1.0 |
 | binlogIgnoreDelete |false| 是否忽略消费Delete类型的binlog | 1.2.16.5 |
 | binlogIgnoreBeforeUpdate | false | 是否忽略消费BeforeUpdate类型的binlog | 1.2.16.5 |
+| retryCount | 3 | 消费失败时的重试次数，成功消费时重试次数会被重置 | 2.1.5 |

@@ -239,6 +239,25 @@ public class HoloConfig implements Serializable {
 	 */
 	int readThreadSize = 1;
 
+	/**
+	 * get操作的超时时间.
+	 * 默认值0表示不超时，会在两处位置生效：
+	 * 		1.get操作从用户开始执行到client准备提交到holo的等待时间，如果这个阶段超时不会重试直接抛出异常.
+	 * 		2.get sql的执行超时，即statement query timeout，最小1s.
+	 *
+	 * @HasGetter
+	 * @HasSetter
+	 */
+	int readTimeoutMilliseconds = 0;
+
+	/**
+	 * get请求重试次数, 与默认的retryCount分别设置，默认1不会retry.
+	 *
+	 * @HasGetter
+	 * @HasSetter
+	 */
+	int readRetryCount = 1;
+
 	//--------------------------scan conf-------------------------------------------------
 	/**
 	 * scan每次fetch的大小.
@@ -389,6 +408,22 @@ public class HoloConfig implements Serializable {
 	 */
 	String password;
 
+	/**
+	 * 是否使用fixed fe模式进行数据写入和点查.
+	 *
+	 * @HasGetter
+	 * @HasSetter
+	 */
+	boolean useFixedFe = false;
+
+	/**
+	 * 使用fixed fe进行数据写入和点查时， 其他action使用的连接数.
+	 *
+	 * @HasGetter
+	 * @HasSetter
+	 */
+	int connectionSizeWhenUseFixedFe = 1;
+
 	String appName = "holo-client";
 
 	boolean enableShutdownHook = false;
@@ -423,6 +458,22 @@ public class HoloConfig implements Serializable {
 
 	public void setPassword(String password) {
 		this.password = password;
+	}
+
+	public boolean isUseFixedFe() {
+		return useFixedFe;
+	}
+
+	public void setUseFixedFe(boolean useFixedFe) {
+		this.useFixedFe = useFixedFe;
+	}
+
+	public int getConnectionSizeWhenUseFixedFe() {
+		return connectionSizeWhenUseFixedFe;
+	}
+
+	public void setConnectionSizeWhenUseFixedFe(int connectionSizeWhenUseFixedFe) {
+		this.connectionSizeWhenUseFixedFe = connectionSizeWhenUseFixedFe;
 	}
 
 	public int getWriteBatchSize() {
@@ -511,6 +562,22 @@ public class HoloConfig implements Serializable {
 
 	public void setReadThreadSize(int readThreadSize) {
 		this.readThreadSize = readThreadSize;
+	}
+
+	public int getReadTimeoutMilliseconds() {
+		return readTimeoutMilliseconds;
+	}
+
+	public void setReadTimeoutMilliseconds(int readTimeoutSeconds) {
+		this.readTimeoutMilliseconds = readTimeoutSeconds;
+	}
+
+	public int getReadRetryCount() {
+		return readRetryCount;
+	}
+
+	public void setReadRetryCount(int readRetryCount) {
+		this.readRetryCount = readRetryCount;
 	}
 
 	public long getConnectionMaxIdleMs() {

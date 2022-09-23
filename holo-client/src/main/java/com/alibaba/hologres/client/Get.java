@@ -16,6 +16,8 @@ import java.util.concurrent.CompletableFuture;
 public class Get {
 	Record record;
 	CompletableFuture<Record> future;
+	// get操作提交到holo-client的时间
+	long startTime;
 
 	public Get(Record record) {
 		this(record, true);
@@ -80,6 +82,14 @@ public class Get {
 
 	public boolean isFullColumn() {
 		return fullColumn;
+	}
+
+	public long getStartTime() {
+		return startTime;
+	}
+
+	public void setStartTime(long startTime) {
+		this.startTime = startTime;
 	}
 
 	public Record getRecord() {

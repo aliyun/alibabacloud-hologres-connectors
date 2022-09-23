@@ -36,7 +36,11 @@ public class MetaActionHandler extends ActionHandler<MetaAction> {
 					String fullTableName = action.getTableName().getFullName();
 					ConnectionUtil.CheckMetaResult result = ConnectionUtil.checkMeta(connWithVersion.getConn(), connWithVersion.getVersion(), fullTableName, config.getRefreshMetaTimeout());
 					if (!result.isUpdated()) {
-						throw new SQLException("mismatches the version of the table [" + fullTableName + "]:" + result.getMsg()); //HoloClientException会识别这种特殊的异常message
+						if (result.getMsg().contains("table is lock by other query which request a AccessExclusiveLock")) {
+							throw new SQLException("mismatches the version of the table [" + fullTableName + "]:" + result.getMsg()); //HoloClientException会识别这种特殊的异常message
+						} else {
+							throw new SQLException("truncate table [" + fullTableName + "], but replay not finished yet:" + result.getMsg()); //HoloClientException会识别这种特殊的异常message
+						}
 					}
 				}
 				return ConnectionUtil.getTableSchema(connWithVersion.getConn(), action.getTableName());

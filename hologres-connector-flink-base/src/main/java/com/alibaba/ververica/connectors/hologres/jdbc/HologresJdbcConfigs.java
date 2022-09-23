@@ -12,6 +12,8 @@ public class HologresJDBCConfigs {
             key("connectionSize".toLowerCase()).intType().defaultValue(3);
     public static final ConfigOption<String> OPTIONAL_JDBC_SHARED_CONNECTION_POOL_NAME =
             key("connectionPoolName".toLowerCase()).stringType().noDefaultValue();
+    public static final ConfigOption<Boolean> OPTIONAL_JDBC_FIXED_CONNECTION_MODE =
+            key("fixedConnectionMode".toLowerCase()).booleanType().defaultValue(false);
     public static final ConfigOption<Integer> OPTIONAL_JDBC_RETRY_COUNT =
             key("jdbcRetryCount".toLowerCase()).intType().defaultValue(10);
     public static final ConfigOption<Long> OPTIONAL_RETRY_SLEEP_INIT_MS =

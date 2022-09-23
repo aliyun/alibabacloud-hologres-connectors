@@ -13,9 +13,7 @@ import org.junit.Test;
 
 import java.math.BigDecimal;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
@@ -36,41 +34,6 @@ import java.util.concurrent.atomic.AtomicLong;
  * @since <pre>12月 2, 2020</pre>
  */
 public class HoloClientTest extends HoloClientTestBase {
-
-	/**
-	 *
-	 */
-	@Test
-	public void testSts001() throws Exception {
-		if (properties == null) {
-			return;
-		}
-		String url = properties.getProperty("url") + "?conf:stsCode=123";
-		Assert.assertThrows(SQLException.class, () -> {
-			try (Connection conn = DriverManager.getConnection(url, properties)) {
-
-			} catch (SQLException s) {
-				Assert.assertEquals("FATAL: unrecognized configuration parameter \"stsCode\"", s.getMessage());
-				throw s;
-			}
-		});
-	}
-
-	/**
-	 *
-	 */
-	@Test
-	public void testSts002() throws Exception {
-		if (properties == null) {
-			return;
-		}
-		String url = properties.getProperty("url") + "?stsCode=123";
-
-		try (Connection conn = DriverManager.getConnection(url, properties)) {
-			Assert.assertEquals("a", "a");
-		}
-
-	}
 
 	/**
 	 * INSERT_REPLACE.
@@ -1405,7 +1368,7 @@ public class HoloClientTest extends HoloClientTestBase {
 	 * Method: put(Put put).
 	 */
 	@Test
-	public void testPutPut0245() throws Exception {
+	public void testPutPut025() throws Exception {
 		if (properties == null) {
 			return;
 		}
@@ -1688,6 +1651,10 @@ public class HoloClientTest extends HoloClientTestBase {
 			return;
 		}
 		HoloConfig config = buildConfig();
+		// fixed fe 不支持scan
+		if (config.isUseFixedFe()) {
+			return;
+		}
 		config.setWriteMode(WriteMode.INSERT_OR_REPLACE);
 		config.setDynamicPartition(true);
 		config.setConnectionMaxIdleMs(10000L);
@@ -2798,7 +2765,7 @@ public class HoloClientTest extends HoloClientTestBase {
 
 			String addUser = "CREATE USER \"BASIC$ttqs\" WITH PASSWORD 'ttqspw';";
 			String dropUser = "drop user if exists \"BASIC$ttqs\"";
-			execute(conn, new String[]{dropSql, createSql, addUser});
+			execute(conn, new String[]{dropUser, dropSql, createSql, addUser});
 
 			try {
 				TableSchema schema = client.getTableSchema(tableName);
@@ -2836,6 +2803,10 @@ public class HoloClientTest extends HoloClientTestBase {
 			return;
 		}
 		HoloConfig config = buildConfig();
+		// fixed fe 不支持simpleQueryMode
+		if (config.isUseFixedFe()) {
+			return;
+		}
 		config.setJdbcUrl(config.getJdbcUrl() + "?preferQueryMode=simple");
 		config.setWriteMode(WriteMode.INSERT_OR_UPDATE);
 		config.setDynamicPartition(true);
@@ -3043,7 +3014,7 @@ public class HoloClientTest extends HoloClientTestBase {
 	}
 
 	/**
-	 * delete partition table，public schema. int
+	 * get partition table，public schema. int
 	 * Method: put(Put put).
 	 */
 	@Test
@@ -3102,7 +3073,7 @@ public class HoloClientTest extends HoloClientTestBase {
 	}
 
 	/**
-	 * delete partition table，public schema. text
+	 * get partition table，public schema. text
 	 * Method: put(Put put).
 	 */
 	@Test
@@ -3318,6 +3289,10 @@ public class HoloClientTest extends HoloClientTestBase {
 			return;
 		}
 		HoloConfig config = buildConfig();
+		// fixed fe 不支持bit
+		if (config.isUseFixedFe()) {
+			return;
+		}
 		config.setWriteMode(WriteMode.INSERT_OR_UPDATE);
 		config.setDynamicPartition(true);
 		config.setConnectionMaxIdleMs(10000L);
@@ -3453,6 +3428,108 @@ public class HoloClientTest extends HoloClientTestBase {
 				}
 			} finally {
 				execute(conn, new String[]{dropSql});
+			}
+		}
+	}
+
+
+	/**
+	 * truncate之后尝试重连.
+	 * Method: put(Put put).
+	 */
+	@Test
+	public void testPutPut057() throws Exception {
+		if (properties == null) {
+			return;
+		}
+		HoloConfig config = buildConfig();
+		config.setWriteBatchSize(10);
+		config.setRetryCount(5);
+		try (Connection conn = buildConnection(); ExecutionPool pool = ExecutionPool.buildOrGet("hello", config, false)) {
+			String tableName = "\"holO_client_put_057\"";
+			String dropSql = "drop table if exists " + tableName;
+			String truncateSql = "truncate " + tableName;
+			String createSql = "create table " + tableName + "(id int8 not null,name text,primary key(id))";
+
+			execute(conn, new String[]{dropSql, createSql});
+
+			try {
+				AtomicBoolean failed = new AtomicBoolean(false);
+				ExecutorService es = new ThreadPoolExecutor(20, 20, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(20), r -> {
+					Thread t = new Thread(r);
+					return t;
+				}, new ThreadPoolExecutor.AbortPolicy());
+
+				Runnable runnable = () -> {
+					try {
+						execute(conn, new String[]{truncateSql});
+						HoloClient client = new HoloClient(config);
+						client.setPool(pool);
+						TableSchema schema = client.getTableSchema(tableName, true);
+					} catch (Exception e) {
+						e.printStackTrace();
+						// 走到这里表示测试失败，如果进入重试不会走到这里
+						failed.set(true);
+						Assert.assertTrue(e.getClass().getName() + ":" + e.getMessage(), false);
+					}
+				};
+				for (int i = 0; i < 20; ++i) {
+					es.execute(runnable);
+				}
+				es.shutdown();
+				while (!es.awaitTermination(5000L, TimeUnit.MILLISECONDS)) {
+
+				}
+				if (failed.get()) {
+					Assert.fail();
+				}
+			} finally {
+				execute(conn, new String[]{dropSql});
+			}
+		}
+	}
+
+	/**
+	 * distribution_key设置为''
+	 * Method: put(Put put).
+	 */
+	@Test
+	public void testTableWithEmptyDistributionKeys() throws Exception {
+		if (properties == null) {
+			return;
+		}
+		HoloConfig config = buildConfig();
+
+		try (Connection conn = buildConnection()) {
+			String tableName = "test_schema.holO_client_put_empty_distribution_keys";
+			String createSchema = "create schema if not exists test_schema";
+			String dropSql = "drop table if exists " + tableName;
+			String createSql = "create table " + tableName
+				+ "(id int not null,\"nAme\" text,\"address\" text not null,primary key(id)); call set_table_property"
+				+ " ('"
+				+ tableName + "','distribution_key','');";
+			execute(conn, new String[] {createSchema, dropSql, createSql});
+
+			try (HoloClient client = new HoloClient(config)) {
+				TableSchema schema = client.getTableSchema(tableName);
+
+				Put put = new Put(schema);
+				put.setObject(0, 1);
+				put.setObject(1, "name1");
+				put.setObject(2, "address2");
+				client.put(put);
+				client.flush();
+
+				Record r = client.get(Get.newBuilder(schema).setPrimaryKey("id", 1).build()).get();
+				Assert.assertNull(r);
+
+				Assert.assertEquals("name1", r.getObject(1));
+				Assert.assertEquals("address2", r.getObject(2));
+			} catch (Exception e) {
+				e.printStackTrace();
+				Assert.assertTrue(e.getMessage().contains("empty distribution_key is not supported."));
+			} finally {
+				execute(conn, new String[] {dropSql});
 			}
 		}
 	}

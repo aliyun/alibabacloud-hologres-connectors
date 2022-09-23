@@ -1,6 +1,7 @@
 package com.alibaba.hologres.client;
 
 import com.alibaba.hologres.client.exception.HoloClientException;
+import com.alibaba.hologres.client.impl.ExecutionPool;
 import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.model.WriteMode;
@@ -9,6 +10,11 @@ import org.junit.Test;
 
 import java.sql.Connection;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * HoloClient Tester.
@@ -187,6 +193,121 @@ public class HoloClientGetTest extends HoloClientTestBase {
 				}
 			} finally {
 				execute(conn, new String[]{dropSql});
+			}
+		}
+	}
+
+	/**
+	 * get waiting timeout
+	 * Method: put(Put put).
+	 */
+	@Test
+	public void testGet004() throws Exception {
+		if (properties == null) {
+			return;
+		}
+		HoloConfig config = buildConfig();
+		// 1ms 便于测试
+		config.setReadTimeoutMilliseconds(1);
+		config.setAppName("testGet004");
+		config.setReadRetryCount(3);
+		config.setReadThreadSize(1);
+		config.setWriteBatchSize(1);
+		try (Connection conn = buildConnection(); ExecutionPool pool = ExecutionPool.buildOrGet("hello", config, false)) {
+			String tableName = "test_schema.holo_client_get_004";
+			String createSchema = "create schema if not exists test_schema";
+			String dropSql = "drop table if exists " + tableName;
+			String createSql = "create table " + tableName + "(id int not null,name text, primary key(id))";
+
+			execute(conn, new String[]{createSchema, dropSql, createSql});
+
+			try {
+				AtomicBoolean failed = new AtomicBoolean(false);
+				ExecutorService es = new ThreadPoolExecutor(20, 20, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(20), r -> {
+					Thread t = new Thread(r);
+					return t;
+				}, new ThreadPoolExecutor.AbortPolicy());
+				// 多线程单连接执行get, 部分get的等待时间可能大于1ms
+				Runnable runnable = () -> {
+					try {
+						HoloClient client = new HoloClient(config);
+						client.setPool(pool);
+						TableSchema schema = client.getTableSchema(tableName, true);
+						Put put = new Put(schema);
+						put.setObject(0, 0);
+						put.setObject(1, "name0");
+						client.put(put);
+						client.flush();
+						Record r = client.get(Get.newBuilder(schema).setPrimaryKey("id", 0).build()).get();
+						Assert.assertEquals("name0", r.getObject("name"));
+					} catch (ExecutionException | HoloClientException | InterruptedException e) {
+						e.printStackTrace();
+						Assert.assertTrue(e.getMessage().contains("get waiting timeout before submit to holo"));
+						// 其他error message则测试失败
+						if (!e.getMessage().contains("get waiting timeout before submit to holo")) {
+							failed.set(true);
+						}
+					}
+				};
+				for (int i = 0; i < 20; ++i) {
+					es.execute(runnable);
+				}
+				es.shutdown();
+				while (!es.awaitTermination(5000L, TimeUnit.MILLISECONDS)) {
+
+				}
+				if (failed.get()) {
+					Assert.fail();
+				}
+			} finally {
+				execute(conn, new String[]{dropSql});
+			}
+		}
+		synchronized (this) {
+			this.wait(5000L);
+		}
+	}
+
+	/**
+	 * times of get > 5, to test statement name is saved
+	 * Method: put(Put put).
+	 */
+	@Test
+	public void testGet005() throws Exception {
+		if (properties == null) {
+			return;
+		}
+		HoloConfig config = buildConfig();
+		config.setWriteMode(WriteMode.INSERT_OR_REPLACE);
+		config.setWriteMaxIntervalMs(3000L);
+		config.setEnableDefaultForNotNullColumn(false);
+		config.setAppName("testGet005");
+		config.setWriteBatchSize(128);
+		config.setReadThreadSize(10);
+		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
+			String tableName = "test_schema.holo_client_get_005";
+			String createSchema = "create schema if not exists test_schema";
+			String dropSql = "drop table if exists " + tableName;
+			String createSql = "create table " + tableName
+				+ "(id int not null,name text not null,address text,primary key(id));";
+			execute(conn, new String[] {createSchema, dropSql, createSql});
+			try {
+				TableSchema schema = client.getTableSchema(tableName);
+				for (int i = 0; i < 10000; i++) {
+					Put put = new Put(schema);
+					put.setObject(0, i);
+					put.setObject(1, "name0");
+					put.setObject(2, "address0");
+					client.put(put);
+				}
+				client.flush();
+				for (int i = 1; i < 100; i++) {
+					Record r = client.get(Get.newBuilder(schema).setPrimaryKey("id", i).build()).get();
+					Assert.assertEquals("name0", r.getObject("name"));
+					Assert.assertEquals("address0", r.getObject("address"));
+				}
+			} finally {
+				execute(conn, new String[] {dropSql});
 			}
 		}
 	}

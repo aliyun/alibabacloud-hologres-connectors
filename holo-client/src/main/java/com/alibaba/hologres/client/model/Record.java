@@ -24,7 +24,16 @@ import java.util.concurrent.CompletableFuture;
  */
 public class Record implements Serializable {
 
-	TableSchema schema;
+	/**
+	 * schema never change.
+	 */
+	final TableSchema schema;
+
+	/**
+	 * for partition table, the tableName is partition child table name.
+	 */
+	TableName tableName;
+
 	Object[] values;
 	BitSet bitSet;
 	BitSet onlyInsertColumnSet;
@@ -42,6 +51,7 @@ public class Record implements Serializable {
 	transient List<CompletableFuture<Void>> putFutures;
 
 	private Record(TableSchema schema,
+				   TableName tableName,
 				   Object[] values,
 				   BitSet bitSet,
 				   BitSet onlyInsertColumnSet,
@@ -50,6 +60,7 @@ public class Record implements Serializable {
 				   long byteSize,
 				   int shardId) {
 		this.schema = schema;
+		this.tableName = tableName;
 		this.values = values;
 		this.bitSet = bitSet;
 		this.onlyInsertColumnSet = onlyInsertColumnSet;
@@ -61,6 +72,7 @@ public class Record implements Serializable {
 
 	public Record clone() {
 		return new Record(schema,
+				tableName,
 				values.clone(),
 				(BitSet) bitSet.clone(),
 				(BitSet) onlyInsertColumnSet.clone(),
@@ -113,6 +125,7 @@ public class Record implements Serializable {
 
 	public Record(TableSchema schema) {
 		this.schema = schema;
+		this.tableName = schema.getTableNameObj();
 		bitSet = new BitSet(schema.getColumnSchema().length);
 		onlyInsertColumnSet = new BitSet(schema.getColumnSchema().length);
 		values = new Object[schema.getColumnSchema().length];
@@ -197,6 +210,10 @@ public class Record implements Serializable {
 				}
 		}
 		return ret;
+	}
+
+	public TableName getTableName() {
+		return tableName;
 	}
 
 	public void setObject(int index, Object obj) {
@@ -344,7 +361,7 @@ public class Record implements Serializable {
 	}
 
 	public void changeToChildSchema(TableSchema schema) {
-		this.schema = schema;
+		this.tableName = schema.getTableNameObj();
 	}
 
 	/**

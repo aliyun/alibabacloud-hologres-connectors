@@ -20,6 +20,7 @@ import com.alibaba.hologres.client.impl.util.ConnectionUtil;
 import com.alibaba.hologres.client.model.Partition;
 import com.alibaba.hologres.client.model.TableName;
 import com.alibaba.hologres.client.model.TableSchema;
+import com.alibaba.hologres.client.utils.Tuple;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -102,14 +103,19 @@ public class ExecutionPool implements Closeable {
 	final boolean enableShutdownHook;
 	final HoloConfig config;
 	final boolean isShardEnv;
+	final boolean isFixedPool; //当前ExecutionPool是不是fixed fe execution Pool
 
 	public static ExecutionPool buildOrGet(String name, HoloConfig config) {
 		return buildOrGet(name, config, true);
 	}
 
 	public static ExecutionPool buildOrGet(String name, HoloConfig config, boolean isShardEnv) {
+		return buildOrGet(name, config, isShardEnv, false);
+	}
+
+	public static ExecutionPool buildOrGet(String name, HoloConfig config, boolean isShardEnv, boolean isFixedPool) {
 		synchronized (POOL_MAP) {
-			return POOL_MAP.computeIfAbsent(name, n -> new ExecutionPool(n, config, isShardEnv));
+			return POOL_MAP.computeIfAbsent(name, n -> new ExecutionPool(n, config, isShardEnv, isFixedPool));
 		}
 	}
 
@@ -117,10 +123,11 @@ public class ExecutionPool implements Closeable {
 		return POOL_MAP.get(name);
 	}
 
-	public ExecutionPool(String name, HoloConfig config, boolean isShardEnv) {
+	public ExecutionPool(String name, HoloConfig config, boolean isShardEnv, boolean isFixedPool) {
 		this.name = name;
 		this.config = config;
 		this.isShardEnv = isShardEnv;
+		this.isFixedPool = isFixedPool;
 		workerThreadFactory = new ThreadFactory() {
 			@Override
 			public Thread newThread(Runnable r) {
@@ -155,20 +162,29 @@ public class ExecutionPool implements Closeable {
 		this.enableShutdownHook = config.isEnableShutdownHook();
 		this.queue = new ArrayBlockingQueue<>(config.getReadBatchQueueSize());
 		readActionWatcher = new ActionWatcher(config.getReadBatchSize());
-		//workerSize取读并发和写并发的最大值，worker会公用
-		int workerSize = Math.max(readThreadSize, writeThreadSize);
+		// Fe模式: workerSize取读并发和写并发的最大值，worker会公用
+		// FixedFe模式: 分为fixedPool（workerSize取读并发和写并发的最大值，worker会公用）和fePool（workerSize设置为connectionSizeWhenUseFixedFe, 用于sql、meta等其他action）
+		int workerSize;
+		if (config.isUseFixedFe() && !isFixedPool) {
+			workerSize = config.getConnectionSizeWhenUseFixedFe();
+		} else {
+			workerSize = Math.max(readThreadSize, writeThreadSize);
+		}
 		workers = new Worker[workerSize];
 		started = new AtomicBoolean(false);
 		workerStated = new AtomicBoolean(false);
 		for (int i = 0; i < workerSize; ++i) {
-			workers[i] = new Worker(config, workerStated, i, isShardEnv);
+			if (isFixedPool) {
+				workers[i] = new Worker(config, workerStated, i, isShardEnv, true);
+			} else {
+				workers[i] = new Worker(config, workerStated, i, isShardEnv);
+			}
 		}
 
 		clientMap = new ConcurrentHashMap<>();
 		byteSizeCache = new ByteSizeCache(config.getWriteBatchTotalByteSize());
 		backgroundJob = new BackgroundJob(config);
-		this.metaStore = new MetaStore();
-		metaStore.tableCache.setTtl(config.getMetaCacheTTL());
+		this.metaStore = new MetaStore(config.getMetaCacheTTL());
 	}
 
 	private synchronized void start() throws HoloClientException {
@@ -530,11 +546,12 @@ public class ExecutionPool implements Closeable {
 								break;
 							case NEED_REFRESH:
 								try {
+									getOrSubmitTableSchema(tableName, true);
 									MetaAction metaAction = new MetaAction(tableName);
 									if (submit(metaAction)) {
 										LOGGER.info("refresh tableSchema for {}, because remain lifetime < {} ms", tableName, tableSchemaRemainLife);
 										pendingRefreshTableSchemaActionCount.incrementAndGet();
-										metaAction.getFuture().whenComplete((tableSchema, exception) -> {
+										metaAction.getFuture().whenCompleteAsync((tableSchema, exception) -> {
 											pendingRefreshTableSchemaActionCount.decrementAndGet();
 											if (exception != null) {
 												LOGGER.warn("refreshTableSchema fail", exception);
@@ -603,12 +620,22 @@ public class ExecutionPool implements Closeable {
 					if (firstGet != null) {
 						recordList.add(firstGet);
 						queue.drainTo(recordList, batchSize - 1);
-						Map<TableSchema, List<Get>> getsByTable = new HashMap<>();
+						Map<Tuple<TableSchema, TableName>, List<Get>> getsByTable = new HashMap<>();
 						for (Get get : recordList) {
-							List<Get> list = getsByTable.computeIfAbsent(get.getRecord().getSchema(), (s) -> new ArrayList<Get>());
+							if (config.getReadTimeoutMilliseconds() > 0) {
+								long waitingTime = (System.nanoTime() - get.getStartTime()) / 1000000L;
+								if (waitingTime - config.getReadTimeoutMilliseconds() > 0) {
+									get.getFuture().completeExceptionally(new HoloClientException(ExceptionCode.TIMEOUT,
+											String.format(
+													"get waiting timeout before submit to holo, it cost %s ms greater than %s ms set in the config, "
+															+ "maybe the holo-client is too busy and increasing readThreadSize can resolve it",
+													waitingTime, config.getReadTimeoutMilliseconds())));
+								}
+							}
+							List<Get> list = getsByTable.computeIfAbsent(new Tuple<>(get.getRecord().getSchema(), get.getRecord().getTableName()), (s) -> new ArrayList<Get>());
 							list.add(get);
 						}
-						for (Map.Entry<TableSchema, List<Get>> entry : getsByTable.entrySet()) {
+						for (Map.Entry<Tuple<TableSchema, TableName>, List<Get>> entry : getsByTable.entrySet()) {
 							GetAction getAction = new GetAction(entry.getValue());
 							while (!submit(getAction)) {
 							}

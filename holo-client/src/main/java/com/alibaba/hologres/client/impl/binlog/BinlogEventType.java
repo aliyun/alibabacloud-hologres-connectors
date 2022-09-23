@@ -21,7 +21,10 @@ public enum BinlogEventType {
 	INSERT(5),
 
 	// 表示当前Binlog 为更新一条已有的记录中更新后的记录
-	AFTER_UPDATE(7);
+	AFTER_UPDATE(7),
+
+    // 表示该shard截止到hg_binlog_timestamp_us的binlog均已消费完毕
+    HEARTBEAT_LOG_EVENT(27);
 
 	private final long value;
 
@@ -43,8 +46,10 @@ public enum BinlogEventType {
 				return INSERT;
 			case 7:
 				return AFTER_UPDATE;
+            case 27:
+                return HEARTBEAT_LOG_EVENT;
 			default:
-				throw new InvalidParameterException("unknow binlog event type" + value);
+				throw new InvalidParameterException("unknown binlog event type" + value);
 		}
 	}
 }

@@ -9,11 +9,13 @@ import com.alibaba.hologres.client.Put;
 import com.alibaba.hologres.client.model.Column;
 import com.alibaba.hologres.client.model.HoloVersion;
 import com.alibaba.hologres.client.model.Record;
+import com.alibaba.hologres.client.model.TableName;
 import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.model.WriteMode;
 import com.alibaba.hologres.client.type.PGroaringbitmap;
 import com.alibaba.hologres.client.utils.IdentifierUtil;
 import com.alibaba.hologres.client.utils.Tuple;
+import com.alibaba.hologres.client.utils.Tuple3;
 import org.postgresql.util.PSQLState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,7 +46,6 @@ public class UpsertStatementBuilder {
 	public static final Logger LOGGER = LoggerFactory.getLogger(UpsertStatementBuilder.class);
 	protected static final String DELIMITER_OR = " OR ";
 	protected static final String DELIMITER_DOT = ", ";
-	protected WriteMode mode;
 	protected HoloConfig config;
 	boolean enableDefaultValue;
 	String defaultTimeStampText;
@@ -55,7 +56,6 @@ public class UpsertStatementBuilder {
 
 	public UpsertStatementBuilder(HoloConfig config) {
 		this.config = config;
-		this.mode = config.getWriteMode();
 		this.enableDefaultValue = config.isEnableDefaultForNotNullColumn();
 		this.defaultTimeStampText = config.getDefaultTimestampText();
 		this.inputNumberAsEpochMsForDatetimeColumn = config.isInputNumberAsEpochMsForDatetimeColumn();
@@ -67,15 +67,15 @@ public class UpsertStatementBuilder {
 	 * 表+record.isSet的列（BitSet） -> Sql语句的映射.
 	 */
 	static class SqlCache<T> {
-		Map<TableSchema, Map<T, SqlTemplate>> cacheMap = new HashMap<>();
+		Map<Tuple3<TableSchema, TableName, WriteMode>, Map<T, SqlTemplate>> cacheMap = new HashMap<>();
 
 		int size = 0;
 
-		public SqlTemplate computeIfAbsent(TableSchema tableSchema, T t, BiFunction<TableSchema, T, SqlTemplate> b) {
-			Map<T, SqlTemplate> subMap = cacheMap.computeIfAbsent(tableSchema, (s) -> new HashMap<>());
+		public SqlTemplate computeIfAbsent(Tuple3<TableSchema, TableName, WriteMode> tuple, T t, BiFunction<Tuple3<TableSchema, TableName, WriteMode>, T, SqlTemplate> b) {
+			Map<T, SqlTemplate> subMap = cacheMap.computeIfAbsent(tuple, (s) -> new HashMap<>());
 			return subMap.computeIfAbsent(t, (bs) -> {
 				++size;
-				return b.apply(tableSchema, bs);
+				return b.apply(tuple, bs);
 			});
 		}
 
@@ -89,15 +89,17 @@ public class UpsertStatementBuilder {
 	}
 
 	SqlCache<Tuple<BitSet, BitSet>> insertCache = new SqlCache<>();
-	Map<TableSchema, SqlTemplate> deleteCache = new HashMap<>();
+	Map<Tuple<TableSchema, TableName>, SqlTemplate> deleteCache = new HashMap<>();
 	boolean first = true;
 
-	private SqlTemplate buildDeleteSqlTemplate(TableSchema schema) {
-		SqlTemplate sqlTemplate = deleteCache.get(schema);
+	private SqlTemplate buildDeleteSqlTemplate(Tuple<TableSchema, TableName> tuple) {
+		TableSchema schema = tuple.l;
+		TableName tableName = tuple.r;
+		SqlTemplate sqlTemplate = deleteCache.get(tuple);
 		if (sqlTemplate == null) {
 			first = true;
 			StringBuilder sb = new StringBuilder();
-			sb.append("delete from ").append(schema.getTableNameObj().getFullName());
+			sb.append("delete from ").append(tableName.getFullName());
 			sb.append(" where ");
 			String header = sb.toString();
 			sb.setLength(0);
@@ -113,16 +115,19 @@ public class UpsertStatementBuilder {
 			String rowText = sb.toString();
 			int maxLevel = 32 - Integer.numberOfLeadingZeros(Short.MAX_VALUE / schema.getKeyIndex().length) - 1;
 			sqlTemplate = new SqlTemplate(header, null, rowText, DELIMITER_OR, maxLevel);
-			deleteCache.put(schema, sqlTemplate);
+			deleteCache.put(tuple, sqlTemplate);
 		}
 		return sqlTemplate;
 	}
 
-	private SqlTemplate buildInsertSql(TableSchema schema, Tuple<BitSet, BitSet> input) {
+	private SqlTemplate buildInsertSql(Tuple3<TableSchema, TableName, WriteMode> tuple, Tuple<BitSet, BitSet> input) {
+		TableSchema schema = tuple.l;
+		TableName tableName = tuple.m;
+		WriteMode mode = tuple.r;
 		BitSet set = input.l;
 		BitSet onlyInsertSet = input.r;
 		StringBuilder sb = new StringBuilder();
-		sb.append("insert into ").append(schema.getTableNameObj().getFullName());
+		sb.append("insert into ").append(tableName.getFullName());
 
 		sb.append("(");
 		first = true;
@@ -338,7 +343,7 @@ public class UpsertStatementBuilder {
 
 	}
 
-	public void prepareRecord(Connection conn, Record record) throws SQLException {
+	public void prepareRecord(Connection conn, Record record, WriteMode mode) throws SQLException {
 		try {
 			for (int i = 0; i < record.getSize(); ++i) {
 				Column column = record.getSchema().getColumn(i);
@@ -486,11 +491,11 @@ public class UpsertStatementBuilder {
 		return psIndex;
 	}
 
-	protected void buildInsertStatement(Connection conn, HoloVersion version, TableSchema schema, Tuple<BitSet, BitSet> columnSet, List<Record> recordList, List<PreparedStatementWithBatchInfo> list) throws SQLException {
+	protected void buildInsertStatement(Connection conn, HoloVersion version, TableSchema schema, TableName tableName, Tuple<BitSet, BitSet> columnSet, List<Record> recordList, List<PreparedStatementWithBatchInfo> list, WriteMode mode) throws SQLException {
 		if (recordList.size() == 0) {
 			return;
 		}
-		SqlTemplate sql = insertCache.computeIfAbsent(schema, columnSet, this::buildInsertSql);
+		SqlTemplate sql = insertCache.computeIfAbsent(new Tuple3<>(schema, tableName, mode), columnSet, this::buildInsertSql);
 		fillPreparedStatement(conn, sql, list, recordList, Put.MutationType.INSERT, this::fillPreparedStatementForInsert);
 	}
 
@@ -561,11 +566,11 @@ public class UpsertStatementBuilder {
 		return psIndex;
 	}
 
-	protected void buildDeleteStatement(Connection conn, HoloVersion version, TableSchema schema, List<Record> recordList, List<PreparedStatementWithBatchInfo> list) throws SQLException {
+	protected void buildDeleteStatement(Connection conn, HoloVersion version, TableSchema schema, TableName tableName, List<Record> recordList, List<PreparedStatementWithBatchInfo> list) throws SQLException {
 		if (recordList.size() == 0) {
 			return;
 		}
-		SqlTemplate sql = deleteCache.computeIfAbsent(schema, this::buildDeleteSqlTemplate);
+		SqlTemplate sql = deleteCache.computeIfAbsent(new Tuple<>(schema, tableName), this::buildDeleteSqlTemplate);
 		fillPreparedStatement(conn, sql, list, recordList, Put.MutationType.DELETE, this::fillPreparedStatementForDelete);
 	}
 
@@ -628,17 +633,20 @@ public class UpsertStatementBuilder {
 	/**
 	 * @param conn
 	 * @param recordList 必须都是同一张表的！！！！
+	 * @param mode
 	 * @return
 	 * @throws SQLException
 	 */
-	public List<PreparedStatementWithBatchInfo> buildStatements(Connection conn, HoloVersion version, TableSchema schema, Collection<Record> recordList) throws
+	public List<PreparedStatementWithBatchInfo> buildStatements(Connection conn, HoloVersion version,
+		TableSchema schema, TableName tableName, Collection<Record> recordList,
+		WriteMode mode) throws
 			SQLException {
 		List<Record> deleteRecordList = new ArrayList<>();
 		Map<Tuple<BitSet, BitSet>, List<Record>> insertRecordList = new HashMap<>();
 		List<PreparedStatementWithBatchInfo> preparedStatementList = new ArrayList<>();
 		try {
 			for (Record record : recordList) {
-				prepareRecord(conn, record);
+				prepareRecord(conn, record, mode);
 				switch (record.getType()) {
 					case DELETE:
 						deleteRecordList.add(record);
@@ -653,10 +661,10 @@ public class UpsertStatementBuilder {
 
 			try {
 				if (deleteRecordList.size() > 0) {
-					buildDeleteStatement(conn, version, schema, deleteRecordList, preparedStatementList);
+					buildDeleteStatement(conn, version, schema, tableName, deleteRecordList, preparedStatementList);
 				}
 				for (Map.Entry<Tuple<BitSet, BitSet>, List<Record>> entry : insertRecordList.entrySet()) {
-					buildInsertStatement(conn, version, schema, entry.getKey(), entry.getValue(), preparedStatementList);
+					buildInsertStatement(conn, version, schema, tableName, entry.getKey(), entry.getValue(), preparedStatementList, mode);
 				}
 			} catch (SQLException e) {
 				for (PreparedStatementWithBatchInfo psWithInfo : preparedStatementList) {

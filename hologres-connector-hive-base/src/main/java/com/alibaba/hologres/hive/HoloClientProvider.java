@@ -41,6 +41,7 @@ public class HoloClientProvider {
     private final long retrySleepInitMs;
     private final long retrySleepStepMs;
     private final long connectionMaxIdleMs;
+    private final boolean fixedConnectionMode;
 
     /** when call in initialize, Configuration is none and should get params from Properties. */
     public HoloClientProvider(Configuration conf, Properties props) {
@@ -122,6 +123,8 @@ public class HoloClientProvider {
                 conf.getLong(HoloStorageConfig.RETRY_SLEEP_STEP_MS.getPropertyName(), 10000L);
         this.connectionMaxIdleMs =
                 conf.getLong(HoloStorageConfig.CONNECTION_MAX_IDLE_MS.getPropertyName(), 60000L);
+        this.fixedConnectionMode =
+                conf.getBoolean(HoloStorageConfig.FIXED_CONNECTION_MODE.getPropertyName(), false);
     }
 
     public void closeClient() {
@@ -177,6 +180,7 @@ public class HoloClientProvider {
         holoConfig.setWriteThreadSize(writeThreadSize);
         holoConfig.setDynamicPartition(dynamicPartition);
         holoConfig.setUseLegacyPutHandler(useLegacyPutHandler);
+        holoConfig.setUseFixedFe(fixedConnectionMode);
 
         holoConfig.setRetryCount(retryCount);
         holoConfig.setRetrySleepInitMs(retrySleepInitMs);

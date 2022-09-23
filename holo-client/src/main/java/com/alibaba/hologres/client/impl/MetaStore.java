@@ -12,6 +12,11 @@ import com.alibaba.hologres.client.model.TableSchema;
  * 元信息缓存.
  */
 public class MetaStore {
-	public Cache<TableName, TableSchema> tableCache = new Cache<>();
-	public Cache<TableName, Cache<String, Partition>> partitionCache = new Cache<>((tableName) -> new Cache<>());
+	public final Cache<TableName, TableSchema> tableCache;
+	public final Cache<TableName, Cache<String, Partition>> partitionCache;
+
+	public MetaStore(long tableCacheTTL) {
+		this.tableCache = new Cache<>(tableCacheTTL, null);
+		this.partitionCache = new Cache<>((tableName) -> new Cache<>());
+	}
 }

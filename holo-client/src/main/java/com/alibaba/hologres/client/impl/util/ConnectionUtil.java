@@ -87,6 +87,8 @@ public class ConnectionUtil {
 			} catch (SQLException e) {
 				if (PSQLState.QUERY_CANCELED.getState().equals(e.getSQLState())) {
 					return new CheckMetaResult(false, "table is lock by other query which request a AccessExclusiveLock");
+				} else if (e.getMessage().contains("Failed to get table") && e.getMessage().contains("from StoreMaster")) {
+					return new CheckMetaResult(false, "Failed to get table from StoreMaster, maybe still in replay after a truncate");
 				} else {
 					throw e;
 				}
@@ -394,6 +396,9 @@ public class ConnectionUtil {
 			String value = entry.getValue();
 			switch (key) {
 				case "distribution_key":
+					if ("".equals(value)) {
+						throw new SQLException("empty distribution_key is not supported.");
+					}
 					builder.setDistributionKeys(value.split(","));
 					break;
 				case "orientation":

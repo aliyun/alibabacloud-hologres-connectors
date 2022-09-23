@@ -36,7 +36,7 @@ public class ConnectionHolder implements Closeable {
 	final String jdbcUrl;
 	Properties info;
 	final ConnectionWithVersion connWithVersion;
-	boolean isReplicationConnection = false;
+	final boolean isFixed;
 
 	final int tryCount;
 	final long retrySleepStepMs;
@@ -47,6 +47,8 @@ public class ConnectionHolder implements Closeable {
 	long lastActiveTs;
 	private static List<String> preSqlList;
 	private static byte[] lock = new byte[]{};
+	private static String optionProperty = "options=";
+	private static String fixedOption = "-c%20type=fixed%20";
 
 	static {
 		preSqlList = new ArrayList<>();
@@ -54,6 +56,7 @@ public class ConnectionHolder implements Closeable {
 		preSqlList.add("set hg_experimental_enable_fixed_dispatcher_for_multi_values = on");
 		preSqlList.add("set hg_experimental_enable_fixed_dispatcher_for_update = on");
 		preSqlList.add("set hg_experimental_enable_fixed_dispatcher_for_delete = on");
+		preSqlList.add("set hg_experimental_enable_fixed_dispatcher_for_scan = on");
 	}
 
 	/**
@@ -83,11 +86,11 @@ public class ConnectionHolder implements Closeable {
 
 	private Object owner;
 
-	public ConnectionHolder(HoloConfig config, Object owner, boolean shadingMode) {
-		this(config, owner, shadingMode, null);
+	public ConnectionHolder(HoloConfig config, Object owner, boolean shadingMode, boolean isFixed) {
+		this(config, owner, shadingMode, isFixed, null);
 	}
 
-	public ConnectionHolder(HoloConfig config, Object owner, boolean shadingMode, Properties userInfo) {
+	public ConnectionHolder(HoloConfig config, Object owner, boolean shadingMode, boolean isFixed, Properties userInfo) {
 		info = new Properties();
 		String url = config.getJdbcUrl();
 		if (shadingMode) {
@@ -95,6 +98,12 @@ public class ConnectionHolder implements Closeable {
 				url = "jdbc:hologres:" + url.substring("jdbc:postgresql:".length());
 			}
 		}
+
+		this.isFixed = isFixed;
+		if (isFixed) {
+			url = generateFixedUrl(url);
+		}
+
 		//TODO
 		/*PGProperty.REWRITE_BATCHED_INSERTS.set(info, true);
 		if (config.isDynamicPartition()) {
@@ -106,10 +115,6 @@ public class ConnectionHolder implements Closeable {
 
 		if (userInfo != null) {
 			info.putAll(userInfo);
-			if (userInfo.getProperty("replication") != null) {
-				LOGGER.info("Create a replication connection holder");
-				isReplicationConnection = true;
-			}
 		}
 
 		this.jdbcUrl = url;
@@ -135,7 +140,7 @@ public class ConnectionHolder implements Closeable {
 		try {
 			conn = DriverManager.getConnection(this.jdbcUrl, info).unwrap(PgConnection.class);
 			conn.setAutoCommit(true);
-			if (!isReplicationConnection) {
+			if (!isFixed) {
 				List<String> pre = preSqlList;
 				for (String sql : pre) {
 					try (Statement stat = conn.createStatement()) {
@@ -145,8 +150,15 @@ public class ConnectionHolder implements Closeable {
 					}
 				}
 				connWithVersion.version = ConnectionUtil.getHoloVersion(conn);
+			} else {
+				// TODO: fixed fe support get holo version, mock a version for now.
+				connWithVersion.version = new HoloVersion(1, 3, 1);
 			}
 		} catch (Exception e) {
+			if (e.getMessage().contains("invalid command-line argument for server process: type=fixed")
+				|| e.getMessage().contains("unrecognized configuration parameter \"type\"")) {
+				throw new SQLException("FixedFe mode is only supported after hologres version 1.3");
+			}
 			if (null != conn) {
 				try {
 					conn.close();
@@ -157,14 +169,13 @@ public class ConnectionHolder implements Closeable {
 		}
 
 		long end = System.nanoTime();
-		if (isReplicationConnection) {
-			LOGGER.info("Connected to {}, owner:{}, cost:{} ms", this.jdbcUrl, owner, (end - start) / 1000000L, connWithVersion.version);
+		if (isFixed) {
+			LOGGER.info("Connected to {}, owner:{}, cost:{} ms, isFixed:true", this.jdbcUrl, owner, (end - start) / 1000000L);
 		} else {
 			LOGGER.info("Connected to {}, owner:{}, cost:{} ms, version:{}", this.jdbcUrl, owner, (end - start) / 1000000L, connWithVersion.version);
 		}
 		return conn;
 	}
-
 
 	/**
 	 * 返回连接是否可用.
@@ -294,6 +305,18 @@ public class ConnectionHolder implements Closeable {
 					ConnectionUtil.getHoloVersion(conn));
 		}
 		return connWithVersion.version;
+	}
+
+	public String generateFixedUrl(String url) {
+		StringBuilder sb = new StringBuilder(url);
+		int index = sb.lastIndexOf(optionProperty);
+		if (index > -1) {
+			// In fact fixed fe will ignore url parameters, but we guarantee the correctness of the url here.
+			sb.insert(index + optionProperty.length(), fixedOption);
+		} else {
+			sb.append(url.contains("?") ? "&" : "?").append(optionProperty).append(fixedOption);
+		}
+		return sb.toString();
 	}
 
 	@Override

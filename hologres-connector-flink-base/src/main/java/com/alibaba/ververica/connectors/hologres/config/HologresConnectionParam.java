@@ -51,6 +51,7 @@ public class HologresConnectionParam implements Serializable {
     private final int jdbcMetaAutoRefreshFactor;
     private final String connectionPoolName;
     private final int connectionPoolSize;
+    private final boolean fixedConnectionMode;
     // JDBC source
     private final int jdbcReadBatchSize;
     private final int jdbcReadBatchQueueSize;
@@ -97,6 +98,8 @@ public class HologresConnectionParam implements Serializable {
                 properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_META_AUTO_REFRESH_FACTOR);
         this.connectionPoolName =
                 properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_SHARED_CONNECTION_POOL_NAME);
+        this.fixedConnectionMode =
+                properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_FIXED_CONNECTION_MODE);
         this.connectionPoolSize =
                 properties.get(HologresJDBCConfigs.OPTIONAL_CLIENT_CONNECTION_POOL_SIZE);
         this.jdbcReadBatchSize = properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_READ_BATCH_SIZE);
@@ -151,6 +154,10 @@ public class HologresConnectionParam implements Serializable {
 
     public int getConnectionPoolSize() {
         return this.connectionPoolSize;
+    }
+
+    public boolean isFixedConnectionMode() {
+        return fixedConnectionMode;
     }
 
     public String getDatabase() {

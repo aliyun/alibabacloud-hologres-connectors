@@ -10,7 +10,7 @@
 <dependency>
     <groupId>com.alibaba.hologres</groupId>
     <artifactId>hologres-connector-hive-2.x</artifactId>
-    <version>1.1.1</version>
+    <version>1.2.0</version>
     <classifier>jar-with-dependencies</classifier>
 </dependency>
 ```
@@ -31,9 +31,9 @@
 #### 加载jar包
 
 * 永久：
-    * 将hologres-connector-hive-2.x-1.1-SNAPSHOT-jar-with-dependencies.jar放在HiveServer2所在节点的$HIVE_HOME/auxlib目录下（目录不存在就新建）
+    * 将hologres-connector-hive-2.x-1.2-SNAPSHOT-jar-with-dependencies.jar放在HiveServer2所在节点的$HIVE_HOME/auxlib目录下（目录不存在就新建）
 * session级
-    1. 将hologres-connector-hive-2.x-1.1-SNAPSHOT-jar-with-dependencies.jar上传至hdfs
+    1. 将hologres-connector-hive-2.x-1.2-SNAPSHOT-jar-with-dependencies.jar上传至hdfs
     2. 在hive session中，使用add jar引入jar包。add jar hdfs:....
 
 ## 使用示例
@@ -175,6 +175,7 @@ select * from customer_to_holo_2 where c_custkey = 1;
 | retry_sleep_init_ms | 1000 | 否 | 每次重试的等待时间=retrySleepInitMs+retry*retrySleepStepMs |
 | retry_sleep_step_ms | 10000 | 否 | 每次重试的等待时间=retrySleepInitMs+retry*retrySleepStepMs |
 | connection_max_idle_ms| 60000 | 否 | 写入线程和点查线程数据库连接的最大Idle时间，超过连接将被释放 |
+| fixed_connection_mode| false|   否| 写入和点查不占用连接数（beta功能，需要connector版本>=1.2.0，hologres引擎版本>=1.3）| 
 
 写参数
 

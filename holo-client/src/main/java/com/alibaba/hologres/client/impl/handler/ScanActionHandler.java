@@ -132,7 +132,10 @@ public class ScanActionHandler extends ActionHandler<ScanAction> {
 			connectionHolder.retryExecute((conn) -> {
 				Map<RecordKey, Record> resultMap = new HashMap<>();
 				try {
-					conn.setAutoCommit(false);
+					if (!config.isUseFixedFe()) {
+						// AutoCommit set false will execute "begin" query, what fixed fe not support
+						conn.setAutoCommit(false);
+					}
 					try (PreparedStatement ps = conn.prepareStatement(sql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)) {
 						int paramIndex = 0;
 						if (scan.getFilterList() != null) {

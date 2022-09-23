@@ -11,11 +11,13 @@ import com.alibaba.hologres.client.impl.handler.jdbc.JdbcColumnValuesBuilder;
 import com.alibaba.hologres.client.model.Column;
 import com.alibaba.hologres.client.model.HoloVersion;
 import com.alibaba.hologres.client.model.Record;
+import com.alibaba.hologres.client.model.TableName;
 import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.model.WriteMode;
 import com.alibaba.hologres.client.type.PGroaringbitmap;
 import com.alibaba.hologres.client.utils.IdentifierUtil;
 import com.alibaba.hologres.client.utils.Tuple;
+import com.alibaba.hologres.client.utils.Tuple3;
 import org.postgresql.jdbc.PgConnection;
 import org.postgresql.util.PSQLState;
 import org.slf4j.Logger;
@@ -57,15 +59,15 @@ public class UnnestUpsertStatementBuilder extends UpsertStatementBuilder {
 	 * 表+record.isSet的列（BitSet） -> Sql语句的映射.
 	 */
 	static class SqlCache<T, R> {
-		Map<TableSchema, Map<T, R>> cacheMap = new HashMap<>();
+		Map<Tuple3<TableSchema, TableName, WriteMode>, Map<T, R>> cacheMap = new HashMap<>();
 
 		int size = 0;
 
-		public R computeIfAbsent(TableSchema tableSchema, T t, BiFunction<TableSchema, T, R> b) {
-			Map<T, R> subMap = cacheMap.computeIfAbsent(tableSchema, (s) -> new HashMap<>());
+		public R computeIfAbsent(Tuple3<TableSchema, TableName, WriteMode> tuple, T t, BiFunction<Tuple3<TableSchema, TableName, WriteMode>, T, R> b) {
+			Map<T, R> subMap = cacheMap.computeIfAbsent(tuple, (s) -> new HashMap<>());
 			return subMap.computeIfAbsent(t, (bs) -> {
 				++size;
-				return b.apply(tableSchema, bs);
+				return b.apply(tuple, bs);
 			});
 		}
 
@@ -160,10 +162,6 @@ public class UnnestUpsertStatementBuilder extends UpsertStatementBuilder {
 	Set<Tuple<NotSupportReasonCode, Tuple<TableSchema, Column>>> reasonSet = new HashSet<>();
 
 	private boolean isSupportUnnest(TableSchema schema, Tuple<BitSet, BitSet> columnSet) {
-		if (schema.getPartitionIndex() > -1) {
-			LOGGER.warn("Not support unnest，because table {} is a partition table", schema.getTableNameObj().getFullName());
-			return false;
-		}
 		if (columnSet.r.cardinality() > 0) {
 			LOGGER.warn("Not support unnest，because Put for table {} contain insertOnlyColumn {} ", schema.getTableNameObj().getFullName(), columnSet.r);
 			return false;
@@ -187,12 +185,15 @@ public class UnnestUpsertStatementBuilder extends UpsertStatementBuilder {
 		return true;
 	}
 
-	private InsertSql buildInsertSql(TableSchema schema, Tuple<BitSet, BitSet> input) {
+	private InsertSql buildInsertSql(Tuple3<TableSchema, TableName, WriteMode> tuple, Tuple<BitSet, BitSet> input) {
+		TableSchema schema = tuple.l;
+		TableName tableName = tuple.m;
+		WriteMode mode = tuple.r;
 		BitSet set = input.l;
 		BitSet onlyInsertSet = input.r;
 		boolean isUnnest = false;
 		StringBuilder sb = new StringBuilder();
-		sb.append("insert into ").append(schema.getTableNameObj().getFullName());
+		sb.append("insert into ").append(tableName.getFullName());
 
 		sb.append("(");
 		first = true;
@@ -427,7 +428,8 @@ public class UnnestUpsertStatementBuilder extends UpsertStatementBuilder {
 
 	}
 
-	public void prepareRecord(Connection conn, Record record) throws SQLException {
+	@Override
+	public void prepareRecord(Connection conn, Record record, WriteMode mode) throws SQLException {
 		try {
 			for (int i = 0; i < record.getSize(); ++i) {
 				Column column = record.getSchema().getColumn(i);
@@ -552,20 +554,20 @@ public class UnnestUpsertStatementBuilder extends UpsertStatementBuilder {
 	private static final HoloVersion SUPPORT_VERSION = new HoloVersion(1, 1, 38);
 
 	private boolean isVersionSupport(HoloVersion version) {
-		if (version.compareTo(SUPPORT_VERSION) == -1) {
+		if (version.compareTo(SUPPORT_VERSION) < 0) {
 			return false;
 		}
 		return true;
 	}
 
 	@Override
-	protected void buildInsertStatement(Connection conn, HoloVersion version, TableSchema schema, Tuple<BitSet, BitSet> columnSet, List<Record> recordList, List<PreparedStatementWithBatchInfo> list) throws SQLException {
+	protected void buildInsertStatement(Connection conn, HoloVersion version, TableSchema schema, TableName tableName, Tuple<BitSet, BitSet> columnSet, List<Record> recordList, List<PreparedStatementWithBatchInfo> list, WriteMode mode) throws SQLException {
 		//版本不符合直接采用老链路工作
 		if (!isVersionSupport(version)) {
-			super.buildInsertStatement(conn, version, schema, columnSet, recordList, list);
+			super.buildInsertStatement(conn, version, schema, tableName, columnSet, recordList, list, mode);
 			return;
 		}
-		InsertSql insertSql = insertCache.computeIfAbsent(schema, columnSet, this::buildInsertSql);
+		InsertSql insertSql = insertCache.computeIfAbsent(new Tuple3<>(schema, tableName, mode), columnSet, this::buildInsertSql);
 		PreparedStatement currentPs = null;
 		try {
 			currentPs = conn.prepareStatement(insertSql.sql);
@@ -643,7 +645,7 @@ public class UnnestUpsertStatementBuilder extends UpsertStatementBuilder {
 				preparedStatementWithBatchInfo.setBatchCount(batchCount);
 				list.add(preparedStatementWithBatchInfo);
 			} else {
-				super.buildInsertStatement(conn, version, schema, columnSet, recordList, list);
+				super.buildInsertStatement(conn, version, schema, tableName, columnSet, recordList, list, mode);
 			}
 		} catch (SQLException e) {
 			if (null != currentPs) {
