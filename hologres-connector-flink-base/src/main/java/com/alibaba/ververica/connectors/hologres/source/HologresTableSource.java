@@ -8,10 +8,10 @@ import org.apache.flink.table.connector.source.DynamicTableSource;
 import org.apache.flink.table.connector.source.InputFormatProvider;
 import org.apache.flink.table.connector.source.LookupTableSource;
 import org.apache.flink.table.connector.source.ScanTableSource;
-import org.apache.flink.table.connector.source.ScanTableSource.ScanContext;
-import org.apache.flink.table.connector.source.ScanTableSource.ScanRuntimeProvider;
 import org.apache.flink.table.connector.source.TableFunctionProvider;
+import org.apache.flink.table.connector.source.abilities.SupportsFilterPushDown;
 import org.apache.flink.table.data.RowData;
+import org.apache.flink.table.expressions.ResolvedExpression;
 import org.apache.flink.table.functions.AsyncTableFunction;
 import org.apache.flink.table.functions.TableFunction;
 import org.apache.flink.util.Preconditions;
@@ -24,21 +24,30 @@ import com.alibaba.ververica.connectors.hologres.api.HologresReader;
 import com.alibaba.ververica.connectors.hologres.api.HologresTableSchema;
 import com.alibaba.ververica.connectors.hologres.config.HologresConnectionParam;
 import com.alibaba.ververica.connectors.hologres.config.JDBCOptions;
+import com.alibaba.ververica.connectors.hologres.filter.FilterVisitor;
 import com.alibaba.ververica.connectors.hologres.jdbc.HologresJDBCReader;
 import com.alibaba.ververica.connectors.hologres.source.bulkread.HologresBulkreadInputFormat;
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
+import java.util.Optional;
 import java.util.ServiceLoader;
 import java.util.stream.Collectors;
 
 /** Table Source. */
-public class HologresTableSource implements DynamicTableSource, LookupTableSource, ScanTableSource {
+public class HologresTableSource
+        implements DynamicTableSource, LookupTableSource, ScanTableSource, SupportsFilterPushDown {
     private String tableName;
     private TableSchema tableSchema;
     private CacheConfig cacheConfig;
     private HologresConnectionParam connectionParam;
     private ReadableConfig config;
     private JDBCOptions jdbcOptions;
+    private FilterVisitor filterVisitor = new FilterVisitor((name) -> name);
+    private List<String> filters;
 
     public HologresTableSource(
             String tableName,
@@ -55,10 +64,19 @@ public class HologresTableSource implements DynamicTableSource, LookupTableSourc
         this.config = config;
     }
 
+    public HologresTableSource(HologresTableSource copy) {
+        this.tableName = copy.tableName;
+        this.tableSchema = copy.tableSchema;
+        this.cacheConfig = copy.cacheConfig;
+        this.connectionParam = copy.connectionParam;
+        this.jdbcOptions = copy.jdbcOptions;
+        this.config = copy.config;
+        this.filters = copy.filters;
+    }
+
     @Override
     public DynamicTableSource copy() {
-        return new HologresTableSource(
-                tableName, tableSchema, cacheConfig, connectionParam, jdbcOptions, config);
+        return new HologresTableSource(this);
     }
 
     @Override
@@ -128,6 +146,46 @@ public class HologresTableSource implements DynamicTableSource, LookupTableSourc
 
     @Override
     public ScanRuntimeProvider getScanRuntimeProvider(ScanContext scanContext) {
-        return InputFormatProvider.of(new HologresBulkreadInputFormat(jdbcOptions, tableSchema));
+        StringBuilder filterBuilder = new StringBuilder();
+        String filter = jdbcOptions.getFilter();
+        if (StringUtils.isNotEmpty(filter)) {
+            filterBuilder.append("(");
+            filterBuilder.append(filter);
+            filterBuilder.append(")");
+        }
+        if (!CollectionUtils.isEmpty(this.filters)) {
+            if (filterBuilder.length() > 0) filterBuilder.append(" AND ");
+            filterBuilder.append(String.join(" AND ", filters));
+        }
+
+        JDBCOptions newJdbcOptions =
+                new JDBCOptions(
+                        this.jdbcOptions.getDatabase(),
+                        this.jdbcOptions.getTable(),
+                        this.jdbcOptions.getUsername(),
+                        this.jdbcOptions.getPassword(),
+                        this.jdbcOptions.getEndpoint(),
+                        this.jdbcOptions.getDelimiter(),
+                        filterBuilder.toString());
+
+        return InputFormatProvider.of(new HologresBulkreadInputFormat(newJdbcOptions, tableSchema));
+    }
+
+    @Override
+    public Result applyFilters(List<ResolvedExpression> flinkFilters) {
+        List<String> sqlFilters = new ArrayList<>();
+        List<ResolvedExpression> acceptedFilters = new ArrayList<>();
+        FilterVisitor filterVisitor = this.filterVisitor;
+
+        for (ResolvedExpression flinkFilter : flinkFilters) {
+            Optional<String> optional = flinkFilter.accept(filterVisitor);
+            if (optional.isPresent()) {
+                sqlFilters.add(optional.get());
+                acceptedFilters.add(flinkFilter);
+            }
+        }
+
+        this.filters = sqlFilters;
+        return SupportsFilterPushDown.Result.of(acceptedFilters, flinkFilters);
     }
 }

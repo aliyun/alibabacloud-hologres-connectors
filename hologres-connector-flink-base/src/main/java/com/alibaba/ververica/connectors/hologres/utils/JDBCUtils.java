@@ -73,8 +73,9 @@ public class JDBCUtils {
                 properties.getOptional(ARRAY_DELIMITER).isPresent()
                         ? properties.get(ARRAY_DELIMITER)
                         : properties.get(FIELD_DELIMITER);
+        String filter = properties.get(HologresConfigs.FILTER);
 
-        return new JDBCOptions(db, table, username, pwd, frontend, delimiter);
+        return new JDBCOptions(db, table, username, pwd, frontend, delimiter, filter);
     }
 
     public static String getFrontendEndpoints(JDBCOptions options) throws SQLException {

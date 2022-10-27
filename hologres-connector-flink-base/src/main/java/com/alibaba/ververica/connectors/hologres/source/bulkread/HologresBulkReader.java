@@ -7,6 +7,7 @@ import org.apache.flink.table.types.DataType;
 import com.alibaba.ververica.connectors.hologres.config.JDBCOptions;
 import com.alibaba.ververica.connectors.hologres.utils.HologresUtils;
 import com.alibaba.ververica.connectors.hologres.utils.JDBCUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.postgresql.PGConnection;
 import org.postgresql.copy.PGCopyInputStream;
@@ -47,12 +48,19 @@ public class HologresBulkReader implements Serializable {
     }
 
     public void open() throws IOException {
+        StringBuilder builder = new StringBuilder();
         String queryTemplate =
                 JDBCUtils.getSimpleSelectFromStatement(jdbcOptions.getTable(), fieldNames);
-        String query =
-                String.format(
-                        "COPY (%s WHERE hg_shard_id in (%s)) TO STDOUT WITH DELIMITER e'%s'",
-                        queryTemplate, shardId, jdbcOptions.getDelimiter());
+        builder.append("COPY (");
+        builder.append(queryTemplate);
+        builder.append(String.format(" WHERE hg_shard_id in (%s)", shardId));
+        if (StringUtils.isNotBlank(jdbcOptions.getFilter())) {
+            builder.append(" AND ");
+            builder.append(jdbcOptions.getFilter());
+        }
+
+        builder.append(") TO STDOUT WITH DELIMITER e'%s';");
+        String query = String.format(builder.toString(), jdbcOptions.getDelimiter());
 
         LOG.info("the bulk read query: {}", query);
         try {

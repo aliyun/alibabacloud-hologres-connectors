@@ -35,7 +35,8 @@ public class HologresConfigs {
             ConfigOptions.key("arrayDelimiter".toLowerCase())
                     .stringType()
                     .defaultValue(DEFAULT_FIELD_DELIMITER);
-
+    public static final ConfigOption<String> FILTER =
+            ConfigOptions.key("filter").stringType().noDefaultValue();
     public static final ConfigOption<Boolean> INSERT_OR_UPDATE =
             key("insertOrUpdate".toLowerCase()).booleanType().defaultValue(false);
 

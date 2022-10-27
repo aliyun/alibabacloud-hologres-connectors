@@ -13,6 +13,8 @@ public class JDBCOptions implements Serializable {
     private final String endpoint;
     private final String delimiter;
 
+    private final String filter;
+
     public JDBCOptions(
             String database, String table, String username, String password, String endpoint) {
         this(
@@ -37,6 +39,24 @@ public class JDBCOptions implements Serializable {
         this.password = password;
         this.endpoint = endpoint;
         this.delimiter = delimiter;
+        this.filter = null;
+    }
+
+    public JDBCOptions(
+            String database,
+            String table,
+            String username,
+            String password,
+            String endpoint,
+            String delimiter,
+            String filter) {
+        this.database = database;
+        this.table = table;
+        this.username = username;
+        this.password = password;
+        this.endpoint = endpoint;
+        this.delimiter = delimiter;
+        this.filter = filter;
     }
 
     public String getDatabase() {
@@ -67,6 +87,10 @@ public class JDBCOptions implements Serializable {
         return "jdbc:postgresql://" + endpoint + "/" + database;
     }
 
+    public String getFilter() {
+        return this.filter;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -84,12 +108,13 @@ public class JDBCOptions implements Serializable {
                 && Objects.equals(username, that.username)
                 && Objects.equals(password, that.password)
                 && Objects.equals(endpoint, that.endpoint)
-                && Objects.equals(delimiter, that.delimiter);
+                && Objects.equals(delimiter, that.delimiter)
+                && Objects.equals(filter, that.filter);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(database, table, username, password, endpoint, delimiter);
+        return Objects.hash(database, table, username, password, endpoint, delimiter, filter);
     }
 
     @Override
@@ -113,6 +138,9 @@ public class JDBCOptions implements Serializable {
                 + ", delimiter='"
                 + delimiter
                 + '\''
+                + ", filter='"
+                + filter
+                + "\'"
                 + '}';
     }
 }
