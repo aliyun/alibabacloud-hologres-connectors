@@ -87,6 +87,35 @@ bool try_set_null_val(Record* record, int colIndex){
     return set_record_val(record, colIndex, NULL, 1, 4);
 }
 
+void unnest_convert_array_to_postgres_binary(char* ptr, char** values, int length, int nValues, int valueLength, int valueType){
+    ((int*)ptr)[0] = 1;   //数组维度nDims
+    endian_swap(ptr, 4);
+    ((int*)ptr)[1] = 0;   //flags
+    endian_swap(ptr + 4, 4);
+    ((int*)ptr)[2] = valueType;  //数组元素类型Oid
+    endian_swap(ptr + 8, 4);
+    ((int*)ptr)[3] = nValues;  //第1维度上的元素数量
+    endian_swap(ptr + 12, 4);
+    ((int*)ptr)[4] = 1;  //第1维度上的lBound
+    endian_swap(ptr + 16, 4);
+    char* cur = ptr + 4 * 5;
+    for (int i = 0;i < nValues;i++){
+        if (values[i] == NULL){
+            LOG_WARN("Value is NULL in Binary array values.");
+            *((int*)cur) = -1;
+            endian_swap(cur, 4);
+            cur += 4;
+            continue;
+        }
+        *((int*)cur) = valueLength;  //元素长度
+        endian_swap(cur, 4);
+        cur += 4;
+        memcpy(cur, values[i], valueLength);  //元素值
+        // endian_swap(cur, valueLength);
+        cur += valueLength;
+    }
+}
+
 void convert_array_to_postgres_binary(char* ptr, void* values, int length, int nValues, int valueLength, int valueType){
     ((int*)ptr)[0] = 1;   //数组维度nDims
     endian_swap(ptr, 4);
@@ -123,8 +152,9 @@ void convert_text_array_to_postgres_binary(char* ptr, char** values, int nValues
     char* cur = ptr + 4 * 5;
     for (int i = 0;i < nValues;i++){
         if (values[i] == NULL){
-            LOG_WARN("Value is NULL in text array values. Empty text set.");
-            *((int*)cur) = 0;
+            LOG_WARN("Value is NULL in text array values.");
+            *((int*)cur) = -1;
+            endian_swap(cur, 4);
             cur += 4;
             continue;
         }
@@ -210,6 +240,29 @@ bool set_record_val_by_type(Record* record, int colIndex, char* str){
         endian_swap(ptr, 8);
         return set_record_val(record, colIndex, ptr, 1, 8);
         break;
+    // TODO: timestamp的字符串解析成数字
+    // case 1114:
+    //     ptr = (char*)new_record_val(record, 8);
+    //     *(int64_t*)ptr = strtol(str, &end, 10);
+    //     if (*end){
+    //         LOG_ERROR("\"%s\" is not a timestamp value.", str);
+    //         revoke_record_val(ptr, record, 8);
+    //         return false;
+    //     }
+    //     endian_swap(ptr, 8);
+    //     return set_record_val(record, colIndex, ptr, 1, 8);
+    //     break;
+    // case 1184:
+    //     ptr = (char*)new_record_val(record, 8);
+    //     *(int64_t*)ptr = strtol(str, &end, 10);
+    //     if (*end){
+    //         LOG_ERROR("\"%s\" is not a timestamptz value.", str);
+    //         revoke_record_val(ptr, record, 8);
+    //         return false;
+    //     }
+    //     endian_swap(ptr, 8);
+    //     return set_record_val(record, colIndex, ptr, 1, 8);
+    //     break;
     default:
         len = strlen(str);
         ptr = (char*)new_record_val(record, len + 1);
@@ -221,6 +274,10 @@ bool set_record_val_by_type(Record* record, int colIndex, char* str){
 }
 
 int holo_client_set_req_val_with_text_by_colindex(Mutation mutation, int colIndex, char* value){
+    if (mutation == NULL) {
+        LOG_ERROR("Mutation is NULL when set value.");
+        return -1;
+    }
     if (value == NULL){
         return holo_client_set_req_null_val_by_colindex(mutation, colIndex);
     }
@@ -229,6 +286,10 @@ int holo_client_set_req_val_with_text_by_colindex(Mutation mutation, int colInde
 }
 
 int holo_client_set_req_int16_val_by_colindex(Mutation mutation, int colIndex, int16_t value){
+    if (mutation == NULL) {
+        LOG_ERROR("Mutation is NULL when set value.");
+        return -1;
+    }
     if (!set_req_val_by_colindex_is_valid(mutation, colIndex)) return -1;
     if (!column_type_matches_oid(mutation->record, colIndex, 21)) return -1;
     int16_t* ptr = new_record_val(mutation->record, 2);
@@ -238,6 +299,10 @@ int holo_client_set_req_int16_val_by_colindex(Mutation mutation, int colIndex, i
 }
 
 int holo_client_set_req_int32_val_by_colindex(Mutation mutation, int colIndex, int32_t value){
+    if (mutation == NULL) {
+        LOG_ERROR("Mutation is NULL when set value.");
+        return -1;
+    }
     if (!set_req_val_by_colindex_is_valid(mutation, colIndex)) return -1;
     if (!column_type_matches_oid(mutation->record, colIndex, 23)) return -1;
     int32_t* ptr = new_record_val(mutation->record, 4);
@@ -247,6 +312,10 @@ int holo_client_set_req_int32_val_by_colindex(Mutation mutation, int colIndex, i
 }
 
 int holo_client_set_req_int64_val_by_colindex(Mutation mutation, int colIndex, int64_t value){
+    if (mutation == NULL) {
+        LOG_ERROR("Mutation is NULL when set value.");
+        return -1;
+    }
     if (!set_req_val_by_colindex_is_valid(mutation, colIndex)) return -1;
     if (!column_type_matches_oid(mutation->record, colIndex, 20)) return -1;
     int64_t* ptr = new_record_val(mutation->record, 8);
@@ -256,6 +325,10 @@ int holo_client_set_req_int64_val_by_colindex(Mutation mutation, int colIndex, i
 }
 
 int holo_client_set_req_bool_val_by_colindex(Mutation mutation, int colIndex, bool value){
+    if (mutation == NULL) {
+        LOG_ERROR("Mutation is NULL when set value.");
+        return -1;
+    }
     if (!set_req_val_by_colindex_is_valid(mutation, colIndex)) return -1;
     if (!column_type_matches_oid(mutation->record, colIndex, 16)) return -1;
     bool* ptr = new_record_val(mutation->record, 1);
@@ -264,6 +337,10 @@ int holo_client_set_req_bool_val_by_colindex(Mutation mutation, int colIndex, bo
 }
 
 int holo_client_set_req_float_val_by_colindex(Mutation mutation, int colIndex, float value){
+    if (mutation == NULL) {
+        LOG_ERROR("Mutation is NULL when set value.");
+        return -1;
+    }
     if (!set_req_val_by_colindex_is_valid(mutation, colIndex)) return -1;
     if (!column_type_matches_oid(mutation->record, colIndex, 700)) return -1;
     float* ptr = new_record_val(mutation->record, 4);
@@ -273,6 +350,10 @@ int holo_client_set_req_float_val_by_colindex(Mutation mutation, int colIndex, f
 }
 
 int holo_client_set_req_double_val_by_colindex(Mutation mutation, int colIndex, double value){
+    if (mutation == NULL) {
+        LOG_ERROR("Mutation is NULL when set value.");
+        return -1;
+    }
     if (!set_req_val_by_colindex_is_valid(mutation, colIndex)) return -1;
     if (!column_type_matches_oid(mutation->record, colIndex, 701)) return -1;
     double* ptr = new_record_val(mutation->record, 8);
@@ -282,6 +363,10 @@ int holo_client_set_req_double_val_by_colindex(Mutation mutation, int colIndex, 
 }
 
 int holo_client_set_req_text_val_by_colindex(Mutation mutation, int colIndex, char *value) {
+    if (mutation == NULL) {
+        LOG_ERROR("Mutation is NULL when set value.");
+        return -1;
+    }
     if (!set_req_val_by_colindex_is_valid(mutation, colIndex)) return -1;
     if (!column_type_matches_oid(mutation->record, colIndex, 25)) return -1;
     if (value == NULL) {
@@ -294,6 +379,10 @@ int holo_client_set_req_text_val_by_colindex(Mutation mutation, int colIndex, ch
 }
 
 int holo_client_set_req_timestamp_val_by_colindex(Mutation mutation, int colIndex, int64_t value) {
+    if (mutation == NULL) {
+        LOG_ERROR("Mutation is NULL when set value.");
+        return -1;
+    }
     if (!set_req_val_by_colindex_is_valid(mutation, colIndex)) return -1;
     if (!column_type_matches_oid(mutation->record, colIndex, 1114)) return -1;
     int64_t* ptr = MALLOC(1, int64_t);
@@ -304,6 +393,10 @@ int holo_client_set_req_timestamp_val_by_colindex(Mutation mutation, int colInde
 }
 
 int holo_client_set_req_timestamptz_val_by_colindex(Mutation mutation, int colIndex, int64_t value) {
+    if (mutation == NULL) {
+        LOG_ERROR("Mutation is NULL when set value.");
+        return -1;
+    }
     if (!set_req_val_by_colindex_is_valid(mutation, colIndex)) return -1;
     if (!column_type_matches_oid(mutation->record, colIndex, 1184)) return -1;
     int64_t* ptr = MALLOC(1, int64_t);
@@ -314,6 +407,10 @@ int holo_client_set_req_timestamptz_val_by_colindex(Mutation mutation, int colIn
 }
 
 int holo_client_set_req_int32_array_val_by_colindex(Mutation mutation, int colIndex, int32_t* values, int nValues){
+    if (mutation == NULL) {
+        LOG_ERROR("Mutation is NULL when set value.");
+        return -1;
+    }
     if (!set_req_val_by_colindex_is_valid(mutation, colIndex)) return -1;
     if (!column_type_matches_oid(mutation->record, colIndex, 1007)) return -1;
     if (values == NULL) {
@@ -327,6 +424,10 @@ int holo_client_set_req_int32_array_val_by_colindex(Mutation mutation, int colIn
 }
 
 int holo_client_set_req_int64_array_val_by_colindex(Mutation mutation, int colIndex, int64_t* values, int nValues){
+    if (mutation == NULL) {
+        LOG_ERROR("Mutation is NULL when set value.");
+        return -1;
+    }
     if (!set_req_val_by_colindex_is_valid(mutation, colIndex)) return -1;
     if (!column_type_matches_oid(mutation->record, colIndex, 1016)) return -1;
     if (values == NULL) {
@@ -340,6 +441,10 @@ int holo_client_set_req_int64_array_val_by_colindex(Mutation mutation, int colIn
 }
 
 int holo_client_set_req_bool_array_val_by_colindex(Mutation mutation, int colIndex, bool* values, int nValues){
+    if (mutation == NULL) {
+        LOG_ERROR("Mutation is NULL when set value.");
+        return -1;
+    }
     if (!set_req_val_by_colindex_is_valid(mutation, colIndex)) return -1;
     if (!column_type_matches_oid(mutation->record, colIndex, 1000)) return -1;
     if (values == NULL) {
@@ -353,6 +458,10 @@ int holo_client_set_req_bool_array_val_by_colindex(Mutation mutation, int colInd
 }
 
 int holo_client_set_req_float_array_val_by_colindex(Mutation mutation, int colIndex, float* values, int nValues){
+    if (mutation == NULL) {
+        LOG_ERROR("Mutation is NULL when set value.");
+        return -1;
+    }
     if (!set_req_val_by_colindex_is_valid(mutation, colIndex)) return -1;
     if (!column_type_matches_oid(mutation->record, colIndex, 1021)) return -1;
     if (values == NULL) {
@@ -366,6 +475,10 @@ int holo_client_set_req_float_array_val_by_colindex(Mutation mutation, int colIn
 }
 
 int holo_client_set_req_double_array_val_by_colindex(Mutation mutation, int colIndex, double* values, int nValues){
+    if (mutation == NULL) {
+        LOG_ERROR("Mutation is NULL when set value.");
+        return -1;
+    }
     if (!set_req_val_by_colindex_is_valid(mutation, colIndex)) return -1;
     if (!column_type_matches_oid(mutation->record, colIndex, 1022)) return -1;
     if (values == NULL) {
@@ -379,6 +492,10 @@ int holo_client_set_req_double_array_val_by_colindex(Mutation mutation, int colI
 }
 
 int holo_client_set_req_text_array_val_by_colindex(Mutation mutation, int colIndex, char** values, int nValues){
+    if (mutation == NULL) {
+        LOG_ERROR("Mutation is NULL when set value.");
+        return -1;
+    }
     if (!column_type_matches_oid(mutation->record, colIndex, 1009)) return -1;
     if (values == NULL) {
         LOG_WARN("Values is NULL in array type setting function. Try set NULL value.");
@@ -395,6 +512,10 @@ int holo_client_set_req_text_array_val_by_colindex(Mutation mutation, int colInd
 }
 
 int holo_client_set_req_null_val_by_colindex(Mutation mutation, int colIndex){
+    if (mutation == NULL) {
+        LOG_ERROR("Mutation is NULL when set value.");
+        return -1;
+    }
     if (!set_req_val_by_colindex_is_valid(mutation, colIndex)) return -1;
     if (mutation->record->schema->columns[colIndex].nullable == false){
         LOG_ERROR("Column %d can not be null but set null.", colIndex);
@@ -421,6 +542,10 @@ int try_get_colindex_by_colname(Mutation mutation, char *colName) {
 }
 
 int holo_client_set_req_val_with_text_by_colname(Mutation mutation, char *colName, char* value){
+    if (mutation == NULL) {
+        LOG_ERROR("Mutation is NULL when set value.");
+        return -1;
+    }
     int colIndex = try_get_colindex_by_colname(mutation, colName);
     if (colIndex == -1) return -1;
     if (value == NULL){
@@ -430,6 +555,10 @@ int holo_client_set_req_val_with_text_by_colname(Mutation mutation, char *colNam
 }
 
 int holo_client_set_req_int16_val_by_colname(Mutation mutation, char *colName, int16_t value){
+    if (mutation == NULL) {
+        LOG_ERROR("Mutation is NULL when set value.");
+        return -1;
+    }
     int colIndex = try_get_colindex_by_colname(mutation, colName);
     if (colIndex == -1) return -1;
     if (!column_type_matches_oid(mutation->record, colIndex, 21)) return -1;
@@ -440,6 +569,10 @@ int holo_client_set_req_int16_val_by_colname(Mutation mutation, char *colName, i
 }
 
 int holo_client_set_req_int32_val_by_colname(Mutation mutation, char *colName, int32_t value){
+    if (mutation == NULL) {
+        LOG_ERROR("Mutation is NULL when set value.");
+        return -1;
+    }
     int colIndex = try_get_colindex_by_colname(mutation, colName);
     if (colIndex == -1) return -1;
     if (!column_type_matches_oid(mutation->record, colIndex, 23)) return -1;
@@ -450,6 +583,10 @@ int holo_client_set_req_int32_val_by_colname(Mutation mutation, char *colName, i
 }
 
 int holo_client_set_req_int64_val_by_colname(Mutation mutation, char *colName, int64_t value){
+    if (mutation == NULL) {
+        LOG_ERROR("Mutation is NULL when set value.");
+        return -1;
+    }
     int colIndex = try_get_colindex_by_colname(mutation, colName);
     if (colIndex == -1) return -1;
     if (!column_type_matches_oid(mutation->record, colIndex, 20)) return -1;
@@ -460,6 +597,10 @@ int holo_client_set_req_int64_val_by_colname(Mutation mutation, char *colName, i
 }
 
 int holo_client_set_req_bool_val_by_colname(Mutation mutation, char *colName, bool value){
+    if (mutation == NULL) {
+        LOG_ERROR("Mutation is NULL when set value.");
+        return -1;
+    }
     int colIndex = try_get_colindex_by_colname(mutation, colName);
     if (colIndex == -1) return -1;
     if (!column_type_matches_oid(mutation->record, colIndex, 16)) return -1;
@@ -469,6 +610,10 @@ int holo_client_set_req_bool_val_by_colname(Mutation mutation, char *colName, bo
 }
 
 int holo_client_set_req_float_val_by_colname(Mutation mutation, char *colName, float value){
+    if (mutation == NULL) {
+        LOG_ERROR("Mutation is NULL when set value.");
+        return -1;
+    }
     int colIndex = try_get_colindex_by_colname(mutation, colName);
     if (colIndex == -1) return -1;
     if (!column_type_matches_oid(mutation->record, colIndex, 700)) return -1;
@@ -479,6 +624,10 @@ int holo_client_set_req_float_val_by_colname(Mutation mutation, char *colName, f
 }
 
 int holo_client_set_req_double_val_by_colname(Mutation mutation, char *colName, double value){
+    if (mutation == NULL) {
+        LOG_ERROR("Mutation is NULL when set value.");
+        return -1;
+    }
     int colIndex = try_get_colindex_by_colname(mutation, colName);
     if (colIndex == -1) return -1;
     if (!column_type_matches_oid(mutation->record, colIndex, 701)) return -1;
@@ -489,6 +638,10 @@ int holo_client_set_req_double_val_by_colname(Mutation mutation, char *colName, 
 }
 
 int holo_client_set_req_text_val_by_colname(Mutation mutation, char *colName, char* value) {
+    if (mutation == NULL) {
+        LOG_ERROR("Mutation is NULL when set value.");
+        return -1;
+    }
     int colIndex = try_get_colindex_by_colname(mutation, colName);
     if (colIndex == -1) return -1;
     if (!column_type_matches_oid(mutation->record, colIndex, 25)) return -1;
@@ -507,6 +660,10 @@ int holo_client_set_req_text_val_by_colname(Mutation mutation, char *colName, ch
 }
 
 int holo_client_set_req_timestamp_val_by_colname(Mutation mutation, char *colName, int64_t value) {
+    if (mutation == NULL) {
+        LOG_ERROR("Mutation is NULL when set value.");
+        return -1;
+    }
     int colIndex = try_get_colindex_by_colname(mutation, colName);
     if (colIndex == -1) return -1;
     if (!column_type_matches_oid(mutation->record, colIndex, 1114)) return -1;
@@ -518,6 +675,10 @@ int holo_client_set_req_timestamp_val_by_colname(Mutation mutation, char *colNam
 }
 
 int holo_client_set_req_timestamptz_val_by_colname(Mutation mutation, char *colName, int64_t value) {
+    if (mutation == NULL) {
+        LOG_ERROR("Mutation is NULL when set value.");
+        return -1;
+    }
     int colIndex = try_get_colindex_by_colname(mutation, colName);
     if (colIndex == -1) return -1;
     if (!column_type_matches_oid(mutation->record, colIndex, 1184)) return -1;
@@ -529,6 +690,10 @@ int holo_client_set_req_timestamptz_val_by_colname(Mutation mutation, char *colN
 }
 
 int holo_client_set_req_int32_array_val_by_colname(Mutation mutation, char *colName, int32_t* values, int nValues){
+    if (mutation == NULL) {
+        LOG_ERROR("Mutation is NULL when set value.");
+        return -1;
+    }
     int colIndex = try_get_colindex_by_colname(mutation, colName);
     if (colIndex == -1) return -1;
     if (!column_type_matches_oid(mutation->record, colIndex, 1007)) return -1;
@@ -544,6 +709,10 @@ int holo_client_set_req_int32_array_val_by_colname(Mutation mutation, char *colN
 
 
 int holo_client_set_req_int64_array_val_by_colname(Mutation mutation, char *colName, int64_t* values, int nValues){
+    if (mutation == NULL) {
+        LOG_ERROR("Mutation is NULL when set value.");
+        return -1;
+    }
     int colIndex = try_get_colindex_by_colname(mutation, colName);
     if (colIndex == -1) return -1;
     if (!column_type_matches_oid(mutation->record, colIndex, 1016)) return -1;
@@ -558,6 +727,10 @@ int holo_client_set_req_int64_array_val_by_colname(Mutation mutation, char *colN
 }
 
 int holo_client_set_req_bool_array_val_by_colname(Mutation mutation, char *colName, bool* values, int nValues){
+    if (mutation == NULL) {
+        LOG_ERROR("Mutation is NULL when set value.");
+        return -1;
+    }
     int colIndex = try_get_colindex_by_colname(mutation, colName);
     if (colIndex == -1) return -1;
     if (!column_type_matches_oid(mutation->record, colIndex, 1000)) return -1;
@@ -572,6 +745,10 @@ int holo_client_set_req_bool_array_val_by_colname(Mutation mutation, char *colNa
 }
 
 int holo_client_set_req_float_array_val_by_colname(Mutation mutation, char *colName, float* values, int nValues){
+    if (mutation == NULL) {
+        LOG_ERROR("Mutation is NULL when set value.");
+        return -1;
+    }
     int colIndex = try_get_colindex_by_colname(mutation, colName);
     if (colIndex == -1) return -1;
     if (!column_type_matches_oid(mutation->record, colIndex, 1021)) return -1;
@@ -586,6 +763,10 @@ int holo_client_set_req_float_array_val_by_colname(Mutation mutation, char *colN
 }
 
 int holo_client_set_req_double_array_val_by_colname(Mutation mutation, char *colName, double* values, int nValues){
+    if (mutation == NULL) {
+        LOG_ERROR("Mutation is NULL when set value.");
+        return -1;
+    }
     int colIndex = try_get_colindex_by_colname(mutation, colName);
     if (colIndex == -1) return -1;
     if (!column_type_matches_oid(mutation->record, colIndex, 1022)) return -1;
@@ -600,6 +781,10 @@ int holo_client_set_req_double_array_val_by_colname(Mutation mutation, char *col
 }
 
 int holo_client_set_req_text_array_val_by_colname(Mutation mutation, char *colName, char** values, int nValues){
+    if (mutation == NULL) {
+        LOG_ERROR("Mutation is NULL when set value.");
+        return -1;
+    }
     int colIndex = try_get_colindex_by_colname(mutation, colName);
     if (colIndex == -1) return -1;
     if (!column_type_matches_oid(mutation->record, colIndex, 1009)) return -1;
@@ -618,6 +803,10 @@ int holo_client_set_req_text_array_val_by_colname(Mutation mutation, char *colNa
 }
 
 int holo_client_set_req_null_val_by_colname(Mutation mutation, char *colName){
+    if (mutation == NULL) {
+        LOG_ERROR("Mutation is NULL when set value.");
+        return -1;
+    }
     int colIndex = try_get_colindex_by_colname(mutation, colName);
     if (colIndex == -1) return -1;
     if (mutation->record->schema->columns[colIndex].nullable == false){
@@ -831,6 +1020,9 @@ int holo_client_set_get_val_with_text_by_colindex(Get get, int colIndex, char* v
 // }
 
 void holo_client_destroy_get_request(Get get) {
+    if (get == NULL) {
+        return;
+    }
     Record* getRes;
     holo_client_destroy_record(get->record);
     if (get->submitted) {

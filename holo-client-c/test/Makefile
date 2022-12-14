@@ -1,6 +1,6 @@
 BIN=test
 CC=gcc
-CFLAGS=-lpthread
+CFLAGS=-lpthread -fsanitize=address -fno-omit-frame-pointer
 STATCI_LIBS=-L../src/lib -llog4c -L/usr/local/Cellar/cunit/2.1-3/lib -lcunit #Link liblog4c.a 
 SHARED_LIBS=-L/usr/local/opt/postgresql@11/lib -lpq #Link libpq.so
 INCS=-I/usr/local/opt/postgresql@11/include -I../src/include -I../include -I../src -I/usr/local/Cellar/cunit/2.1-3/include #Header file directory

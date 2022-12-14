@@ -25,16 +25,20 @@ libpq:
 ```
 yum install postgresql postgresql-devel  
 ```
+或 
+```
+yum install libpq libpq-dev  
+```
 log4c:
 ```
-yum install log4c
+yum install log4c log4c-devel
 ```
 jemalloc: 
 ```
-yum install jemalloc
+yum install jemalloc jemalloc-devel
 ```
 如果程序找不到动态库[libholo-client.so](./holo-client/lib) 可以尝试设置LD_LIBRARY_PATH  
-如果动态库不可用，可以参考holo-client-c从源码生成动态库
+如果动态库不可用，可以参考holo-client-c从源码生成动态库（推荐）
 
 
 ## 数据写入

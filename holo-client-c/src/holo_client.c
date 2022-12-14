@@ -96,8 +96,10 @@ TableSchema* holo_client_get_tableschema_by_tablename(HoloClient* client, TableN
     schema = get_future_result(meta->future);
     holo_client_destroy_meta_request(meta);
     if (schema != NULL) {
-        schema->estimatedRecordByteSize = 4 * schema->nColumns;
         add_tableschema_to_metacache(client->workerPool->metaCache, schema);
+    } else {
+        LOG_ERROR("Get table schema failed.");
+        return NULL;
     }
     return schema;
 }
@@ -150,14 +152,6 @@ int holo_client_submit(HoloClient* client, Mutation mutation){
         holo_client_destroy_mutation_request(mutation);
         return -1;
     }
-    int recordByteSize = mutation->record->byteSize - mutation->record->structByteSize;
-    if (recordByteSize > mutation->record->schema->estimatedRecordByteSize) {
-        LOG_DEBUG("Record byte size larger than expected.");
-        mutation->record->schema->estimatedRecordByteSize = recordByteSize << 1;
-    }
-    else if (recordByteSize + (recordByteSize >> 2) < (mutation->record->schema->estimatedRecordByteSize)){
-        mutation->record->schema->estimatedRecordByteSize -= mutation->record->schema->estimatedRecordByteSize >> 3;
-    }
     mutation->byteSize = sizeof(MutationRequest) + mutation->record->byteSize;
     holo_client_add_request_to_mutation_collector(client->mutationCollector, mutation);
     return 0;
@@ -186,7 +180,7 @@ int holo_client_get(HoloClient* client, Get get) {
         return -1;
     }
     if (get == NULL) {
-        LOG_ERROR("Mutation is NULL.");
+        LOG_ERROR("Get is NULL.");
         return -1;
     }
     if(!check_get(get)) {
@@ -199,6 +193,10 @@ int holo_client_get(HoloClient* client, Get get) {
 }
 
 Record* holo_client_get_record(Get get) {
+    if (get == NULL) {
+        LOG_ERROR("Get is NULL.");
+        return NULL;
+    }
     if (!get->submitted) {
         LOG_ERROR("Not yet submitted!");
         return NULL;
@@ -267,6 +265,8 @@ void* find_partition_table_name(PGconn* conn, void* arg) {
     }
     res = PQexecParams(conn, findPartitionSql, 3, NULL, params, NULL, NULL, 0);
     if (PQntuples(res) == 0) {
+        PQclear(res);
+        FREE(partitionInfo);
         return NULL;
     }
     name = MALLOC(1, TableName);

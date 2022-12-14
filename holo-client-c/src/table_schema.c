@@ -52,7 +52,6 @@ TableSchema* holo_client_new_tableschema() {
     schema->primaryKeys = NULL;
     schema->nPrimaryKeys = 0;
     schema->partitionColumn = -1;
-    schema->estimatedRecordByteSize = 0;
     return schema;
 }
 

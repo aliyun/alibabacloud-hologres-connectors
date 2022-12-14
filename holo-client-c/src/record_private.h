@@ -13,11 +13,6 @@ struct _Record{
     int *valueFormats;
     int nValues;
     int byteSize;
-    int mSize;
-    void* mPool;
-    void* mCur;
-    bool outOfPool;
-    int structByteSize;
 };
 
 Record* holo_client_new_record(TableSchema*);

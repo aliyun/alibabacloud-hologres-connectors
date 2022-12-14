@@ -29,7 +29,6 @@ typedef struct _TableSchema {
     int nPrimaryKeys;
     int *primaryKeys;
     int partitionColumn;
-    int estimatedRecordByteSize;
 } TableSchema;
 
 #endif

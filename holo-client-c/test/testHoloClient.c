@@ -9,6 +9,42 @@
 
 char* connInfo;
 
+void testGet(void) {
+    HoloConfig config = holo_client_new_config(connInfo);
+    PGconn * conn = PQconnectdb(connInfo);
+
+    char* tableName = "holo_client_get";
+    char* dropSql = "drop table if exists holo_client_get";
+    char* createSql = "create table holo_client_get (id int not null,name text,address text,primary key(id))";
+    char* insertSql = "insert into holo_client_get values(0, 'name0', 'address')";
+    PQclear(PQexec(conn, dropSql));
+    PQclear(PQexec(conn, createSql));
+    PQclear(PQexec(conn, insertSql));
+    HoloClient* client = holo_client_new_client(config);
+
+    TableSchema* schema = holo_client_get_tableschema(client, NULL, tableName, true);
+    Get get = holo_client_new_get_request(schema);
+    holo_client_set_get_val_with_text_by_colindex(get, 0, "0");
+    holo_client_get(client, get);
+
+    Record* res = holo_client_get_record(get); //异步得到结果
+
+    if (res == NULL) { //查不到记录或者发生异常
+        printf("No record\n");
+    }
+    else {
+        for (int i = 0; i < schema->nColumns; i++) {
+            printf("%s\n", holo_client_get_record_val(res,i)); //第i列的结果， text的形式
+        }
+    }
+
+    holo_client_destroy_get_request(get); //得到结果后需要手动释放
+    holo_client_flush_client(client);
+
+    PQfinish(conn);
+    holo_client_close_client(client);
+}
+
 /**
  * INSERT_REPLACE.
  */

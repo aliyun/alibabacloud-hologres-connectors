@@ -1,10 +1,12 @@
 package main
 
-import "holoclient/holo-client"
-import "strconv"
-import "fmt"
-import "math/rand"
-import "time"
+import (
+	"fmt"
+	holoclient "holoclient/holo-client"
+	"math/rand"
+	"strconv"
+	"time"
+)
 
 func simpleGetTest() {
 	connInfo := "host=xxxxx port=xxx dbname=xxxx user=xxxxx password=xxxxx"
@@ -33,7 +35,7 @@ func simpleGetTest() {
 }
 
 func getListTest() {
-	connInfo := "host=xxxxx port=xxx dbname=xxxxx user=xxxxxx password=xxxxxx"
+	connInfo := "host=xxxxx port=xxx dbname=xxxx user=xxxxx password=xxxxx"
 	config := holoclient.NewHoloConfig(connInfo)
 	client := holoclient.NewHoloClient(config)
 	schema := client.GetTableschema("", "test_get", false)
@@ -57,23 +59,21 @@ func getListTest() {
 		getList[i].DestroyGet()
 	}
 
-
 	client.Flush()
 	client.Close()
 }
 
-
 func simplePutTest() {
-	connInfo := "host=xxxx port=xx dbname=xxxxx user=xxxxx password=xxxxx"
+	connInfo := "host=xxxxx port=xxx dbname=xxxx user=xxxxx password=xxxxx"
 	config := holoclient.NewHoloConfig(connInfo)
 	config.SetWriteMode(holoclient.INSERT_OR_REPLACE)
 	client := holoclient.NewHoloClient(config)
 	schema := client.GetTableschema("", "test_go_put", false)
 
-	intArray := [] int32{3,4,5,6}
-	boolArray := [] bool{true, false, true}
-	floatArray := [] float32{1.123, 2.234}
-	doubleArray := [] float64{1.2345, 3.4567}
+	intArray := []int32{3, 4, 5, 6}
+	boolArray := []bool{true, false, true}
+	floatArray := []float32{1.123, 2.234}
+	doubleArray := []float64{1.2345, 3.4567}
 	for i := 0; i < 100; i++ {
 		put := holoclient.NewMutationRequest(schema)
 		put.SetInt32ValByColIndex(0, int32(i))
@@ -92,7 +92,7 @@ func simplePutTest() {
 }
 
 func getInMultiThread() {
-	connInfo := "host=xxxxx port=80 dbname=xxx user=xxxxx password=xxxxxxx"
+	connInfo := "host=xxxxx port=xxx dbname=xxxx user=xxxxx password=xxxxx"
 	config := holoclient.NewHoloConfig(connInfo)
 	config.SetThreadSize(20)
 	numThread := 100
@@ -121,9 +121,9 @@ func getInMultiThread() {
 	}
 	time.Sleep(60 * time.Second)
 	running = false
-	sum := 0 
+	sum := 0
 	for i := 0; i < numThread; i++ {
-		curnum := <- numRecord
+		curnum := <-numRecord
 		sum = sum + curnum
 	}
 	totalRps := float32(sum) / 60.0

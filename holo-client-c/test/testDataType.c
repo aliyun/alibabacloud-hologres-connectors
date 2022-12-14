@@ -255,6 +255,46 @@ void testOtherTypes() {
 }
 
 /**
+ * json, jsonb, date, char.
+ */
+void testOtherTypes2(void) {
+    HoloConfig config = holo_client_new_config(connInfo);
+    config.writeMode = INSERT_OR_REPLACE;
+    PGconn * conn = PQconnectdb(connInfo);
+    PGresult* res;
+    char* tableName = "holo_client_put_other2";
+    char* dropSql = "drop table if exists holo_client_put_other2";
+    char* createSql = "create table holo_client_put_other2 (c0 int, c1 json, c2 jsonb, c3 date, c4 char, primary key(c0))";
+    PQclear(PQexec(conn, dropSql));
+    PQclear(PQexec(conn, createSql));
+    HoloClient* client = holo_client_new_client(config);
+
+    TableSchema* schema = holo_client_get_tableschema(client, NULL, tableName, true);
+    Mutation mutation = holo_client_new_mutation_request(schema);
+    holo_client_set_req_int32_val_by_colindex(mutation, 0, 0);
+    holo_client_set_req_val_with_text_by_colindex(mutation, 1, "{\"a\":1,\"b\":2}");
+    holo_client_set_req_val_with_text_by_colindex(mutation, 2, "{\"a\":1,\"b\":2}");
+    holo_client_set_req_val_with_text_by_colindex(mutation, 3, "2022-09-20");
+    holo_client_set_req_val_with_text_by_colindex(mutation, 4, "a");
+    // char charArray[] = {'a','b','c'};
+    // holo_client_set_req_text_array_val_by_colindex(mutation, 5, charArray, 3);
+    holo_client_submit(client, mutation);
+
+    holo_client_flush_client(client);
+
+    res = PQexec(conn, "select * from holo_client_put_other2 where c0 = 0");
+    CU_ASSERT_NOT_EQUAL(PQntuples(res), 0);
+    CU_ASSERT_STRING_EQUAL(PQgetvalue(res, 0, 1), "{\"a\":1,\"b\":2}");
+    CU_ASSERT_STRING_EQUAL(PQgetvalue(res, 0, 2), "{\"a\": 1, \"b\": 2}");
+    CU_ASSERT_STRING_EQUAL(PQgetvalue(res, 0, 3), "2022-09-20");
+    CU_ASSERT_STRING_EQUAL(PQgetvalue(res, 0, 4), "a");
+    PQclear(res);
+
+    PQfinish(conn);
+    holo_client_close_client(client);
+}
+
+/**
  * timestamp timestamptz.
  */
 void testTimestamp() {

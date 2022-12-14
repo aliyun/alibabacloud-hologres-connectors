@@ -23,22 +23,14 @@ Record* holo_client_new_record(TableSchema* schema){
         record->valueFormats[i] = 0;
     }
     record->nValues = 0;
-    record->mSize = schema->estimatedRecordByteSize;
-    record->mPool = MALLOC(record->mSize, char);
-    record->mCur = record->mPool;
-    record->outOfPool = false;
-    record->structByteSize = record->byteSize;
     return record;
 }
 
 void holo_client_destroy_record(Record* record){
     if (record == NULL) return;
-    if (record->outOfPool){
-        for (int i = 0;i < record->schema->nColumns;i++) {
-            destroy_record_val(record, i);
-        }
+    for (int i = 0;i < record->schema->nColumns;i++) {
+        destroy_record_val(record, i);
     }
-    FREE(record->mPool);
     FREE(record->values); //释放了整个mPool
     // FREE(record->valuesSet);
     // FREE(record->valueLengths);
@@ -47,26 +39,16 @@ void holo_client_destroy_record(Record* record){
 }
 
 void* new_record_val(Record* record, int length){
-    if (record->mCur + length > record->mPool + record->mSize) {
-        record->outOfPool = true;
-        return MALLOC(length, char);
-    }
-    record->mCur += length;
-    return record->mCur - length;
+    return MALLOC(length, char);
 }
 
 void revoke_record_val(void* addr, Record* record, int length){
-    if (addr < record->mPool || addr + length > record->mPool + record->mSize){
-        FREE(addr);
-    }
-    else record->mCur -= length;
+    FREE(addr);
 }
 
 void destroy_record_val(Record* record, int colIndex){
     void* addr = record->values[colIndex];
-    if (addr < record->mPool || addr + record->valueLengths[colIndex] > record->mPool + record->mSize){
-        FREE(record->values[colIndex]);
-    }
+    FREE(record->values[colIndex]);
 }
 
 RecordItem* create_record_item(Record* record) {

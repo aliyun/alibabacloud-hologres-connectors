@@ -33,6 +33,7 @@ Batch* holo_client_new_batch_with_mutation_request(Mutation mutation){
     Batch* ret = holo_client_new_batch_with_record(mutation->record);
     ret->mode = mutation->mode;
     ret->writeMode = mutation->writeMode;
+    ret->isSupportUnnest = false;
     return ret;
 }
 
@@ -41,6 +42,7 @@ Batch* holo_client_clone_batch_without_records(Batch* batch){
     ret->mode = batch->mode;
     ret->schema = batch->schema;
     ret->writeMode = batch->writeMode;
+    ret->isSupportUnnest = batch->isSupportUnnest;
     void* mPool = MALLOC(ret->schema->nColumns * (sizeof(bool) + 2 * sizeof(int)), char);
     ret->valuesSet = mPool;
     ret->valueFormats = mPool + ret->schema->nColumns * sizeof(bool);

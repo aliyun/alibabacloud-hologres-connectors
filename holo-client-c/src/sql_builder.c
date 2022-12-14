@@ -2,6 +2,183 @@
 #include "logger.h"
 #include "unistd.h"
 
+char* get_type_name_with_oid(unsigned int typeOid) {
+    char* ret;
+    switch (typeOid)
+    {
+    case 16:    //bool
+        ret = "bool";
+        break;
+    case 20:    //int8
+        ret = "int8";
+        break;
+    case 23:    //int4
+        ret = "int4";
+        break;
+    case 21:    //int2
+        ret = "smallint";
+        break;
+    case 700:   //float
+        ret = "float4";
+        break;
+    case 701:   //float8
+        ret = "float8";
+        break;
+    case 18:    //char
+        ret = "char";
+        break;
+    case 1043:  //varchar
+        ret = "varchar";
+        break;
+    case 25:    //text
+        ret = "text";
+        break;
+    case 17:    //bytea
+        ret = "bytea";
+        break;
+    case 114:   //json
+        ret = "json";
+        break;
+    case 3802:  //jsonb
+        ret = "jsonb";
+        break;
+    case 1114:  //timestamp
+        ret = "timestamp";
+        break;
+    case 1184:  //timestamptz
+        ret = "timestamptz";
+        break;
+    case 1082:  //date
+        ret = "date";
+        break;
+    case 1700:  //numeric
+        ret = "numeric";
+        break;
+    default:
+        LOG_ERROR("Unsupported type oid: %d.", typeOid);
+        break;
+    }
+    return ret;
+}
+
+char* build_unnest_insert_sql_with_batch(Batch* batch, int nRecords){
+    if (batch->mode != PUT) return NULL;
+    if (nRecords == 0) nRecords = batch->nRecords;
+    int length = 12; // "INSERT INTO "
+    length += strlen(batch->schema->tableName->fullName);
+    length += 2; // " ("
+    for (int i = 0; i < batch->schema->nColumns; i++) {
+        if (!batch->valuesSet[i]) continue;
+        length += strlen(batch->schema->columns[i].quoted) + 1;
+    }
+    length += 8; // " SELECT "
+    int count = 0;
+    for (int i = 0; i < batch->schema->nColumns; i++) {
+        if (!batch->valuesSet[i]) continue;
+        length += 13 + strlen(get_type_name_with_oid(batch->schema->columns[i].type)); // "unnest(::<typeName>[]),"
+        length += 1 + len_of_int(++count); // "$<count>"
+    }
+    if (batch->schema->nPrimaryKeys != 0) {
+        length += 17; //"on conflict ("," do "
+        for (int i = 0;i < batch->schema->nPrimaryKeys;i++){
+            length += strlen(batch->schema->columns[batch->schema->primaryKeys[i]].quoted) + 1; //"<pk>,"
+        }
+        if (batch->writeMode == INSERT_OR_IGNORE){
+            length += 7; // "nothing"
+        }
+        else {
+            length += 11; // "update set " 
+            for (int i = 0;i < batch->schema->nColumns;i++){
+                if (!batch->valuesSet[i]) continue;
+                length += strlen(batch->schema->columns[i].quoted) * 2 + 10 + 1; //"<column>=excluded.<column>,"
+            }
+            length -= 1;// 最后减一个","
+        }
+    }
+    char* sql = MALLOC(length + 1, char);
+    strncpy(sql, "INSERT INTO ", 13);
+    int position = 12;
+    count = 0;
+    strncpy(sql + position, batch->schema->tableName->fullName, strlen(batch->schema->tableName->fullName));
+    position += strlen(batch->schema->tableName->fullName);
+    strncpy(sql + position, " (", 3);
+    position += 2;
+    for (int i = 0;i < batch->schema->nColumns;i++){
+        if (!batch->valuesSet[i]) continue;
+        if (count > 0) {
+            strncpy(sql + position, ",", 2);
+            position += 1;
+        }
+        strncpy(sql + position, batch->schema->columns[i].quoted, strlen(batch->schema->columns[i].quoted));
+        position += strlen(batch->schema->columns[i].quoted);
+        count ++;
+    }
+    strncpy(sql + position, ") SELECT ", 10);
+    position += 9;
+    count = 0;
+    for (int i = 0;i < batch->schema->nColumns;i++){
+        if (!batch->valuesSet[i]) continue;
+        if (count > 0) {
+            strncpy(sql + position, ",", 2);
+            position += 1;
+        }
+        strncpy(sql + position, "unnest($", 9);
+        position += 8;
+        char* number = itoa(++count);
+        strncpy(sql + position, number, len_of_int(count));
+        position += len_of_int(count);
+        FREE(number);
+        strncpy(sql + position, "::", 3);
+        position += 2;
+        char* typeName = get_type_name_with_oid(batch->schema->columns[i].type);
+        strncpy(sql + position, typeName, strlen(typeName));
+        position += strlen(typeName);
+        strncpy(sql + position, "[])", 4);
+        position += 3;
+    }
+    if (batch->schema->nPrimaryKeys != 0) {
+        strncpy(sql + position, " on conflict (", 15);
+        position += 14;
+        bool first = true;
+        for (int i = 0;i < batch->schema->nPrimaryKeys;i++){
+            int index = batch->schema->primaryKeys[i];
+            if (first) first = false;
+            else {
+                strncpy(sql + position, ",", 2);
+                position += 1;
+            }
+            strncpy(sql + position, batch->schema->columns[index].quoted, strlen(batch->schema->columns[index].quoted));
+            position += strlen(batch->schema->columns[index].quoted);
+        }
+        strncpy(sql + position, ") do ", 6);
+        position += 5;
+        if (batch->writeMode == INSERT_OR_IGNORE){
+            strncpy(sql + position, "nothing", 8);
+            position += 7;
+        }
+        else {  //若为INSERT_OR_REPLACE，则record已被normalize
+            strncpy(sql + position, "update set ", 12);
+            position += 11;
+            first = true;
+            for (int i = 0;i < batch->schema->nColumns;i++){
+                if (!batch->valuesSet[i]) continue;
+                if (first) first = false;
+                else {
+                    strncpy(sql + position, ",", 2);
+                    position += 1;
+                }
+                strncpy(sql + position, batch->schema->columns[i].quoted, strlen(batch->schema->columns[i].quoted));
+                position += strlen(batch->schema->columns[i].quoted);
+                strncpy(sql + position, "=excluded.", 11);
+                position += 10;
+                strncpy(sql + position, batch->schema->columns[i].quoted, strlen(batch->schema->columns[i].quoted) + 1);
+                position += strlen(batch->schema->columns[i].quoted);
+            }
+        }
+    }
+    return sql;
+}
+
 char* build_insert_sql_with_batch(Batch* batch, int nRecords){
     if (batch->mode != PUT) return NULL;
     if (nRecords == 0) nRecords = batch->nRecords;

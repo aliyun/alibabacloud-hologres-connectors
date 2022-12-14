@@ -16,6 +16,7 @@ char* connInfo = "host=test_instance_host port=test_instance_port dbname=test_db
 
 
 CU_TestInfo testcase[] = {
+    {"testGet", testGet},
     {"testPut001", testPut001},
     {"testPut002", testPut002},
     {"testPut003", testPut003},
@@ -60,6 +61,7 @@ CU_TestInfo testcase_type[] = {
     {"testArrayTypes", testArrayTypes},
     {"testTimestamp", testTimestamp},
     {"testOtherTypes", testOtherTypes},
+    {"testOtherTypes2", testOtherTypes2},
     CU_TEST_INFO_NULL
 };
 
@@ -94,14 +96,17 @@ void AddTests() {
 }
 
 int RunTest() {
+    holo_client_logger_open();
     if(CU_initialize_registry()) {
         fprintf(stderr, " Initialization of Test Registry failed. ");
+        holo_client_logger_close();
         exit(EXIT_FAILURE);
     } else {
         AddTests();
         CU_basic_set_mode(CU_BRM_VERBOSE);
         CU_basic_run_tests();
         CU_cleanup_registry();
+        holo_client_logger_close();
         return CU_get_error();
     }
 }

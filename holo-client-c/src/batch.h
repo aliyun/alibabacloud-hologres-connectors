@@ -19,6 +19,7 @@ typedef struct _Batch{
     int nRecords;
     HoloMutationMode mode;
     HoloWriteMode writeMode;
+    bool isSupportUnnest;
 } Batch;
 
 typedef struct _BatchItem {

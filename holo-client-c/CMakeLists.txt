@@ -1,6 +1,15 @@
 cmake_minimum_required(VERSION 3.9)
 project(holo-client VERSION 1.0.1 DESCRIPTION "holo-client")
 include(GNUInstallDirs)
+# 当前使用的c编译器
+message("-- CMAKE_C_COMPILER: ${CMAKE_C_COMPILER_ID}")
+# 当前使用的c编译器的版本
+message("-- CMAKE_C_COMPILER_VERSION: ${CMAKE_C_COMPILER_VERSION}")
+if("${CMAKE_C_COMPILER_ID}" STREQUAL "GNU")
+	if(${CMAKE_C_COMPILER_VERSION} LESS 4.9.2)
+	add_compile_options(-std=c11 -D_XOPEN_SOURCE=600)
+	endif()
+endif()
 add_library(holo-client SHARED
     src/action.c
 	src/batch.c
@@ -45,6 +54,7 @@ target_include_directories(holo-client PUBLIC
     include
     PRIVATE src)
 target_link_libraries(holo-client ${LIBPQ} ${LOG4C} -lpthread ${JEMALLOC})
+
 SET(CMAKE_INSTALL_PREFIX ./)
 install(TARGETS holo-client
     LIBRARY DESTINATION out/lib

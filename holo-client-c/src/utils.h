@@ -19,6 +19,7 @@ struct timespec get_out_time(long long);
 char* itoa(int);
 int len_of_int(int);
 char* quote_identifier(char*);
+int get_max_pow(int);
 
 long current_time_ms();
 void endian_swap(void*, int);

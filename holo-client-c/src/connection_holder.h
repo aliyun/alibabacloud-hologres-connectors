@@ -17,9 +17,17 @@
 typedef struct _ConnectionHolder ConnectionHolder;
 typedef ActionStatus (*ActionHandler)(ConnectionHolder*, Action*);
 
+typedef struct _HoloVersion
+{
+    int majorVersion;
+    int minorVersion;
+    int fixVersion;
+} HoloVersion;
+
 typedef struct _ConnectionHolder {
     PGconn* conn;
     char* connInfo;
+    HoloVersion* holoVersion;
 
     int retryCount;
     long long retrySleepStepMs;
@@ -48,6 +56,7 @@ extern PGresult* connection_holder_exec_params_with_retry(ConnectionHolder*, con
 extern void connection_holder_exec_func_with_retry(ConnectionHolder*, SqlFunction, void*, void**);
 void connection_holder_close_conn(ConnectionHolder*);
 
+bool is_batch_support_unnest(ConnectionHolder*, Batch*);
 SqlCache* connection_holder_get_or_create_sql_cache_with_batch(ConnectionHolder*, Batch*, int);
 SqlCache* connection_holder_get_or_create_get_sql_cache(ConnectionHolder*, TableSchema*, int);
 #endif

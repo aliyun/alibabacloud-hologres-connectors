@@ -10,6 +10,7 @@
 
 typedef ActionStatus (*BatchHandler)(ConnectionHolder*, Batch*, dlist_node**, int);
 
+ActionStatus get_holo_version(ConnectionHolder*);
 ActionStatus get_table_schema(ConnectionHolder*, TableSchema*, TableName);
 ActionStatus handle_mutations(ConnectionHolder*, dlist_head*);
 ActionStatus handle_batch(Batch*, int, BatchHandler, ConnectionHolder*);
@@ -18,6 +19,9 @@ ActionStatus exec_batch_one_by_one(ConnectionHolder*, Batch*, dlist_node**, int)
 ActionStatus delete_batch(ConnectionHolder*, Batch*, dlist_node**, int);
 ActionStatus handle_sql(ConnectionHolder* connHolder, SqlFunction sqlFunction, void* arg, void** retAddr);
 ActionStatus handle_gets(ConnectionHolder*, TableSchema*, dlist_head*, int);
+
+extern void unnest_convert_array_to_postgres_binary(char*, void*, int, int, int, int);
+extern void convert_text_array_to_postgres_binary(char*, char**, int);
 
 Worker* holo_client_new_worker(HoloConfig config, int index) {
     Worker* worker = MALLOC(1, Worker);
@@ -117,6 +121,7 @@ void holo_client_close_worker(Worker* worker) {
     //释放资源
     pthread_mutex_destroy(worker->mutex);
     pthread_cond_destroy(worker->cond);
+    FREE(worker->connHolder->holoVersion);
     FREE(worker->connHolder);
     FREE(worker->config.connInfo);
     FREE(worker->thread);
@@ -151,6 +156,7 @@ ActionStatus handle_meta_action(ConnectionHolder* connHolder, Action* action) {
 }
 
 ActionStatus handle_mutation_action(ConnectionHolder* connHolder, Action* action) {
+    ActionStatus rc1 = get_holo_version(connHolder);
     ActionStatus rc = handle_mutations(connHolder, &((MutationAction*)action)->requests);
     if (rc != SUCCESS) return rc;
     complete_future(((MutationAction*)action)->future, NULL);
@@ -194,6 +200,58 @@ void worker_abort_action(Worker* worker){
         }
 }
 
+ActionStatus get_holo_version(ConnectionHolder* connHolder) {
+    PGresult* res;
+    const char* findHgVersion = "select hg_version()";
+    const char* findHoloVersion = "select version()";
+
+    res = connection_holder_exec_params_with_retry(connHolder, findHgVersion, 0, NULL, NULL, NULL, NULL, 0);
+    if (res == NULL || PQresultStatus(res) != PGRES_TUPLES_OK || PQntuples(res) == 0){
+        LOG_ERROR("Get Hg Version failed.");
+        if (res != NULL) {
+            PQclear(res);
+        }
+        return FAILURE_NOT_NEED_RETRY;
+    } else {
+        char* hgVersionStr = deep_copy_string(PQgetvalue(res, 0, 0));
+        int cnt = sscanf(hgVersionStr, "Hologres %d.%d.%d", &connHolder->holoVersion->majorVersion, &connHolder->holoVersion->minorVersion, &connHolder->holoVersion->fixVersion);
+        FREE(hgVersionStr);
+        if (res != NULL) {
+            PQclear(res);
+        }
+        if (cnt > 0) {
+            // LOG_DEBUG("Get Hg Version: %d.%d.%d", connHolder->holoVersion->majorVersion, connHolder->holoVersion->minorVersion, connHolder->holoVersion->fixVersion);
+            return SUCCESS;
+        } else {
+            LOG_ERROR("Get Hg Version failed.");
+            return FAILURE_NOT_NEED_RETRY;
+        }
+    }
+
+    res = connection_holder_exec_params_with_retry(connHolder, findHoloVersion, 0, NULL, NULL, NULL, NULL, 0);
+    if (res == NULL || PQresultStatus(res) != PGRES_TUPLES_OK || PQntuples(res) == 0){
+        LOG_ERROR("Get Holo Version failed.");
+        if (res != NULL) {
+            PQclear(res);
+        }
+        return FAILURE_NOT_NEED_RETRY;
+    } else {
+        char* holoVersionStr = deep_copy_string(PQgetvalue(res, 0, 0));
+        int cnt = sscanf(holoVersionStr, "release-%d.%d.%d", &connHolder->holoVersion->majorVersion, &connHolder->holoVersion->minorVersion, &connHolder->holoVersion->fixVersion);
+        FREE(holoVersionStr);
+        if (res != NULL) {
+            PQclear(res);
+        }
+        if (cnt > 0) {
+            LOG_INFO("Get Holo Version: %d.%d.%d", connHolder->holoVersion->majorVersion, connHolder->holoVersion->minorVersion, connHolder->holoVersion->fixVersion);
+            return SUCCESS;
+        } else {
+            LOG_ERROR("Get Holo Version failed.");
+            return FAILURE_NOT_NEED_RETRY;
+        }
+    }
+}
+
 ActionStatus get_table_schema(ConnectionHolder* connHolder, TableSchema* schema, TableName tableName) {
     Column* columns;
     const char* findTableOidSql = "SELECT property_value FROM hologres.hg_table_properties where table_namespace = $1 and table_name = $2 and property_key = 'table_id'";
@@ -212,7 +270,7 @@ ActionStatus get_table_schema(ConnectionHolder* connHolder, TableSchema* schema,
 
     //get table oid
     res = connection_holder_exec_params_with_retry(connHolder, findTableOidSql, 2, NULL, names, NULL, NULL, 0);
-    if (res == NULL || PQresultStatus(res) != PGRES_TUPLES_OK){
+    if (res == NULL || PQresultStatus(res) != PGRES_TUPLES_OK || PQntuples(res) == 0){
         LOG_ERROR("Get table Oid of table %s failed.", tableName.fullName);
         holo_client_destroy_tableschema(schema);
         if (res != NULL) PQclear(res);
@@ -225,7 +283,7 @@ ActionStatus get_table_schema(ConnectionHolder* connHolder, TableSchema* schema,
     //get column_name, data_type_oid, is_nullable, default_value of each column
     sprintf(oid, "%d", schema->tableId);
     res = connection_holder_exec_params_with_retry(connHolder, findColumnsSql, 3, NULL, names3, NULL, NULL, 0);
-    if (res == NULL || PQresultStatus(res) != PGRES_TUPLES_OK){
+    if (res == NULL || PQresultStatus(res) != PGRES_TUPLES_OK  || PQntuples(res) == 0){
         LOG_ERROR("Get column info of table %s failed\n", tableName.fullName);
         PQclear(res);
         if (res != NULL) PQclear(res);
@@ -361,11 +419,32 @@ ActionStatus handle_mutations(ConnectionHolder* connHolder, dlist_head* mutation
 
     ActionStatus rc = SUCCESS;
     ActionStatus t;
-    if (deleteBatch != NULL) t = handle_batch(deleteBatch, 128, exec_batch, connHolder);
+
+    if (deleteBatch != NULL) {
+        int maxSize = get_max_pow(deleteBatch->nRecords);
+        if (!is_batch_support_unnest(connHolder, deleteBatch)) {
+            while (maxSize * deleteBatch->nValues > 32768) {
+                maxSize >>= 1;
+            }
+        } else {
+            deleteBatch->isSupportUnnest = true;
+        }
+        t = handle_batch(deleteBatch, maxSize, exec_batch, connHolder);
+        holo_client_destroy_batch(deleteBatch);
+    }
     if (t != SUCCESS) rc = FAILURE_NOT_NEED_RETRY;
+
     dlist_foreach_modify(miterBatch, &batchList) {
         insertBatchItem = dlist_container(BatchItem, list_node, miterBatch.cur);
-        t = handle_batch(insertBatchItem->batch, 128, exec_batch, connHolder);
+        int maxSize = get_max_pow(insertBatchItem->batch->nRecords);
+        if (!is_batch_support_unnest(connHolder, insertBatchItem->batch)) {
+            while (maxSize * insertBatchItem->batch->nValues > 32768) {
+                maxSize >>= 1;
+            }
+        } else {
+            insertBatchItem->batch->isSupportUnnest = true;
+        }
+        t = handle_batch(insertBatchItem->batch, maxSize, exec_batch, connHolder);
         if (t != SUCCESS) rc = FAILURE_NOT_NEED_RETRY;
         holo_client_destroy_batch(insertBatchItem->batch);
         dlist_delete(miterBatch.cur);
@@ -406,21 +485,134 @@ ActionStatus exec_batch(ConnectionHolder* connHolder, Batch* batch, dlist_node**
 
     if (nRecords == 0) nRecords = batch->nRecords;
     SqlCache* sqlCache = connection_holder_get_or_create_sql_cache_with_batch(connHolder, batch, nRecords);
-    int nParams = nRecords * batch->nValues;
-    char** params = MALLOC(nParams, char*);
+    int nParams;
+    char** params;
     dlist_mutable_iter miter;
     RecordItem* recordItem;
-    int count = -1;
-    int cRecords = 0;
-    dlist_foreach_from(miter, &(batch->recordList), *current){
-        if (cRecords >= nRecords) break;
-        recordItem = dlist_container(RecordItem, list_node, miter.cur);
-        for (int i = 0;i < batch->schema->nColumns;i++){
+    if (batch->isSupportUnnest && nRecords > 1) {
+        nParams = batch->nValues;
+        params = MALLOC(nParams, char*);
+        int cParam = 0;
+        for (int i = 0; i < batch->schema->nColumns; i++) {
             if (!batch->valuesSet[i]) continue;
-            params[++count] = recordItem->record->values[i];
-            sqlCache->paramLengths[count] = recordItem->record->valueLengths[i];
+            // 对于每个set value的列，创建数组
+            char** valueArray = MALLOC(nRecords, char*);
+            // 遍历recordList，取对应位置的value填充数组
+            int cRecords = 0;
+            dlist_foreach_from(miter, &(batch->recordList), *current) {
+                if (cRecords >= nRecords) break;
+                recordItem = dlist_container(RecordItem, list_node, miter.cur);
+                valueArray[cRecords++] = recordItem->record->values[i];
+            }
+            // 把这个数组变成一条record，插入param
+            int length;
+            char* ptr;
+            switch (batch->schema->columns[i].type)
+            {
+            case 23:
+                length = 20 + 4 * nRecords + 4 * nRecords;
+                ptr = MALLOC(length, char);
+                unnest_convert_array_to_postgres_binary(ptr, valueArray, length, nRecords, 4, 23);
+                sqlCache->paramTypes[cParam] = 1007;
+                sqlCache->paramFormats[cParam] = 1;
+                break;
+            case 20:
+                length = 20 + 4 * nRecords + 8 * nRecords;
+                ptr = MALLOC(length, char);
+                unnest_convert_array_to_postgres_binary(ptr, valueArray, length, nRecords, 8, 20);
+                sqlCache->paramTypes[cParam] = 1016;
+                sqlCache->paramFormats[cParam] = 1;
+                break;
+            case 21:
+                length = 20 + 4 * nRecords + 2 * nRecords;
+                ptr = MALLOC(length, char);
+                unnest_convert_array_to_postgres_binary(ptr, valueArray, length, nRecords, 2, 21);
+                sqlCache->paramTypes[cParam] = 1005;
+                sqlCache->paramFormats[cParam] = 1;
+                break;
+            case 16:
+                length = 20 + 4 * nRecords + 1 * nRecords;
+                ptr = MALLOC(length, char);
+                unnest_convert_array_to_postgres_binary(ptr, valueArray, length, nRecords, 1, 16);
+                sqlCache->paramTypes[cParam] = 1000;
+                sqlCache->paramFormats[cParam] = 1;
+                break;
+            case 700:
+                length = 20 + 4 * nRecords + 4 * nRecords;
+                ptr = MALLOC(length, char);
+                unnest_convert_array_to_postgres_binary(ptr, valueArray, length, nRecords, 4, 700);
+                sqlCache->paramTypes[cParam] = 1021;
+                sqlCache->paramFormats[cParam] = 1;
+                break;
+            case 701:
+                length = 20 + 4 * nRecords + 8 * nRecords;
+                ptr = MALLOC(length, char);
+                unnest_convert_array_to_postgres_binary(ptr, valueArray, length, nRecords, 8, 701);
+                sqlCache->paramTypes[cParam] = 1022;
+                sqlCache->paramFormats[cParam] = 1;
+                break;
+            // TODO: timestamp和timestamptz的binary写入
+            case 1114:  //timestamp
+                if (batch->schema->columns[i].type == 1114 && batch->valueFormats[i] == 1) {
+                    length = 20 + 4 * nRecords + 8 * nRecords;
+                    ptr = MALLOC(length, char);
+                    unnest_convert_array_to_postgres_binary(ptr, valueArray, length, nRecords, 8, 1114);
+                    sqlCache->paramTypes[cParam] = 1115;
+                    sqlCache->paramFormats[cParam] = 1;
+                    break;
+                }
+            case 1184:  //timestamptz
+                if (batch->schema->columns[i].type == 1184 && batch->valueFormats[i] == 1) {
+                    length = 20 + 4 * nRecords + 8 * nRecords;
+                    ptr = MALLOC(length, char);
+                    unnest_convert_array_to_postgres_binary(ptr, valueArray, length, nRecords, 8, 1184);
+                    sqlCache->paramTypes[cParam] = 1185;
+                    sqlCache->paramFormats[cParam] = 1;
+                    break;
+                }
+            case 18:    //char
+            case 1043:  //varchar
+            case 25:    //text
+            case 17:    //bytea
+            case 114:   //json
+            case 3802:  //jsonb
+            case 1082:  //date
+            case 1700:  //numeric
+                length = 20 + 4 * nRecords;
+                for (int i = 0; i < nRecords; i++) {
+                    if (valueArray[i] == NULL) {
+                        continue;
+                    }
+                    length += strlen(valueArray[i]);
+                }
+                ptr = MALLOC(length, char);
+                convert_text_array_to_postgres_binary(ptr, valueArray, nRecords);
+                sqlCache->paramTypes[cParam] = 1009;
+                sqlCache->paramFormats[cParam] = 1;
+                break;
+            default:
+                LOG_ERROR("Generate value array failed for unnest, type is %d.", batch->schema->columns[i].type);
+                break;
+            }
+            params[cParam] = ptr;
+            sqlCache->paramLengths[cParam++] = length;
+            FREE(valueArray);
         }
-        cRecords++;
+    } else {
+        nParams = nRecords * batch->nValues;
+        params = MALLOC(nParams, char*);
+        int count = -1;
+        int cRecords = 0;
+        dlist_foreach_from(miter, &(batch->recordList), *current){
+            if (cRecords >= nRecords) break;
+            recordItem = dlist_container(RecordItem, list_node, miter.cur);
+            for (int i = 0;i < batch->schema->nColumns;i++){
+                if (!batch->valuesSet[i]) continue;
+                params[++count] = recordItem->record->values[i];
+                sqlCache->paramLengths[count] = recordItem->record->valueLengths[i];
+            }
+            cRecords++;
+        }
     }
 
     PGresult* res;
@@ -431,12 +623,22 @@ ActionStatus exec_batch(ConnectionHolder* connHolder, Batch* batch, dlist_node**
         LOG_ERROR("Retrying one by one...");
         if (res != NULL) PQclear(res);
         exec_batch_one_by_one(connHolder, batch, current, nRecords);
+        if (batch->isSupportUnnest && nRecords > 1) {
+            for (int i = 0; i < nParams; i++) {
+                FREE(params[i]);
+            }
+        }
         FREE(params);
         return FAILURE_NOT_NEED_RETRY;
     }
-    metrics_meter_mark(connHolder->metrics->rps, cRecords);
+    metrics_meter_mark(connHolder->metrics->rps, nRecords);
     metrics_meter_mark(connHolder->metrics->qps, 1);
     if (res != NULL) PQclear(res);
+    if (batch->isSupportUnnest && nRecords > 1) {
+        for (int i = 0; i < nParams; i++) {
+            FREE(params[i]);
+        }
+    }
     FREE(params);
     *current = miter.cur;
 

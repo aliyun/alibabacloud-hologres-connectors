@@ -26,11 +26,11 @@ yum install libpq libpq-dev
 ```
 log4c:
 ```
-yum install log4c
+yum install log4c log4c-devel
 ```
 jemalloc: 
 ```
-yum install jemalloc
+yum install jemalloc jemalloc-devel
 ```
 
 2. 在holo-client-c文件夹下

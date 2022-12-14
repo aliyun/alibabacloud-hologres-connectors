@@ -88,6 +88,17 @@ void to_lower_case(char* str){
     }
 }
 
+int get_max_pow(int num) {
+    int flag = num & (num - 1);
+    if (flag == 0)
+        flag = num;
+    int res = 1;
+    while (flag >>= 1) {
+        res <<= 1;
+    }
+    return res;
+}
+
 char* quote_identifier(char* name) {
     char* ret;
     int length = strlen(name), pos = 0, i;

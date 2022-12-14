@@ -96,6 +96,10 @@ ConnectionHolder* holo_client_new_connection_holder(HoloConfig config){
     ConnectionHolder* connHolder = MALLOC(1, ConnectionHolder);
     connHolder->conn = NULL;
     connHolder->connInfo = config.connInfo;
+    connHolder->holoVersion = MALLOC(1, HoloVersion);
+    connHolder->holoVersion->majorVersion = 0;
+    connHolder->holoVersion->minorVersion = 0;
+    connHolder->holoVersion->fixVersion = 0;
     connHolder->retryCount = config.retryCount;
     connHolder->retrySleepStepMs = config.retrySleepStepMs;
     connHolder->retrySleepInitMs = config.retrySleepInitMs;
@@ -257,6 +261,85 @@ void connection_holder_close_conn(ConnectionHolder* connHolder){
     LOG_INFO("Connection closed.");
 }
 
+bool compare_holo_version(HoloVersion* a, HoloVersion* b) {
+    if (a->majorVersion != b->majorVersion) {
+        return a->majorVersion - b->majorVersion;
+    }
+    if (a->minorVersion != b->minorVersion) {
+        return a->minorVersion - b->minorVersion;
+    }
+    return a->fixVersion - b->fixVersion;
+}
+
+bool is_holo_version_support_unnest(ConnectionHolder* connHolder) {
+    if (connHolder->holoVersion == NULL) {
+        LOG_ERROR("Check holo version failed.");
+        return false;
+    }
+    HoloVersion* supportVersion = MALLOC(1, HoloVersion);
+    supportVersion->majorVersion = 1;
+    supportVersion->minorVersion = 1;
+    supportVersion->fixVersion = 38;
+    if (compare_holo_version(connHolder->holoVersion, supportVersion) < 0) {
+        FREE(supportVersion);
+        return false;
+    }
+    FREE(supportVersion);
+    return true;
+}
+
+bool is_type_support_unnest(unsigned int type) {
+    switch (type)
+    {
+    case 16:    //bool
+    case 20:    //int8
+    case 23:    //int4
+    case 21:    //int2
+    case 700:   //float
+    case 701:   //float8
+    case 18:    //char
+    case 1043:  //varchar
+    case 25:    //text
+    case 17:    //bytea
+    case 114:   //json
+    case 3802:  //jsonb
+    case 1114:  //timestamp
+    case 1184:  //timestamptz
+    case 1082:  //date
+    case 1700:  //numeric
+        return true;
+        break;
+    default:
+        break;
+    }
+    return false;
+}
+
+bool is_batch_support_unnest(ConnectionHolder* connHolder, Batch* batch) {
+#ifdef DO_NOT_USE_UNNEST
+    return false;
+#endif
+
+    if (!is_holo_version_support_unnest(connHolder)) {
+        return false;
+    }
+    if (batch->mode != PUT) {
+        return false;
+    }
+    for (int i = 0; i < batch->schema->nColumns; i++) {
+        if (!batch->valuesSet[i]) {
+            continue;
+        }
+        if (!is_type_support_unnest(batch->schema->columns[i].type)) {
+            return false;
+        }
+    }
+    if (batch->nRecords <= 1) {
+        return false;
+    }
+    return true;
+}
+
 SqlCache* connection_holder_get_or_create_sql_cache_with_batch(ConnectionHolder* connHolder, Batch* batch, int nRecords){
     SqlCache* sqlCache;
     bool cached = false;
@@ -280,6 +363,10 @@ SqlCache* connection_holder_get_or_create_sql_cache_with_batch(ConnectionHolder*
         switch (batch->mode)
         {
         case PUT:
+            if (batch->isSupportUnnest && nRecords > 1) {
+                sqlCache->command = build_unnest_insert_sql_with_batch(batch, nRecords);
+                break;
+            }
             sqlCache->command = build_insert_sql_with_batch(batch, nRecords);
             break;
         case DELETE:
@@ -287,18 +374,34 @@ SqlCache* connection_holder_get_or_create_sql_cache_with_batch(ConnectionHolder*
             break;
         }
         if (nRecords == 0) nRecords = batch->nRecords;
-        int nParams = nRecords * batch->nValues;
-        void* mPool = MALLOC(nParams * (sizeof(Oid) + 2 * sizeof(int)), char);
-        sqlCache->paramTypes = mPool;
-        sqlCache->paramFormats = mPool + nParams * sizeof(Oid);
-        sqlCache->paramLengths = mPool + nParams * (sizeof(Oid) + sizeof(int));
-        int count = -1;
-        for (int i = 0;i < nRecords;i++){
-            for (int j = 0;j < batch->schema->nColumns;j++){
-                if (!batch->valuesSet[j]) continue;
-                sqlCache->paramTypes[++count] = batch->schema->columns[j].type;
-                sqlCache->paramFormats[count] = batch->valueFormats[j];
-                sqlCache->paramLengths[count] = batch->valueLengths[j];
+        if (batch->isSupportUnnest && nRecords > 1) {
+            int nParams = batch->nValues;
+            void* mPool = MALLOC(nParams * (sizeof(Oid) + 2 * sizeof(int)), char);
+            sqlCache->paramTypes = mPool;
+            sqlCache->paramFormats = mPool + nParams * sizeof(Oid);
+            sqlCache->paramLengths = mPool + nParams * (sizeof(Oid) + sizeof(int));
+            int count = -1;
+            for (int i = 0; i < batch->schema->nColumns; i++) {
+                if (!batch->valuesSet[i]) continue;
+                sqlCache->paramTypes[++count] = batch->schema->columns[i].type;
+                sqlCache->paramFormats[count] = batch->valueFormats[i];
+                sqlCache->paramLengths[count] = batch->valueLengths[i];
+            }
+        } else {
+            int nParams = nRecords * batch->nValues;
+            void* mPool = MALLOC(nParams * (sizeof(Oid) + 2 * sizeof(int)), char);
+            sqlCache->paramTypes = mPool;
+            sqlCache->paramFormats = mPool + nParams * sizeof(Oid);
+            sqlCache->paramLengths = mPool + nParams * (sizeof(Oid) + sizeof(int));
+            int count = -1;
+            for (int i = 0;i < nRecords;i++){
+                for (int j = 0;j < batch->schema->nColumns;j++){
+                    if (!batch->valuesSet[j]) continue;
+                    sqlCache->paramTypes[++count] = batch->schema->columns[j].type;
+                    sqlCache->paramFormats[count] = batch->valueFormats[j];
+                    // TODO: 去掉batch->valueLengths这个无用的字段
+                    sqlCache->paramLengths[count] = batch->valueLengths[j];
+                }
             }
         }
         dlist_push_tail(&(connHolder->sqlCache), &(create_sql_cache_item(batch, nRecords, sqlCache)->list_node));
