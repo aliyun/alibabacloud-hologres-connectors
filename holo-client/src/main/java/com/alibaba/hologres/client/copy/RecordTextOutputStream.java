@@ -7,8 +7,8 @@ package com.alibaba.hologres.client.copy;
 import com.alibaba.hologres.client.model.Column;
 import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.model.TableSchema;
+import org.postgresql.core.BaseConnection;
 import org.postgresql.jdbc.ArrayUtil;
-import org.postgresql.jdbc.TimestampUtils;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -23,7 +23,7 @@ import java.util.Arrays;
  */
 public class RecordTextOutputStream extends RecordOutputStream {
 
-	public static final int QUOTA = '"';
+	public static final int QUOTE = '"';
 	public static final int ESCAPE = '\\';
 	public static final int NULL = 'N';
 	public static final int DELIMITER = ',';
@@ -32,39 +32,43 @@ public class RecordTextOutputStream extends RecordOutputStream {
 	private static final String ESCAPE_STR;
 	private static final String ESCAPE_REPLACE_STR;
 
-	private static final String QUOTA_STR;
-	private static final String QUOTA_REPLACE_STR;
+	private static final String QUOTE_STR;
+	private static final String QUOTE_REPLACE_STR;
 
 	static {
 		ESCAPE_STR = '\\' + String.valueOf((char) ESCAPE);
 		ESCAPE_REPLACE_STR = ESCAPE_STR + ESCAPE_STR;
-		QUOTA_STR = String.valueOf((char) QUOTA);
-		QUOTA_REPLACE_STR = ESCAPE_STR + QUOTA_STR;
+		QUOTE_STR = String.valueOf((char) QUOTE);
+		QUOTE_REPLACE_STR = ESCAPE_STR + QUOTE_STR;
 	}
 
-	public RecordTextOutputStream(OutputStream os, TableSchema schema, TimestampUtils timestampUtils, int maxCellBufferSize) {
-		super(os, schema, timestampUtils, maxCellBufferSize);
+	public RecordTextOutputStream(OutputStream os, TableSchema schema, BaseConnection baseConnection, int maxCellBufferSize) {
+		super(os, schema, baseConnection, maxCellBufferSize);
 	}
 
 	private String formatString(String input) {
 		return input.replaceAll(ESCAPE_STR, ESCAPE_REPLACE_STR)
-				.replaceAll(QUOTA_STR, QUOTA_REPLACE_STR);
+				.replaceAll(QUOTE_STR, QUOTE_REPLACE_STR);
 	}
 
 	@Override
 	protected void fillByteBuffer(Record record) throws IOException {
-
+		boolean first = true;
 		for (int i = 0; i < record.getSchema().getColumnSchema().length; ++i) {
-			if (i > 0) {
+			if (!record.isSet(i)) {
+				continue;
+			}
+			if (!first) {
 				write(DELIMITER);
 			}
+			first = false;
 			Column column = record.getSchema().getColumn(i);
 			int type = column.getType();
 			Object obj = record.getObject(i);
 			if (obj == null) {
 				write(NULL);
 			} else {
-				boolean quota = false;
+				boolean quote = false;
 				byte[] temp = null;
 				String text = null;
 				try {
@@ -78,7 +82,7 @@ public class RecordTextOutputStream extends RecordOutputStream {
 						case Types.NVARCHAR:
 						case Types.LONGNVARCHAR:
 							text = String.valueOf(obj);
-							quota = true;
+							quote = true;
 							text = formatString(text);
 							break;
 						case Types.TIME:
@@ -109,8 +113,8 @@ public class RecordTextOutputStream extends RecordOutputStream {
 							}
 							text =
 									text.replaceAll(ESCAPE_STR, ESCAPE_REPLACE_STR)
-											.replaceAll(QUOTA_STR, QUOTA_REPLACE_STR);
-							quota = true;
+											.replaceAll(QUOTE_STR, QUOTE_REPLACE_STR);
+							quote = true;
 							break;
 						case Types.SMALLINT:
 						case Types.INTEGER:
@@ -142,7 +146,7 @@ public class RecordTextOutputStream extends RecordOutputStream {
 							} else {
 								text = String.valueOf(obj);
 								text = formatString(text);
-								quota = true;
+								quote = true;
 							}
 							break;
 						case Types.BOOLEAN:
@@ -170,10 +174,10 @@ public class RecordTextOutputStream extends RecordOutputStream {
 									+ text,
 							e);
 				}
-				if (quota) {
-					write(QUOTA);
+				if (quote) {
+					write(QUOTE);
 					write(text.getBytes(UTF8));
-					write(QUOTA);
+					write(QUOTE);
 				} else {
 					write(text.getBytes(UTF8));
 				}

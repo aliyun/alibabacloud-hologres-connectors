@@ -7,7 +7,8 @@ package com.alibaba.hologres.client.copy;
 import com.alibaba.hologres.client.model.Column;
 import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.model.TableSchema;
-import org.postgresql.jdbc.TimestampUtils;
+import org.postgresql.core.BaseConnection;
+import org.postgresql.jdbc.ArrayUtil;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -32,8 +33,8 @@ public class RecordBinaryOutputStream extends RecordOutputStream {
 
 	boolean fillHeader = false;
 
-	public RecordBinaryOutputStream(OutputStream os, TableSchema schema, TimestampUtils timestampUtils, int maxCellBufferSize) {
-		super(os, schema, timestampUtils, maxCellBufferSize);
+	public RecordBinaryOutputStream(OutputStream os, TableSchema schema, BaseConnection conn, int maxCellBufferSize) {
+		super(os, schema, conn, maxCellBufferSize);
 	}
 
 	private void fillHeader() throws IOException {
@@ -52,13 +53,15 @@ public class RecordBinaryOutputStream extends RecordOutputStream {
 			fillHeader();
 		}
 
-		writeShort((short) record.getSchema().getColumnSchema().length);
+		writeShort((short) record.getBitSet().cardinality());
 		int index = 0;
 		for (Column column : record.getSchema().getColumnSchema()) {
 			try {
-				fillByteBuffer(
-						record.getObject(index),
-						column);
+				if (record.isSet(index)) {
+					fillByteBuffer(
+							record.getObject(index),
+							column);
+				}
 			} catch (Exception e) {
 				throw new IOException(
 						"fail to convert column "
@@ -163,10 +166,8 @@ public class RecordBinaryOutputStream extends RecordOutputStream {
 			case Types.DATE:
 				byte[] val = new byte[4];
 				try {
-					if (obj instanceof Date) {
-
+					if (obj instanceof java.sql.Date) {
 						timestampUtils.toBinDate(null, val, (Date) obj);
-
 					} else if (obj instanceof java.util.Date) {
 						Date tmpd = new java.sql.Date(((java.util.Date) obj).getTime());
 						timestampUtils.toBinDate(null, val, tmpd);
@@ -290,6 +291,18 @@ public class RecordBinaryOutputStream extends RecordOutputStream {
 				} else {
 					throw new IOException("unsupported type:" + typeName + "(" + type + ")");
 				}
+			case Types.ARRAY:
+				if (conn == null) {
+					throw new IOException("unsupported type:" + typeName + "(" + type + "). Please call RecordBinaryOutputSteam constructor with BaseConnection Param");
+				}
+				try {
+					byte[] arrayBytes = ArrayUtil.arrayToBinary(conn, obj, column.getTypeName());
+					writeInt(arrayBytes.length);
+					write(arrayBytes);
+				} catch (SQLException e) {
+					throw new IOException(e);
+				}
+				break;
 			default:
 				throw new IOException("unsupported type:" + typeName + "(" + type + ")");
 		}

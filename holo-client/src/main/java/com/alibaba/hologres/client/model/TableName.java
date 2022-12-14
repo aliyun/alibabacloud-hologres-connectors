@@ -7,7 +7,9 @@ package com.alibaba.hologres.client.model;
 import com.alibaba.hologres.client.exception.InvalidIdentifierException;
 
 import java.io.Serializable;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.regex.Pattern;
@@ -51,33 +53,89 @@ public class TableName implements Serializable {
 	static final Pattern IDENTIFIER_PATTERN = Pattern.compile("^[^\"\\s\\d\\-;][^\"\\s\\-;]*$");
 
 	public static String parseIdentifier(String identifier) {
-		if (identifier.startsWith("\"")) {
-			if (identifier.endsWith("\"") && identifier.length() > 2) {
-				StringBuilder sb = new StringBuilder();
-				boolean isQuota = false;
-				for (int i = 1; i < identifier.length() - 1; ++i) {
-					char c = identifier.charAt(i);
-					if ('"' == c) {
-						if (isQuota) {
-							sb.append(c);
+		List<String> ret = parseMultiIdentifier(identifier);
+		if (ret == null) {
+			return null;
+		} else if (ret.size() == 1) {
+			return ret.get(0);
+		} else {
+			throw new InvalidIdentifierException(identifier);
+		}
+	}
+
+	public static final char QUOTE = '"';
+	public static final char SPLIT = '.';
+
+	public static List<String> parseMultiIdentifier(String identifier) {
+		if (identifier == null) {
+			return null;
+		}
+		List<String> ret = new ArrayList<>();
+		boolean isQuoteState = false;
+		StringBuilder sb = new StringBuilder();
+		for (int i = 0; i < identifier.length(); ++i) {
+			char c = identifier.charAt(i);
+			if (isQuoteState) {
+				if (c == QUOTE) {
+					if (i < identifier.length() - 1) {
+						if (identifier.charAt(i + 1) == QUOTE) {
+							sb.append(QUOTE);
+						} else if (identifier.charAt(i + 1) == SPLIT) {
+							isQuoteState = false;
+							ret.add(sb.toString());
+							sb.setLength(0);
+						} else {
+							throw new InvalidIdentifierException(identifier);
 						}
-						isQuota = !isQuota;
-					} else if (isQuota) {
+						++i;
+					} else {
+						ret.add(sb.toString());
+						sb.setLength(0);
+					}
+				} else {
+					sb.append(c);
+				}
+			} else {
+				char lowerC = (char) (c >= 'A' && c <= 'Z' ? c + ('a' - 'A') : c);
+				if (sb.length() == 0) {
+					if (c == QUOTE) {
+						isQuoteState = true;
+					} else if (c == SPLIT) {
 						throw new InvalidIdentifierException(identifier);
 					} else {
-						sb.append(c);
+						sb.append(lowerC);
+					}
+				} else {
+					if (c == QUOTE) {
+						throw new InvalidIdentifierException(identifier);
+					} else if (c == SPLIT) {
+						String text = sb.toString();
+						sb.setLength(0);
+						if (IDENTIFIER_PATTERN.matcher(text).find()) {
+							ret.add(text);
+						} else {
+							throw new InvalidIdentifierException(identifier);
+						}
+					} else {
+						sb.append(lowerC);
 					}
 				}
-				if (isQuota) {
-					throw new InvalidIdentifierException(identifier);
-				} else {
-					return sb.toString();
-				}
 			}
-		} else if (IDENTIFIER_PATTERN.matcher(identifier).find()) {
-			return identifier.toLowerCase();
 		}
-		throw new InvalidIdentifierException(identifier);
+
+		if (sb.length() > 0) {
+			if (isQuoteState) {
+				throw new InvalidIdentifierException(identifier);
+			}
+			String text = sb.toString();
+			sb.setLength(0);
+			if (IDENTIFIER_PATTERN.matcher(text).find()) {
+				ret.add(text);
+			} else {
+				throw new InvalidIdentifierException(identifier);
+			}
+		}
+		return ret;
 	}
 
 	public static TableName valueOf(String name) throws InvalidIdentifierException {
@@ -86,18 +144,18 @@ public class TableName implements Serializable {
 			synchronized (LOCK) {
 				tableName = tableCache2.get(name);
 				if (tableName == null) {
-					String[] schemaAndTableName = name.split("\\.");
-					String schemaName;
-					String qualifierName;
-					if (schemaAndTableName.length < 2) {
-						schemaName = DEFAULT_SCHEMA_NAME;
-						qualifierName = schemaAndTableName[0];
+					List<String> schemaAndTableName = parseMultiIdentifier(name);
+					String parsedSchemaName;
+					String parsedTableName;
+					if (schemaAndTableName.size() == 1) {
+						parsedSchemaName = DEFAULT_SCHEMA_NAME;
+						parsedTableName = schemaAndTableName.get(0);
+					} else if (schemaAndTableName.size() == 2) {
+						parsedSchemaName = schemaAndTableName.get(0);
+						parsedTableName = schemaAndTableName.get(1);
 					} else {
-						schemaName = schemaAndTableName[0];
-						qualifierName = schemaAndTableName[1];
+						throw new InvalidIdentifierException(name);
 					}
-					String parsedSchemaName = parseIdentifier(schemaName);
-					String parsedTableName = parseIdentifier(qualifierName);
 					StringBuilder sb = new StringBuilder();
 					sb.append("\"");
 					for (int i = 0; i < parsedSchemaName.length(); ++i) {

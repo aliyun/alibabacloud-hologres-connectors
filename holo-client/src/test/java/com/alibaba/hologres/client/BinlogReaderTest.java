@@ -10,14 +10,14 @@ import com.alibaba.hologres.client.model.HoloVersion;
 import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.model.WriteMode;
 import com.alibaba.hologres.client.model.binlog.BinlogRecord;
-import org.junit.Assert;
-import org.junit.Test;
 import org.postgresql.PGProperty;
 import org.postgresql.jdbc.PgConnection;
 import org.postgresql.replication.LogSequenceNumber;
 import org.postgresql.replication.PGReplicationStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.testng.Assert;
+import org.testng.annotations.Test;
 
 import java.nio.ByteBuffer;
 import java.sql.Connection;
@@ -1239,27 +1239,27 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String slotName = "holo_client_binlog_reader_028_slot_1";
 
 			String dropSql1 = "drop table if exists " + tableName + "; drop publication if exists " + publicationName
-				+ ";\n";
+					+ ";\n";
 			String dropSql2 = "delete from hologres.hg_replication_progress where slot_name='" + slotName + "';\n";
 			String dropSql3 = "call hg_drop_logical_replication_slot('" + slotName + "');";
 			String createSql1 = "create extension if not exists hg_binlog;\n";
 			String createSql2 = "create table " + tableName
-				+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], "
-				+ "primary key(id));\n "
-				+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
-				+ "call set_table_property('" + tableName + "', 'shard_count', '" + shardCount + "');\n";
+					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], "
+					+ "primary key(id));\n "
+					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
+					+ "call set_table_property('" + tableName + "', 'shard_count', '" + shardCount + "');\n";
 			String createSql3 = "create publication " + publicationName + " for table " + tableName + ";\n";
 			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '"
-				+ publicationName + "');\n";
+					+ publicationName + "');\n";
 
-			execute(conn, new String[] {CREATE_EXTENSION_SQL, dropSql1, dropSql2});
+			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1, dropSql2});
 			try {
-				execute(conn, new String[] {dropSql3});
+				execute(conn, new String[]{dropSql3});
 			} catch (SQLException e) {
 				LOG.info(slotName + " not exists.");
 			}
-			execute(conn, new String[] {createSql1, "begin;", createSql2, "commit;", createSql3});
-			execute(conn, new String[] {createSql4});
+			execute(conn, new String[]{createSql1, "begin;", createSql2, "commit;", createSql3});
+			execute(conn, new String[]{createSql4});
 
 			BinlogShardGroupReader reader = null;
 
@@ -1277,9 +1277,9 @@ public class BinlogReaderTest extends HoloClientTestBase {
 						put2.setObject("t", "NULL");
 					}
 					put2.setObject("ts", "2021-04-12 12:12:12");
-					put2.setObject("ba", new byte[] {(byte) (i % 128)});
-					put2.setObject("t_a", new String[] {"a", "b,c"});
-					put2.setObject("i_a", new int[] {1, 2, 3, 4, 5});
+					put2.setObject("ba", new byte[]{(byte) (i % 128)});
+					put2.setObject("t_a", new String[]{"a", "b,c"});
+					put2.setObject("i_a", new int[]{1, 2, 3, 4, 5});
 					client.put(put2);
 				}
 				client.flush();
@@ -1298,9 +1298,9 @@ public class BinlogReaderTest extends HoloClientTestBase {
 						put2.setObject("t", "NULL");
 					}
 					put2.setObject("ts", "2021-04-12 12:12:12");
-					put2.setObject("ba", new byte[] {(byte) (i % 128)});
-					put2.setObject("t_a", new String[] {"a", "b,c"});
-					put2.setObject("i_a", new int[] {1, 2, 3, 4, 5});
+					put2.setObject("ba", new byte[]{(byte) (i % 128)});
+					put2.setObject("t_a", new String[]{"a", "b,c"});
+					put2.setObject("i_a", new int[]{1, 2, 3, 4, 5});
 					client.put(put2);
 				}
 				client.flush();
@@ -1308,7 +1308,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				Map<Integer, Long> lsnExpects = new ConcurrentHashMap<>(shardCount);
 				try (Statement stat = conn.createStatement()) {
 					ResultSet rs = stat.executeQuery(
-						"select hg_shard_id, max(hg_binlog_lsn) from " + tableName + " group by hg_shard_id;");
+							"select hg_shard_id, max(hg_binlog_lsn) from " + tableName + " group by hg_shard_id;");
 					while (rs.next()) {
 						lsnExpects.put(rs.getInt(1), rs.getLong(2));
 					}
@@ -1340,7 +1340,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				if (reader != null) {
 					reader.cancel();
 				}
-				execute(conn, new String[] {dropSql1, dropSql2, dropSql3});
+				execute(conn, new String[]{dropSql1, dropSql2, dropSql3});
 			}
 		}
 	}

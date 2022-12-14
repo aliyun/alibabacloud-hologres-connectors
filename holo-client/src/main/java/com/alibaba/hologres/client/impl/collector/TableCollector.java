@@ -47,10 +47,11 @@ public class TableCollector {
 	}
 
 	private void initTableShardCollector(int size) {
-		pairArray = new TableShardCollector[size];
-		for (int i = 0; i < pairArray.length; ++i) {
-			pairArray[i] = new TableShardCollector(config, pool, stat, pairArray.length);
+		TableShardCollector[] newPairArray = new TableShardCollector[size];
+		for (int i = 0; i < newPairArray.length; ++i) {
+			newPairArray[i] = new TableShardCollector(config, pool, stat, newPairArray.length);
 		}
+		pairArray = newPairArray;
 		shardPolicy.init(size);
 	}
 

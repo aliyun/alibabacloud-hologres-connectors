@@ -26,6 +26,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.Closeable;
 import java.sql.SQLException;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -82,7 +83,7 @@ public class ExecutionPool implements Closeable {
 	private AtomicBoolean started; //executionPool整体是否在运行中 ，false以后submit将抛异常
 	private AtomicBoolean workerStated; //worker是否在运行中，false以后worker.offer将抛异常
 
-	private HoloClientException fatalException = null;
+	private Tuple<String, HoloClientException> fatalException = null;
 	final ArrayBlockingQueue<Get> queue;
 	final ByteSizeCache byteSizeCache;
 
@@ -190,6 +191,7 @@ public class ExecutionPool implements Closeable {
 	private synchronized void start() throws HoloClientException {
 		if (started.compareAndSet(false, true)) {
 			LOGGER.info("HoloClient ExecutionPool[{}] start", name);
+			closeStack = null;
 			workerStated.set(true);
 			workerExecutorService = new ThreadPoolExecutor(workers.length, workers.length, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(1), workerThreadFactory, new ThreadPoolExecutor.AbortPolicy());
 			backgroundExecutorService = new ThreadPoolExecutor(2, 2, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(1), backgroundThreadFactory, new ThreadPoolExecutor.AbortPolicy());
@@ -207,9 +209,17 @@ public class ExecutionPool implements Closeable {
 		}
 	}
 
+	Tuple<String, HoloClientException> closeStack = null;
+
+	public synchronized Tuple<String, HoloClientException> getCloseReasonStack() {
+		return closeStack;
+	}
+
 	@Override
 	public synchronized void close() {
 		if (started.compareAndSet(true, false)) {
+			closeStack = new Tuple<>(LocalDateTime.now().toString(),
+				new HoloClientException(ExceptionCode.ALREADY_CLOSE, "close caused by"));
 			if (clientMap.size() > 0) {
 				LOGGER.warn("HoloClient ExecutionPool[{}] close, current client size {}", name, clientMap.size());
 			} else {
@@ -456,7 +466,10 @@ public class ExecutionPool implements Closeable {
 
 	public void tryThrowException() throws HoloClientException {
 		if (fatalException != null) {
-			throw fatalException;
+			throw new HoloClientException(fatalException.r.getCode(), String.format(
+				"An exception occurred at %s and data may be lost, please restart holo-client and recover from the "
+					+ "last checkpoint",
+				fatalException.l), fatalException.r);
 		}
 	}
 
@@ -524,7 +537,7 @@ public class ExecutionPool implements Closeable {
 							collector.tryFlush();
 						}
 					} catch (HoloClientException e) {
-						fatalException = e;
+						fatalException = new Tuple<>(LocalDateTime.now().toString(), e);
 						break;
 					}
 				}

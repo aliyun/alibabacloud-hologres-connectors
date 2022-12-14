@@ -9,11 +9,11 @@ import com.alibaba.hologres.client.model.ImportContext;
 import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.model.WriteMode;
-import org.junit.Assert;
-import org.junit.Ignore;
-import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.testng.Assert;
+import org.testng.annotations.Ignore;
+import org.testng.annotations.Test;
 
 import java.io.PipedInputStream;
 import java.io.PipedOutputStream;
@@ -245,8 +245,8 @@ public class BulkScanTest extends HoloClientTestBase {
 		config.setWriteMode(WriteMode.INSERT_OR_REPLACE);
 		config.setWriteThreadSize(5);
 		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
-			String tableName = "test_schema.\"holO_client_bulkscan_003\"";
-			String tableName2 = "test_schema.\"holO_client_bulkscan_003_002\"";
+			String tableName = "test_schema.\"holO_client_bulkscan_004\"";
+			String tableName2 = "test_schema.\"holO_client_bulkscan_004_002\"";
 			String createSchema = "create schema if not exists test_schema";
 			String dropSql = "drop table if exists " + tableName + ";drop table if exists " + tableName2;
 			String createSql = "create table " + tableName + "(id int not null,amount decimal(12,2), t text,ts timestamptz, ba bytea,t_a text[],i_a int[], primary key(id));create table " + tableName2 + "(id int not null,amount decimal(12,2), t text,ts timestamptz, ba bytea,t_a text[],i_a int[], primary key(id))";
@@ -338,8 +338,8 @@ public class BulkScanTest extends HoloClientTestBase {
 		config.setWriteMode(WriteMode.INSERT_OR_REPLACE);
 		config.setWriteThreadSize(5);
 		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
-			String tableName = "test_schema.\"holO_client_bulkscan_003\"";
-			String tableName2 = "test_schema.\"holO_client_bulkscan_003_002\"";
+			String tableName = "test_schema.\"holO_client_bulkscan_005\"";
+			String tableName2 = "test_schema.\"holO_client_bulkscan_005_002\"";
 			String createSchema = "create schema if not exists test_schema";
 			String dropSql = "drop table if exists " + tableName + ";drop table if exists " + tableName2;
 			String createSql = "create table " + tableName + "(id int not null,amount decimal(12,2), t text,ts timestamptz, ba bytea,t_a text[],i_a int[], primary key(id));create table " + tableName2 + "(id int not null,amount decimal(12,2), t text,ts timestamptz, ba bytea,t_a text[],i_a int[], primary key(id))";

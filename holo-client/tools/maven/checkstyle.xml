@@ -134,41 +134,41 @@ This file is based on the checkstyle file of Apache Beam.
 			<property name="format" value="org\.apache\.commons\.lang3\.Validate"/>
 			<property name="illegalPattern" value="true"/>
 			<property name="message"
-			          value="Use Guava Checks instead of Commons Validate. Please refer to the coding guidelines."/>
+								value="Use Guava Checks instead of Commons Validate. Please refer to the coding guidelines."/>
 		</module>
 		<!-- forbid the use of google.common.base.Preconditions -->
 		<module name="Regexp">
 			<property name="format" value="import com\.google\.common\.base\.Preconditions"/>
 			<property name="illegalPattern" value="true"/>
 			<property name="message"
-			          value="Use Flink's Preconditions instead of Guava's Preconditions"/>
+								value="Use Flink's Preconditions instead of Guava's Preconditions"/>
 		</module>
 		<!-- forbid the use of com.google.common.annotations.VisibleForTesting -->
 		<module name="Regexp">
 			<property name="format"
-			          value="import com\.google\.common\.annotations\.VisibleForTesting"/>
+								value="import com\.google\.common\.annotations\.VisibleForTesting"/>
 			<property name="illegalPattern" value="true"/>
 			<property name="message"
-			          value="Use Flink's VisibleForTesting instead of Guava's VisibleForTesting"/>
+								value="Use Flink's VisibleForTesting instead of Guava's VisibleForTesting"/>
 		</module>
 		<module name="Regexp">
 			<property name="format" value="import static com\.google\.common\.base\.Preconditions"/>
 			<property name="illegalPattern" value="true"/>
 			<property name="message"
-			          value="Use Flink's Preconditions instead of Guava's Preconditions"/>
+								value="Use Flink's Preconditions instead of Guava's Preconditions"/>
 		</module>
 		<!-- forbid the use of org.apache.commons.lang.SerializationUtils -->
 		<module name="Regexp">
 			<property name="format" value="org\.apache\.commons\.lang\.SerializationUtils"/>
 			<property name="illegalPattern" value="true"/>
 			<property name="message"
-			          value="Use Flink's InstantiationUtil instead of common's SerializationUtils"/>
+								value="Use Flink's InstantiationUtil instead of common's SerializationUtils"/>
 		</module>
 		<module name="Regexp">
 			<property name="format" value="org\.apache\.commons\.lang3\.SerializationUtils"/>
 			<property name="illegalPattern" value="true"/>
 			<property name="message"
-			          value="Use Flink's InstantiationUtil instead of common's SerializationUtils"/>
+								value="Use Flink's InstantiationUtil instead of common's SerializationUtils"/>
 		</module>
 		<module name="Regexp">
 			<property name="format" value="org\.apache\.commons\.lang\."/>
@@ -199,20 +199,20 @@ This file is based on the checkstyle file of Apache Beam.
 			<!-- Checks for redundant import statements. -->
 			<property name="severity" value="error"/>
 			<message key="import.redundancy"
-			         value="Redundant import {0}."/>
+							 value="Redundant import {0}."/>
 		</module>
 
 		<module name="ImportOrder">
 			<!-- Checks for out of order import statements. -->
 			<property name="severity" value="error"/>
 			<property name="groups"
-			          value="org.apache.flink,org.apache.flink.shaded,*,javax,java,scala"/>
+								value="org.apache.flink,org.apache.flink.shaded,*,javax,java,scala"/>
 			<property name="separated" value="true"/>
 			<property name="sortStaticImportsAlphabetically" value="true"/>
 			<property name="option" value="bottom"/>
 			<property name="tokens" value="STATIC_IMPORT, IMPORT"/>
 			<message key="import.ordering"
-			         value="Import {0} appears after other imports that it should precede"/>
+							 value="Import {0} appears after other imports that it should precede"/>
 		</module>
 
 		<module name="AvoidStarImport">
@@ -221,7 +221,7 @@ This file is based on the checkstyle file of Apache Beam.
 
 		<module name="IllegalImport">
 			<property name="illegalPkgs"
-			          value="autovalue.shaded, avro.shaded, com.google.api.client.repackaged, com.google.appengine.repackaged, org.codehaus.jackson, io.netty, org.objectweb.asm"/>
+								value="autovalue.shaded, avro.shaded, com.google.api.client.repackaged, com.google.appengine.repackaged, org.codehaus.jackson, io.netty, org.objectweb.asm"/>
 		</module>
 
 		<module name="RedundantModifier">
@@ -231,7 +231,7 @@ This file is based on the checkstyle file of Apache Beam.
 			  We exclude METHOD_DEF to allow final methods in final classes to make them more future-proof.
 			-->
 			<property name="tokens"
-			          value="VARIABLE_DEF, ANNOTATION_FIELD_DEF, INTERFACE_DEF, CLASS_DEF, ENUM_DEF"/>
+								value="VARIABLE_DEF, ANNOTATION_FIELD_DEF, INTERFACE_DEF, CLASS_DEF, ENUM_DEF"/>
 		</module>
 
 		<!--
@@ -254,7 +254,7 @@ This file is based on the checkstyle file of Apache Beam.
 			<property name="severity" value="error"/>
 			<property name="processJavadoc" value="true"/>
 			<message key="import.unused"
-			         value="Unused import: {0}."/>
+							 value="Unused import: {0}."/>
 		</module>
 
 		<!--
@@ -327,7 +327,7 @@ This file is based on the checkstyle file of Apache Beam.
 			<property name="applyToPrivate" value="false"/>
 			<property name="format" value="^([A-Z][A-Z0-9]*(_[A-Z0-9]+)*|FLAG_.*)$"/>
 			<message key="name.invalidPattern"
-			         value="Variable ''{0}'' should be in ALL_CAPS (if it is a constant) or be private (otherwise)."/>
+							 value="Variable ''{0}'' should be in ALL_CAPS (if it is a constant) or be private (otherwise)."/>
 			<property name="severity" value="error"/>
 		</module>
 
@@ -448,7 +448,7 @@ This file is based on the checkstyle file of Apache Beam.
 		<module name="NeedBraces">
 			<property name="severity" value="error"/>
 			<property name="tokens"
-			          value="LITERAL_IF, LITERAL_ELSE, LITERAL_FOR, LITERAL_WHILE, LITERAL_DO"/>
+								value="LITERAL_IF, LITERAL_ELSE, LITERAL_FOR, LITERAL_WHILE, LITERAL_DO"/>
 		</module>
 
 		<module name="UpperEll">
@@ -456,16 +456,16 @@ This file is based on the checkstyle file of Apache Beam.
 			<property name="severity" value="error"/>
 		</module>
 
-		<module name="FallThrough">
-			<!-- Warn about falling through to the next case statement.  Similar to
-			javac -Xlint:fallthrough, but the check is suppressed if a single-line comment
-			on the last non-blank line preceding the fallen-into case contains 'fall through' (or
-			some other variants that we don't publicized to promote consistency).
-			-->
-			<property name="reliefPattern"
-			          value="fall through|Fall through|fallthru|Fallthru|falls through|Falls through|fallthrough|Fallthrough|No break|NO break|no break|continue on"/>
-			<property name="severity" value="error"/>
-		</module>
+		<!--<module name="FallThrough">-->
+		<!-- Warn about falling through to the next case statement.  Similar to
+    javac -Xlint:fallthrough, but the check is suppressed if a single-line comment
+    on the last non-blank line preceding the fallen-into case contains 'fall through' (or
+    some other variants that we don't publicized to promote consistency).
+    -->
+		<!--<property name="reliefPattern"
+              value="fall through|Fall through|fallthru|Fallthru|falls through|Falls through|fallthrough|Fallthrough|No break|NO break|no break|continue on"/>
+    <property name="severity" value="error"/>
+  </module>-->
 
 		<!-- Checks for over-complicated boolean expressions. -->
 		<module name="SimplifyBooleanExpression"/>

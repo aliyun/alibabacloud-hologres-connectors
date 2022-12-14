@@ -5,8 +5,8 @@
 package com.alibaba.hologres.client.utils;
 
 import com.alibaba.hologres.client.impl.util.ShardUtil;
-import org.junit.Assert;
-import org.junit.Test;
+import org.testng.Assert;
+import org.testng.annotations.Test;
 
 /**
  * ShardUtil单元测试用例.

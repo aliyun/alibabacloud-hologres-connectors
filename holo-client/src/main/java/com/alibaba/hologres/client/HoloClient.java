@@ -278,7 +278,8 @@ public class HoloClient implements Closeable {
 			}
 		}
 		if (!pool.isRunning()) {
-			throw new HoloClientException(ExceptionCode.ALREADY_CLOSE, "already close");
+			throw new HoloClientException(ExceptionCode.ALREADY_CLOSE,
+				"already close at %s" + pool.getCloseReasonStack().l, pool.getCloseReasonStack().r);
 		}
 		if (useFixedFe && fixedPool == null) {
 			synchronized (this) {
@@ -317,8 +318,8 @@ public class HoloClient implements Closeable {
 	/**
 	 * 如果读写分区表，修改对应操作的schema为分区子表.
 	 *
-	 * @param record 操作的Record
-	 * @param createIfNotExists dynamicPartition为true，且是非delete的put操作时，自动创建分区
+	 * @param record               操作的Record
+	 * @param createIfNotExists    dynamicPartition为true，且是非delete的put操作时，自动创建分区
 	 * @param exceptionIfNotExists 分区表不存在时是否抛出异常，get和delete操作发现子表不存在不会抛出异常
 	 * @return 是否可以忽略本次操作，比如delete(PUT)但是分区子表不存在的时候；GET但分区子表不存在的时候
 	 * @throws HoloClientException 获取分区或者根据分区信息获取TableSchema异常 那么complete exception

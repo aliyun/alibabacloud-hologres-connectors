@@ -41,7 +41,7 @@ public class CopyUtil {
 		} else {
 			sb.append(",format csv, DELIMITER '").append((char) RecordTextOutputStream.DELIMITER)
 					.append("', ESCAPE '").append((char) RecordTextOutputStream.ESCAPE)
-					.append("', QUOTE '").append((char) RecordTextOutputStream.QUOTA)
+					.append("', QUOTE '").append((char) RecordTextOutputStream.QUOTE)
 					.append("', NULL '").append((char) RecordTextOutputStream.NULL).append("'");
 		}
 

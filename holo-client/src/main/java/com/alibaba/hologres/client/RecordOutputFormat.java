@@ -29,7 +29,7 @@ import java.util.Arrays;
 public class RecordOutputFormat implements Closeable {
 
 	private static final int DEFAULT_MAX_CELL_BUFFER_SIZE = 2 * 1024 * 1024;
-	private static final int QUOTA = '"';
+	private static final int QUOTE = '"';
 	private static final int ESCAPE = '\\';
 	private static final int NULL = 'N';
 	private static final int DELIMITER = ',';
@@ -40,14 +40,14 @@ public class RecordOutputFormat implements Closeable {
 	private static final String ESCAPE_STR;
 	private static final String ESCAPE_REPLACE_STR;
 
-	private static final String QUOTA_STR;
-	private static final String QUOTA_REPLACE_STR;
+	private static final String QUOTE_STR;
+	private static final String QUOTE_REPLACE_STR;
 
 	static {
 		ESCAPE_STR = (char) ESCAPE + String.valueOf((char) ESCAPE);
 		ESCAPE_REPLACE_STR = ESCAPE_STR + ESCAPE_STR;
-		QUOTA_STR = String.valueOf((char) QUOTA);
-		QUOTA_REPLACE_STR = ESCAPE_STR + QUOTA_STR;
+		QUOTE_STR = String.valueOf((char) QUOTE);
+		QUOTE_REPLACE_STR = ESCAPE_STR + QUOTE_STR;
 	}
 
 	private final int maxCellBufferSize;
@@ -105,7 +105,7 @@ public class RecordOutputFormat implements Closeable {
 			if (obj == null) {
 				write(NULL);
 			} else {
-				boolean quota = false;
+				boolean quote = false;
 				byte[] temp = null;
 				String text = null;
 				try {
@@ -119,8 +119,8 @@ public class RecordOutputFormat implements Closeable {
 						case Types.NVARCHAR:
 						case Types.LONGNVARCHAR:
 							text = String.valueOf(obj);
-							quota = true;
-							text = text.replaceAll(ESCAPE_STR, ESCAPE_REPLACE_STR).replaceAll(QUOTA_STR, QUOTA_REPLACE_STR);
+							quote = true;
+							text = text.replaceAll(ESCAPE_STR, ESCAPE_REPLACE_STR).replaceAll(QUOTE_STR, QUOTE_REPLACE_STR);
 							break;
 						case Types.TIME:
 						case Types.TIME_WITH_TIMEZONE:
@@ -145,8 +145,8 @@ public class RecordOutputFormat implements Closeable {
 							} else {
 								text = String.valueOf(obj);
 							}
-							text = text.replaceAll(ESCAPE_STR, ESCAPE_REPLACE_STR).replaceAll(QUOTA_STR, QUOTA_REPLACE_STR);
-							quota = true;
+							text = text.replaceAll(ESCAPE_STR, ESCAPE_REPLACE_STR).replaceAll(QUOTE_STR, QUOTE_REPLACE_STR);
+							quote = true;
 							break;
 						case Types.SMALLINT:
 						case Types.INTEGER:
@@ -189,10 +189,10 @@ public class RecordOutputFormat implements Closeable {
 				} catch (Exception e) {
 					throw new IOException("fill byteBuffer " + column.getName() + " fail.index:" + currentRecord + " record:" + currentRecord + ", bytes:" + (temp != null ? Arrays.toString(temp) : "null") + ", text:" + text, e);
 				}
-				if (quota) {
-					write(QUOTA);
+				if (quote) {
+					write(QUOTE);
 					write(text.getBytes(UTF8));
-					write(QUOTA);
+					write(QUOTE);
 				} else {
 					write(text.getBytes(UTF8));
 				}

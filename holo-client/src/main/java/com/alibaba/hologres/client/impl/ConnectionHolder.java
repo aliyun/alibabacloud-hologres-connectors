@@ -33,7 +33,7 @@ import java.util.function.Supplier;
 public class ConnectionHolder implements Closeable {
 	public static final Logger LOGGER = LoggerFactory.getLogger(ConnectionHolder.class);
 
-	final String jdbcUrl;
+	final String originalJdbcUrl;
 	Properties info;
 	final ConnectionWithVersion connWithVersion;
 	final boolean isFixed;
@@ -43,12 +43,13 @@ public class ConnectionHolder implements Closeable {
 	final long retrySleepInitMs;
 	final int refreshMetaTimeout;
 	final boolean refreshMetaAfterConnectionCreated;
+	final boolean isEnableDirectConnection;
 
 	long lastActiveTs;
 	private static List<String> preSqlList;
 	private static byte[] lock = new byte[]{};
 	private static String optionProperty = "options=";
-	private static String fixedOption = "-c%20type=fixed%20";
+	private static String fixedOption = "type=fixed%20";
 
 	static {
 		preSqlList = new ArrayList<>();
@@ -65,6 +66,7 @@ public class ConnectionHolder implements Closeable {
 	public class ConnectionWithVersion {
 		private PgConnection conn = null;
 		private HoloVersion version = null;
+		private String jdbcUrl = null;
 
 		public PgConnection getConn() {
 			return conn;
@@ -72,6 +74,10 @@ public class ConnectionHolder implements Closeable {
 
 		public HoloVersion getVersion() {
 			return version;
+		}
+
+		public String getJdbcUrl() {
+			return jdbcUrl;
 		}
 	}
 
@@ -102,6 +108,8 @@ public class ConnectionHolder implements Closeable {
 		this.isFixed = isFixed;
 		if (isFixed) {
 			url = generateFixedUrl(url);
+			// set application_name in startup message.
+			PGProperty.ASSUME_MIN_SERVER_VERSION.set(info, "9.4");
 		}
 
 		//TODO
@@ -117,28 +125,33 @@ public class ConnectionHolder implements Closeable {
 			info.putAll(userInfo);
 		}
 
-		this.jdbcUrl = url;
+		this.originalJdbcUrl = url;
 		PGProperty.USER.set(info, config.getUsername());
 		PGProperty.PASSWORD.set(info, config.getPassword());
 		PGProperty.APPLICATION_NAME.set(info, Version.version + "_" + config.getAppName());
-		PGProperty.SOCKET_TIMEOUT.set(info, 60);
+		PGProperty.SOCKET_TIMEOUT.set(info, 360);
 
 		this.tryCount = config.getRetryCount();
 		this.retrySleepInitMs = config.getRetrySleepInitMs();
 		this.retrySleepStepMs = config.getRetrySleepStepMs();
 		this.refreshMetaTimeout = config.getRefreshMetaTimeout();
 		this.refreshMetaAfterConnectionCreated = config.isRefreshMetaAfterConnectionCreated();
+		this.isEnableDirectConnection = config.isEnableDirectConnection();
 		lastActiveTs = System.currentTimeMillis();
 		this.owner = owner;
 		this.connWithVersion = new ConnectionWithVersion();
+		this.connWithVersion.jdbcUrl = originalJdbcUrl;
 	}
 
 	private PgConnection buildConnection() throws SQLException {
 		long start = System.nanoTime();
-		LOGGER.info("Try to connect {}, owner:{}", this.jdbcUrl, owner);
+		if (isEnableDirectConnection) {
+			this.connWithVersion.jdbcUrl = getDirectConnectionJdbcUrl();
+		}
+		LOGGER.info("Try to connect {}, owner:{}", this.connWithVersion.jdbcUrl, owner);
 		PgConnection conn = null;
 		try {
-			conn = DriverManager.getConnection(this.jdbcUrl, info).unwrap(PgConnection.class);
+			conn = DriverManager.getConnection(this.connWithVersion.jdbcUrl, info).unwrap(PgConnection.class);
 			conn.setAutoCommit(true);
 			if (!isFixed) {
 				List<String> pre = preSqlList;
@@ -170,11 +183,33 @@ public class ConnectionHolder implements Closeable {
 
 		long end = System.nanoTime();
 		if (isFixed) {
-			LOGGER.info("Connected to {}, owner:{}, cost:{} ms, isFixed:true", this.jdbcUrl, owner, (end - start) / 1000000L);
+			LOGGER.info("Connected to {}, owner:{}, cost:{} ms, isFixed:true", this.connWithVersion.jdbcUrl, owner, (end - start) / 1000000L);
 		} else {
-			LOGGER.info("Connected to {}, owner:{}, cost:{} ms, version:{}", this.jdbcUrl, owner, (end - start) / 1000000L, connWithVersion.version);
+			LOGGER.info("Connected to {}, owner:{}, cost:{} ms, version:{}", this.connWithVersion.jdbcUrl, owner, (end - start) / 1000000L, connWithVersion.version);
 		}
 		return conn;
+	}
+
+	/**
+	 * 返回直连fe的jdbc url，用于弹内用户流量不走vip的场景.
+	 *
+	 * @return 直连fe的jdbc url
+	 * @throws SQLException
+	 */
+	private String getDirectConnectionJdbcUrl() throws SQLException {
+		LOGGER.info("Try to connect {} for getting fe endpoint, owner:{}", this.originalJdbcUrl, owner);
+		String endpoint = "";
+		try (PgConnection conn = DriverManager.getConnection(this.originalJdbcUrl, info).unwrap(PgConnection.class)) {
+			String sql = "select inet_server_addr(), inet_server_port()";
+			try (Statement stat = conn.createStatement()) {
+				try (ResultSet rs = stat.executeQuery(sql)) {
+					while (rs.next()) {
+						endpoint = rs.getString(1) + ":" + rs.getString(2);
+					}
+				}
+			}
+		}
+		return ConnectionUtil.replaceJdbcUrlEndpoint(this.originalJdbcUrl, endpoint);
 	}
 
 	/**
@@ -324,9 +359,9 @@ public class ConnectionHolder implements Closeable {
 		connWithVersion.version = null;
 		if (connWithVersion.conn != null) {
 			try {
-				LOGGER.info("Close connection to {}, owner:{}", this.jdbcUrl, owner);
+				LOGGER.info("Close connection to {}, owner:{}", connWithVersion.jdbcUrl, owner);
 				connWithVersion.conn.close();
-				LOGGER.info("Closed connection to {}, owner:{}", this.jdbcUrl, owner);
+				LOGGER.info("Closed connection to {}, owner:{}", connWithVersion.jdbcUrl, owner);
 				connWithVersion.conn = null;
 			} catch (SQLException ignore) {
 			}

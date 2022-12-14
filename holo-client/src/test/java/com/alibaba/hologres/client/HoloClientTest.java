@@ -1,5 +1,6 @@
 package com.alibaba.hologres.client;
 
+import com.alibaba.hologres.client.exception.ExceptionCode;
 import com.alibaba.hologres.client.exception.HoloClientException;
 import com.alibaba.hologres.client.exception.HoloClientWithDetailsException;
 import com.alibaba.hologres.client.impl.ExecutionPool;
@@ -7,9 +8,10 @@ import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.model.RecordScanner;
 import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.model.WriteMode;
+import com.alibaba.hologres.client.utils.FutureUtil;
 import com.alibaba.hologres.client.utils.Metrics;
-import org.junit.Assert;
-import org.junit.Test;
+import org.testng.Assert;
+import org.testng.annotations.Test;
 
 import java.math.BigDecimal;
 import java.sql.Connection;
@@ -400,7 +402,7 @@ public class HoloClientTest extends HoloClientTestBase {
 		config.setDynamicPartition(true);
 		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
 			client.setAsyncCommit(false);
-			String tableName = "test_schema.\"holO_client_put_007\"";
+			String tableName = "test_schema.\"holO_client_put_008\"";
 			String createSchema = "create schema if not exists test_schema";
 			String dropSql = "drop table if exists " + tableName;
 			String createSql = "create table " + tableName + "(id int not null,\"nAme\" text,\"address\" text not null,primary key(id))";
@@ -494,7 +496,7 @@ public class HoloClientTest extends HoloClientTestBase {
 		config.setDynamicPartition(true);
 		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
 			client.setAsyncCommit(false);
-			String tableName = "test_schema.\"holO_client_put_009\"";
+			String tableName = "test_schema.\"holO_client_put_010\"";
 			String createSchema = "create schema if not exists test_schema";
 			String dropSql = "drop table if exists " + tableName;
 			String createSql = "create table " + tableName + "(id int not null,\"a\"\"b\" text,\"address\" text not null,primary key(id))";
@@ -618,7 +620,7 @@ public class HoloClientTest extends HoloClientTestBase {
 		config.setDynamicPartition(true);
 		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
 			client.setAsyncCommit(false);
-			String tableName = "test_schema.\"holO_client_put_009\"";
+			String tableName = "test_schema.\"holO_client_put_012\"";
 			String createSchema = "create schema if not exists test_schema";
 			String dropSql = "drop table if exists " + tableName;
 			String createSql = "create table " + tableName + "(id int not null,\"a\"\"b\" text,\"address\" text not null,primary key(id))";
@@ -1579,8 +1581,8 @@ public class HoloClientTest extends HoloClientTestBase {
 		config.setDynamicPartition(true);
 		config.setConnectionMaxIdleMs(10000L);
 		config.setAppName("testPutPut028");
-		try (Connection conn = buildConnection(); ExecutionPool pool = ExecutionPool.buildOrGet("hello", config, false)) {
-			String tableName = "test_schema.\"holO_client_put_027\"";
+		try (Connection conn = buildConnection(); ExecutionPool pool = ExecutionPool.buildOrGet("testPutPut028", config, false)) {
+			String tableName = "test_schema.\"holO_client_put_028\"";
 			String createSchema = "create schema if not exists test_schema";
 			String dropSql = "drop table if exists " + tableName;
 			String createSql = "create table " + tableName + "(id int not null,c int not null,d text,e text, primary key(id))";
@@ -1607,7 +1609,7 @@ public class HoloClientTest extends HoloClientTestBase {
 						client.flush();
 					} catch (HoloClientException e) {
 						e.printStackTrace();
-						Assert.assertEquals(e.getMessage(), 1, 2);
+						Assert.assertEquals(1, 2, e.getMessage());
 					}
 				};
 				ExecutorService es = new ThreadPoolExecutor(20, 20, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(20), r -> {
@@ -1918,14 +1920,14 @@ public class HoloClientTest extends HoloClientTestBase {
 					schema2 = client.getTableSchema(tableName2);
 					long end = System.nanoTime();
 					long costMs = (end - start) / 1000000;
-					Assert.assertTrue("costMs=" + costMs, costMs > 10L);
+					Assert.assertTrue(costMs > 10L, "costMs=" + costMs);
 				}
 				{
 					long start = System.nanoTime();
 					schema = client.getTableSchema(tableName);
 					long end = System.nanoTime();
 					long costMs = (end - start) / 1000000;
-					Assert.assertTrue("costMs=" + costMs, costMs < 1L);
+					Assert.assertTrue(costMs < 1L, "costMs=" + costMs);
 				}
 			} finally {
 				client.sql(conn -> {
@@ -1952,7 +1954,7 @@ public class HoloClientTest extends HoloClientTestBase {
 		config.setMetaAutoRefreshFactor(Integer.MAX_VALUE);
 		config.setAppName("testPutPut033");
 		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
-			String tableName = "test_schema.holo_client_put_032";
+			String tableName = "test_schema.holo_client_put_033";
 			String createSchema = "create schema if not exists test_schema";
 			String dropSql = "drop table if exists " + tableName;
 			String createSql = "create table " + tableName + "(id int not null,name text,address text,primary key(id,name)) partition by list(name)";
@@ -1968,7 +1970,7 @@ public class HoloClientTest extends HoloClientTestBase {
 				schema = client.getTableSchema(tableName);
 				long end = System.nanoTime();
 				long costMs = (end - start) / 1000000;
-				Assert.assertTrue("costMs=" + costMs, costMs > 10L);
+				Assert.assertTrue(costMs > 10L, "costMs=" + costMs);
 			} finally {
 				execute(conn, new String[]{dropSql});
 			}
@@ -1990,7 +1992,7 @@ public class HoloClientTest extends HoloClientTestBase {
 		config.setConnectionMaxIdleMs(10000L);
 		config.setAppName("testPutPut034");
 		config.setWriteThreadSize(10);
-		try (Connection conn = buildConnection(); ExecutionPool pool = ExecutionPool.buildOrGet("hello", config, false)) {
+		try (Connection conn = buildConnection(); ExecutionPool pool = ExecutionPool.buildOrGet("testPutPut034", config, false)) {
 			Metrics.startSlf4jReporter(60, TimeUnit.SECONDS);
 			int tableCount = 20;
 			String[] tableNames = new String[tableCount];
@@ -2009,11 +2011,10 @@ public class HoloClientTest extends HoloClientTestBase {
 			try {
 				final AtomicLong l = new AtomicLong(0L);
 				Runnable runnable = () -> {
-					try {
+					try (HoloClient client = new HoloClient(config)) {
 						long currentNano = System.nanoTime();
 						long targetNano = currentNano + 180 * 1000 * 1000000L;
 						Random rand = new Random();
-						HoloClient client = new HoloClient(config);
 						client.setPool(pool);
 						long tempNano;
 						while ((tempNano = System.nanoTime()) < targetNano) {
@@ -2042,8 +2043,7 @@ public class HoloClientTest extends HoloClientTestBase {
 						}
 						client.flush();
 					} catch (HoloClientException e) {
-						e.printStackTrace();
-						Assert.assertEquals(e.getMessage(), 1, 2);
+						LOG.error("testPutPut034", e);
 					}
 				};
 				ExecutorService es = new ThreadPoolExecutor(20, 20, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(20), r -> {
@@ -2146,11 +2146,11 @@ public class HoloClientTest extends HoloClientTestBase {
 				{
 					Record r = client.get(Get.newBuilder(schema).setPrimaryKey("id", 1).setPrimaryKey("a\"b", "name1").build()).get();
 					Assert.assertEquals("no0000", r.getObject("name"));
-					Assert.assertArrayEquals(new byte[]{0, 1, 2, 3}, (byte[]) r.getObject("address"));
+					Assert.assertEquals(new byte[]{0, 1, 2, 3}, (byte[]) r.getObject("address"));
 				}
 				for (int i = 2; i < 9; ++i) {
 					Record r = client.get(Get.newBuilder(schema).setPrimaryKey("id", i).setPrimaryKey("a\"b", "name1").build()).get();
-					Assert.assertEquals(String.valueOf(i), "123", r.getObject("name"));
+					Assert.assertEquals(r.getObject("name"), "123", String.valueOf(i));
 				}
 			} finally {
 				execute(conn, new String[]{dropSql});
@@ -2226,7 +2226,7 @@ public class HoloClientTest extends HoloClientTestBase {
 		config.setDynamicPartition(true);
 		config.setConnectionMaxIdleMs(10000L);
 		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
-			String tableName = "test_schema.\"depot_waring_product\"";
+			String tableName = "test_schema.\"depot_waring_product2\"";
 			String createSchema = "create schema if not exists test_schema";
 			String dropSql = "drop table if exists " + tableName;
 			String createSql = "create table " + tableName + "(id int not null,name text,primary key(id))";
@@ -2280,7 +2280,7 @@ public class HoloClientTest extends HoloClientTestBase {
 		config.setDynamicPartition(true);
 		config.setConnectionMaxIdleMs(10000L);
 		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
-			String tableName = "test_schema.\"depot_waring_product\"";
+			String tableName = "test_schema.\"depot_waring_product1\"";
 			String createSchema = "create schema if not exists test_schema";
 			String dropSql = "drop table if exists " + tableName;
 			String createSql = "create table " + tableName + "(id int not null,name text,primary key(id))";
@@ -2533,11 +2533,11 @@ public class HoloClientTest extends HoloClientTestBase {
 				{
 					Record r = client.get(Get.newBuilder(schema).setPrimaryKey("id", 1).setPrimaryKey("a\"b", "name1").build()).get();
 					Assert.assertEquals("no0000", r.getObject("name"));
-					Assert.assertArrayEquals(new byte[]{0, 1, 2, 3, 4}, (byte[]) r.getObject("address"));
+					Assert.assertEquals(new byte[]{0, 1, 2, 3, 4}, (byte[]) r.getObject("address"));
 				}
 				for (int i = 2; i < 9; ++i) {
 					Record r = client.get(Get.newBuilder(schema).setPrimaryKey("id", i).setPrimaryKey("a\"b", "name1").build()).get();
-					Assert.assertEquals(String.valueOf(i), "123", r.getObject("name"));
+					Assert.assertEquals("123", r.getObject("name"), String.valueOf(i));
 				}
 			} finally {
 				execute(conn, new String[]{dropSql});
@@ -2768,6 +2768,8 @@ public class HoloClientTest extends HoloClientTestBase {
 			execute(conn, new String[]{dropUser, dropSql, createSql, addUser});
 
 			try {
+				//独立账号的变化， 1.3 gateway需要点时间去同步
+				Thread.sleep(5000L);
 				TableSchema schema = client.getTableSchema(tableName);
 				execute(conn, new String[]{dropUser});
 				Thread.sleep(12000L);
@@ -2781,7 +2783,7 @@ public class HoloClientTest extends HoloClientTestBase {
 					}
 					client.flush();
 				} catch (HoloClientWithDetailsException e) {
-					Assert.assertTrue(e.getClass().getName() + ":" + e.getMessage(), false);
+					Assert.assertTrue(false, e.getClass().getName() + ":" + e.getMessage());
 				} catch (HoloClientException e) {
 					exception = e;
 					e.printStackTrace();
@@ -3178,106 +3180,7 @@ public class HoloClientTest extends HoloClientTestBase {
 	 * schema version 不一致时尝试重建连接.
 	 * Method: put(Put put).
 	 */
-	@Test
-	public void testPutPut053() throws Exception {
-		if (properties == null) {
-			return;
-		}
-		HoloConfig config = buildConfig();
-		config.setWriteMode(WriteMode.INSERT_OR_REPLACE);
-		config.setWriteThreadSize(10);
-		config.setRetryCount(20);
-		config.setRetrySleepStepMs(0L);
-		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
-			String tableName = "holo_client_put_053";
-			String dropSql = "drop table if exists " + tableName;
-			String createSql = "create table " + tableName + "(id int not null";
-			for (int i = 0; i < 3; ++i) {
-				createSql += ", name_name_name" + i + " text";
-			}
-			createSql += ",primary key(id))";
-			ExecutorService es = new ThreadPoolExecutor(20, 20, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(20), r -> {
-				Thread t = new Thread(r);
-				return t;
-			}, new ThreadPoolExecutor.AbortPolicy());
-			AtomicBoolean stop = new AtomicBoolean(false);
-			execute(conn, new String[]{dropSql, createSql});
-			new Thread(() -> {
-				try {
-					client.sql((c) -> {
-						c.setAutoCommit(false);
-						try (Statement stat = c.createStatement()) {
-							try (ResultSet rs = stat.executeQuery("select * from " + tableName + " limit 1")) {
-								System.out.println("LOCK");
-							}
-							Thread.sleep(50000L);
-						} catch (InterruptedException e) {
 
-						} finally {
-							c.setAutoCommit(true);
-						}
-						System.out.println("LOCK RELEASE");
-						return null;
-					}).get();
-				} catch (Exception e) {
-					e.printStackTrace();
-				} finally {
-					stop.set(true);
-				}
-			}).start();
-			new Thread(() -> {
-				try {
-					Thread.sleep(2000L);
-					while (true) {
-						try {
-							client.sql((c) -> {
-								c.setAutoCommit(false);
-								try (Statement stat = c.createStatement()) {
-									stat.setQueryTimeout(2);
-									System.out.println("TRY ALTER");
-									stat.execute("alter table " + tableName + " add column ss text");
-									System.out.println("ALTER DONE");
-								} finally {
-									c.setAutoCommit(true);
-								}
-								return null;
-							}).get();
-							break;
-						} catch (Exception e) {
-
-						}
-					}
-				} catch (Exception e) {
-					e.printStackTrace();
-				}
-			}).start();
-			try {
-				TableSchema schema = client.getTableSchema(tableName);
-				int index = 0;
-				while (!stop.get()) {
-					Put put = new Put(schema);
-					put.setObject(0, ++index);
-					put.setObject(1, "name0");
-					put.setObject(2, "address");
-					client.put(put);
-				}
-				client.flush();
-
-				int count = -1;
-				try (Statement stat = conn.createStatement()) {
-					try (ResultSet rs = stat.executeQuery("select count(*) from " + tableName)) {
-						if (rs.next()) {
-							count = rs.getInt(1);
-						}
-					}
-				}
-				Assert.assertEquals(index, count);
-			} finally {
-				execute(conn, new String[]{dropSql});
-			}
-
-		}
-	}
 
 	/**
 	 * boolean and bit(1)
@@ -3445,7 +3348,7 @@ public class HoloClientTest extends HoloClientTestBase {
 		HoloConfig config = buildConfig();
 		config.setWriteBatchSize(10);
 		config.setRetryCount(5);
-		try (Connection conn = buildConnection(); ExecutionPool pool = ExecutionPool.buildOrGet("hello", config, false)) {
+		try (Connection conn = buildConnection(); ExecutionPool pool = ExecutionPool.buildOrGet("testPutPut057", config, false)) {
 			String tableName = "\"holO_client_put_057\"";
 			String dropSql = "drop table if exists " + tableName;
 			String truncateSql = "truncate " + tableName;
@@ -3467,10 +3370,10 @@ public class HoloClientTest extends HoloClientTestBase {
 						client.setPool(pool);
 						TableSchema schema = client.getTableSchema(tableName, true);
 					} catch (Exception e) {
-						e.printStackTrace();
+						LOG.error("testPutPut057", e);
 						// 走到这里表示测试失败，如果进入重试不会走到这里
 						failed.set(true);
-						Assert.assertTrue(e.getClass().getName() + ":" + e.getMessage(), false);
+						Assert.assertTrue(false, e.getClass().getName() + ":" + e.getMessage());
 					}
 				};
 				for (int i = 0; i < 20; ++i) {
@@ -3485,6 +3388,41 @@ public class HoloClientTest extends HoloClientTestBase {
 				}
 			} finally {
 				execute(conn, new String[]{dropSql});
+			}
+		}
+	}
+
+	/**
+	 * already close message测试.
+	 * Method: close().
+	 */
+	@Test
+	public void testClose01() throws Exception {
+		if (properties == null) {
+			return;
+		}
+		HoloConfig config = buildConfig();
+		config.setWriteBatchSize(10);
+		config.setRetryCount(5);
+		HoloClient client = null;
+		try {
+			client = new HoloClient(config);
+			FutureUtil.get(client.sql(conn -> 1));
+			client.close();
+			boolean ok = false;
+			try {
+				client.getTableSchema("abc");
+			} catch (HoloClientException e) {
+				Assert.assertEquals(ExceptionCode.ALREADY_CLOSE, e.getCode());
+				HoloClientException sub = (HoloClientException) e.getCause();
+				Assert.assertEquals(ExceptionCode.ALREADY_CLOSE, sub.getCode());
+				ok = true;
+				LOG.error("expect exception", e);
+			}
+			Assert.assertTrue(ok);
+		} finally {
+			if (null != client) {
+				client.close();
 			}
 		}
 	}
@@ -3505,10 +3443,10 @@ public class HoloClientTest extends HoloClientTestBase {
 			String createSchema = "create schema if not exists test_schema";
 			String dropSql = "drop table if exists " + tableName;
 			String createSql = "create table " + tableName
-				+ "(id int not null,\"nAme\" text,\"address\" text not null,primary key(id)); call set_table_property"
-				+ " ('"
-				+ tableName + "','distribution_key','');";
-			execute(conn, new String[] {createSchema, dropSql, createSql});
+					+ "(id int not null,\"nAme\" text,\"address\" text not null,primary key(id)); call set_table_property"
+					+ " ('"
+					+ tableName + "','distribution_key','');";
+			execute(conn, new String[]{createSchema, dropSql, createSql});
 
 			try (HoloClient client = new HoloClient(config)) {
 				TableSchema schema = client.getTableSchema(tableName);
@@ -3529,7 +3467,7 @@ public class HoloClientTest extends HoloClientTestBase {
 				e.printStackTrace();
 				Assert.assertTrue(e.getMessage().contains("empty distribution_key is not supported."));
 			} finally {
-				execute(conn, new String[] {dropSql});
+				execute(conn, new String[]{dropSql});
 			}
 		}
 	}

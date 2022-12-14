@@ -89,69 +89,7 @@ public class UnnestUpsertStatementBuilder extends UpsertStatementBuilder {
 	}
 
 	SqlCache<Tuple<BitSet, BitSet>, InsertSql> insertCache = new SqlCache<>();
-	Map<TableSchema, String> deleteCache = new HashMap<>();
 	boolean first = true;
-
-	private String buildDeleteSql(TableSchema schema) {
-		String sql = deleteCache.get(schema);
-		if (sql == null) {
-			StringBuilder sb = new StringBuilder();
-			sb.append("delete from ").append(schema.getTableNameObj().getFullName());
-			sb.append(" where ");
-			first = true;
-			for (int index : schema.getKeyIndex()) {
-				if (!first) {
-					sb.append(" and ");
-				}
-				first = false;
-				sb.append(IdentifierUtil.quoteIdentifier(schema.getColumnSchema()[index].getName(), true)).append("=?");
-			}
-			sql = sb.toString();
-			deleteCache.put(schema, sql);
-		}
-		return sql;
-	}
-
-	private String buildUpdateSql(TableSchema schema, BitSet set) {
-
-		StringBuilder sb = new StringBuilder();
-		sb.append("update ").append(schema.getTableNameObj().getFullName())
-				.append(" set ");
-		first = true;
-		//从BitSet中剔除所有主键列，拼成 set a=?,b=?,... where
-		set.stream().forEach((index) -> {
-			boolean skip = false;
-			for (int keyIndex : schema.getKeyIndex()) {
-				if (index == keyIndex) {
-					skip = true;
-					break;
-				}
-			}
-			if (skip) {
-				return;
-			}
-			if (!first) {
-				sb.append(",");
-			}
-			first = false;
-			sb.append(IdentifierUtil.quoteIdentifier(schema.getColumnSchema()[index].getName(), true)).append("=?");
-		});
-		sb.append(" where ");
-		first = true;
-		//拼上主键条件 where pk0=? and pk1=? and ...
-		for (int index : schema.getKeyIndex()) {
-			if (!first) {
-				sb.append(" and ");
-			}
-			first = false;
-			sb.append(IdentifierUtil.quoteIdentifier(schema.getColumnSchema()[index].getName())).append("=?");
-		}
-
-		String sql = sb.toString();
-
-		LOGGER.debug("new sql:{}", sql);
-		return sql;
-	}
 
 	enum NotSupportReasonCode {
 		UNNEST_NOT_SUPPORT_PARTITION_TABLE,

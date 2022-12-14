@@ -8,8 +8,8 @@ import com.alibaba.hologres.client.impl.collector.shard.DistributionKeyShardPoli
 import com.alibaba.hologres.client.impl.collector.shard.ShardPolicy;
 import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.model.WriteMode;
-import org.junit.Assert;
-import org.junit.Test;
+import org.testng.Assert;
+import org.testng.annotations.Test;
 
 import java.sql.Connection;
 import java.sql.ResultSet;
@@ -78,7 +78,7 @@ public class HoloClientShardTest extends HoloClientTestBase {
 						return null;
 					}
 				}).get();
-				Assert.assertArrayEquals(expectValues, actualValues);
+				Assert.assertEquals(expectValues, actualValues);
 				System.out.println(Arrays.toString(shardRecordCount));
 			} finally {
 				execute(conn, new String[]{dropSql});
@@ -144,7 +144,7 @@ public class HoloClientShardTest extends HoloClientTestBase {
 						return null;
 					}
 				}).get();
-				Assert.assertArrayEquals(expectValues, actualValues);
+				Assert.assertEquals(expectValues, actualValues);
 				System.out.println(Arrays.toString(shardRecordCount));
 			} finally {
 				execute(conn, new String[]{dropSql});
@@ -210,7 +210,7 @@ public class HoloClientShardTest extends HoloClientTestBase {
 						return null;
 					}
 				}).get();
-				Assert.assertArrayEquals(expectValues, actualValues);
+				Assert.assertEquals(expectValues, actualValues);
 				System.out.println(Arrays.toString(shardRecordCount));
 			} finally {
 				execute(conn, new String[]{dropSql});
@@ -331,7 +331,7 @@ public class HoloClientShardTest extends HoloClientTestBase {
 						return null;
 					}
 				}).get();
-				Assert.assertArrayEquals(expectValues, actualValues);
+				Assert.assertEquals(expectValues, actualValues);
 				System.out.println(Arrays.toString(shardRecordCount));
 			} finally {
 				execute(conn, new String[]{dropSql});

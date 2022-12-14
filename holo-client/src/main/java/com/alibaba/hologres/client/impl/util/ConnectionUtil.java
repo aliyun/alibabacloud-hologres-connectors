@@ -83,6 +83,13 @@ public class ConnectionUtil {
 					} else {
 						return new CheckMetaResult(false, "hologres.hg_internal_check_table_meta return 0 rows");
 					}
+				} catch (SQLException e) {
+					if (PSQLState.UNDEFINED_TABLE.getState().equals(e.getSQLState())) {
+						refreshMeta(conn, timeout);
+						return new CheckMetaResult(true, null);
+					} else {
+						throw e;
+					}
 				}
 			} catch (SQLException e) {
 				if (PSQLState.QUERY_CANCELED.getState().equals(e.getSQLState())) {
@@ -433,6 +440,11 @@ public class ConnectionUtil {
 			ret = rs.getString(1);
 		}
 		return ret;
+	}
+
+	public static String replaceJdbcUrlEndpoint(String originalUrl, String newEndpoint) {
+		String replacement = "//" + newEndpoint + "/";
+		return originalUrl.replaceFirst("//\\S+/", replacement);
 	}
 
 }

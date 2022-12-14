@@ -24,7 +24,7 @@ public class RecordReader implements Runnable{
 	public static final Logger LOGGER = LoggerFactory.getLogger(RecordReader.class);
 
 	private static final int DEFAULT_MAX_CELL_BUFFER_SIZE = 2 * 1024 * 1024;
-	private static final int QUOTA = '"';
+	private static final int QUOTE = '"';
 	private static final int ESCAPE = '\\';
 	private static final int DELIMITER = ',';
 	private static final int NEWLINE = '\n';
@@ -63,7 +63,7 @@ public class RecordReader implements Runnable{
 	int currentColumnIndex;
 
 
-	boolean isInQuota = false;
+	boolean isInQuote = false;
 	boolean isEscapeBefore = false;
 	boolean isNull = false;
 
@@ -85,13 +85,13 @@ public class RecordReader implements Runnable{
 				if (isEscapeBefore) {
 					write(r);
 					isEscapeBefore = false;
-				} else if (isInQuota) {
+				} else if (isInQuote) {
 					switch (r) {
 						case ESCAPE:
 							isEscapeBefore = true;
 							break;
-						case QUOTA:
-							isInQuota = false;
+						case QUOTE:
+							isInQuote = false;
 							break;
 						default:
 							write(r);
@@ -101,8 +101,8 @@ public class RecordReader implements Runnable{
 						case ESCAPE:
 							isEscapeBefore = true;
 							break;
-						case QUOTA:
-							isInQuota = true;
+						case QUOTE:
+							isInQuote = true;
 							break;
 						case DELIMITER:
 							fillRecord();

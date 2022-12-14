@@ -9,11 +9,11 @@ import com.alibaba.hologres.client.exception.HoloClientException;
 import com.alibaba.hologres.client.impl.util.ConnectionUtil;
 import com.alibaba.hologres.client.model.HoloVersion;
 import com.alibaba.hologres.client.model.TableSchema;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.BeforeClass;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.testng.annotations.AfterMethod;
+import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.BeforeTest;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -75,12 +75,12 @@ public class HoloClientTestBase {
 	 * user=
 	 * password=
 	 */
-	@BeforeClass
+	@BeforeTest
 	public static void loadProperties() throws Exception {
 		Class.forName("org.postgresql.Driver");
 		properties = new Properties();
 
-		File file = new File("endpoint.properties");
+		File file = new File("endpoint3.properties");
 		if (file.exists()) {
 			try (InputStream is = new FileInputStream(file)) {
 				properties.load(is);
@@ -111,7 +111,7 @@ public class HoloClientTestBase {
 		holoVersion = ConnectionUtil.getHoloVersion(buildConnection());
 	}
 
-	@Before
+	@BeforeMethod
 	public void before() throws Exception {
 		doBefore();
 	}
@@ -120,8 +120,12 @@ public class HoloClientTestBase {
 
 	}
 
-	@After
+	@AfterMethod
 	public void after() throws Exception {
+		doAfter();
+	}
+
+	protected void doAfter() throws Exception {
 	}
 
 	protected void execute(Connection conn, String[] sqls) throws SQLException {
@@ -142,12 +146,8 @@ public class HoloClientTestBase {
 		config.setJdbcUrl(properties.getProperty("url"));
 		config.setUsername(properties.getProperty("user"));
 		config.setPassword(properties.getProperty("password"));
+		// config.setUseFixedFe(true);
 		return config;
-	}
-
-	@Before
-	public void getHoloVersion() throws SQLException {
-
 	}
 
 }

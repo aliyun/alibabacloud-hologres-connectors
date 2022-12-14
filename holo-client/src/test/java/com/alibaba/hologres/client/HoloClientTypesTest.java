@@ -7,8 +7,8 @@ package com.alibaba.hologres.client;
 import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.model.WriteMode;
-import org.junit.Assert;
-import org.junit.Test;
+import org.testng.Assert;
+import org.testng.annotations.Test;
 
 import java.sql.Connection;
 import java.sql.ResultSet;
@@ -244,6 +244,10 @@ public class HoloClientTypesTest extends HoloClientTestBase {
 		config.setWriteMode(WriteMode.INSERT_OR_REPLACE);
 		//config.setUseLegacyPutHandler(true);
 		try (HoloClient client = new HoloClient(config)) {
+			client.sql(conn -> {
+				execute(conn, new String[]{"CREATE EXTENSION if not exists roaringbitmap"});
+				return null;
+			}).get();
 			for (String typeName : ALL_TYPE) {
 				String tableName = "holo_client_type_" + typeName;
 				String dropSql = "drop table if exists " + tableName;
@@ -283,12 +287,12 @@ public class HoloClientTypesTest extends HoloClientTestBase {
 						createSql = "create table " + tableName + "(id " + typeName + "(5), pk int primary key)";
 						break;
 					default:
-						Assert.assertTrue("unsupported type " + typeName, false);
+						Assert.assertTrue(false, "unsupported type " + typeName);
 				}
 
 				String finalCreateSql = createSql;
 				client.sql(conn -> {
-					execute(conn, new String[]{"CREATE EXTENSION if not exists roaringbitmap", dropSql, finalCreateSql});
+					execute(conn, new String[]{dropSql, finalCreateSql});
 					return null;
 				}).get();
 
@@ -351,7 +355,7 @@ public class HoloClientTypesTest extends HoloClientTestBase {
 									put.setObject(0, new byte[]{58, 48, 0, 0, 1, 0, 0, 0, 0, 0, 2, 0, 16, 0, 0, 0, 1, 0, 4, 0, 5, 0}); //{1,4,5}
 									break;
 								default:
-									Assert.assertTrue("unsupported type " + typeName, false);
+									Assert.assertTrue(false, "unsupported type " + typeName);
 							}
 						} else {
 							switch (typeName) {
@@ -423,7 +427,7 @@ public class HoloClientTypesTest extends HoloClientTestBase {
 													break;
 												case "TIMESTAMPTZ":
 												case "TIMESTAMP":
-													Assert.assertEquals(rs.getString(1), i * 1000L + 123L, rs.getTimestamp(1).getTime());
+													Assert.assertEquals(i * 1000L + 123L, rs.getTimestamp(1).getTime(), rs.getString(1));
 													break;
 												case "DATE":
 													Assert.assertEquals("2021-01-02", rs.getString(1));
@@ -441,7 +445,7 @@ public class HoloClientTypesTest extends HoloClientTestBase {
 													Assert.assertEquals("{\"a\": \"b\"}", rs.getString(1));
 													break;
 												case "BYTEA":
-													Assert.assertArrayEquals(new byte[]{(byte) i, (byte) (i + 1)}, rs.getBytes(1));
+													Assert.assertEquals(new byte[]{(byte) i, (byte) (i + 1)}, rs.getBytes(1));
 													break;
 												case "INTERVAL":
 													Assert.assertEquals(intervalDF.format(new Date(intervalBase + i * 3600000L)), rs.getString(1));
@@ -459,7 +463,7 @@ public class HoloClientTypesTest extends HoloClientTestBase {
 													Assert.assertEquals("101", rs.getString(1));
 													break;
 												default:
-													Assert.assertTrue("unsupported type " + typeName, false);
+													Assert.assertTrue(false, "unsupported type " + typeName);
 											}
 										}
 										++count;

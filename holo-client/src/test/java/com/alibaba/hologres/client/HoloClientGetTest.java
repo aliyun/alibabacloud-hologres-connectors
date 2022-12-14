@@ -5,8 +5,8 @@ import com.alibaba.hologres.client.impl.ExecutionPool;
 import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.model.WriteMode;
-import org.junit.Assert;
-import org.junit.Test;
+import org.testng.Assert;
+import org.testng.annotations.Test;
 
 import java.sql.Connection;
 import java.util.concurrent.ExecutionException;
@@ -213,7 +213,7 @@ public class HoloClientGetTest extends HoloClientTestBase {
 		config.setReadRetryCount(3);
 		config.setReadThreadSize(1);
 		config.setWriteBatchSize(1);
-		try (Connection conn = buildConnection(); ExecutionPool pool = ExecutionPool.buildOrGet("hello", config, false)) {
+		try (Connection conn = buildConnection(); ExecutionPool pool = ExecutionPool.buildOrGet("testGet004", config, false)) {
 			String tableName = "test_schema.holo_client_get_004";
 			String createSchema = "create schema if not exists test_schema";
 			String dropSql = "drop table if exists " + tableName;

@@ -2,6 +2,7 @@ package com.alibaba.hologres.client.copy;
 
 import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.model.TableSchema;
+import org.postgresql.core.BaseConnection;
 import org.postgresql.jdbc.TimestampUtils;
 
 import java.io.Closeable;
@@ -22,16 +23,19 @@ public abstract class RecordOutputStream implements Closeable {
 
 	private final int maxCellBufferSize;
 
+	protected final BaseConnection conn;
 	protected final TimestampUtils timestampUtils;
 
 	private final OutputStream os;
 
 	public RecordOutputStream(
-			OutputStream os, TableSchema schema, TimestampUtils timestampUtils, int maxCellBufferSize) {
+			OutputStream os, TableSchema schema, BaseConnection conn, int maxCellBufferSize) {
 		this.schema = schema;
 		this.os = os;
 		this.maxCellBufferSize = maxCellBufferSize;
-		this.timestampUtils = timestampUtils;
+		this.conn = conn;
+		this.timestampUtils = conn.getTimestampUtils();
+
 	}
 
 	boolean closed = false;

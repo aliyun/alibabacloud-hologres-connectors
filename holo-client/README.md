@@ -1,31 +1,37 @@
 # 通过holo-client读写Hologres
 
-- [通过holo-client读写Hologres](#%E9%80%9A%E8%BF%87holo-client%E8%AF%BB%E5%86%99hologres)
-  - [功能介绍](#%E5%8A%9F%E8%83%BD%E4%BB%8B%E7%BB%8D)
-  - [holo-client引入](#holo-client%E5%BC%95%E5%85%A5)
-  - [连接数说明](#%E8%BF%9E%E6%8E%A5%E6%95%B0%E8%AF%B4%E6%98%8E)
-  - [数据写入](#%E6%95%B0%E6%8D%AE%E5%86%99%E5%85%A5)
-    - [写入普通表](#%E5%86%99%E5%85%A5%E6%99%AE%E9%80%9A%E8%A1%A8)
-    - [写入分区表](#%E5%86%99%E5%85%A5%E5%88%86%E5%8C%BA%E8%A1%A8)
-    - [写入含主键表](#%E5%86%99%E5%85%A5%E5%90%AB%E4%B8%BB%E9%94%AE%E8%A1%A8)
-    - [基于主键删除（DELETE占比提高会降低整体的每秒写入）](#%E5%9F%BA%E4%BA%8E%E4%B8%BB%E9%94%AE%E5%88%A0%E9%99%A4delete%E5%8D%A0%E6%AF%94%E6%8F%90%E9%AB%98%E4%BC%9A%E9%99%8D%E4%BD%8E%E6%95%B4%E4%BD%93%E7%9A%84%E6%AF%8F%E7%A7%92%E5%86%99%E5%85%A5)
-  - [数据查询](#%E6%95%B0%E6%8D%AE%E6%9F%A5%E8%AF%A2)
-    - [基于完整主键查询](#%E5%9F%BA%E4%BA%8E%E5%AE%8C%E6%95%B4%E4%B8%BB%E9%94%AE%E6%9F%A5%E8%AF%A2)
-    - [Scan查询](#scan%E6%9F%A5%E8%AF%A2)
-  - [消费Binlog](#%E6%B6%88%E8%B4%B9binlog)
-  - [异常处理](#%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86)
-  - [自定义操作](#%E8%87%AA%E5%AE%9A%E4%B9%89%E6%93%8D%E4%BD%9C)
-  - [实现](#%E5%AE%9E%E7%8E%B0)
-    - [写入](#%E5%86%99%E5%85%A5)
-  - [1.X与2.X升级说明](#1x%E4%B8%8E2x%E5%8D%87%E7%BA%A7%E8%AF%B4%E6%98%8E)
-  - [2.X版本已知问题](#2x%E7%89%88%E6%9C%AC%E5%B7%B2%E7%9F%A5%E9%97%AE%E9%A2%98)
-  - [附录](#%E9%99%84%E5%BD%95)
-    - [HoloConfig参数说明](#holoconfig%E5%8F%82%E6%95%B0%E8%AF%B4%E6%98%8E)
-      - [基础配置](#%E5%9F%BA%E7%A1%80%E9%85%8D%E7%BD%AE)
-      - [写入配置](#%E5%86%99%E5%85%A5%E9%85%8D%E7%BD%AE)
-      - [查询配置](#%E6%9F%A5%E8%AF%A2%E9%85%8D%E7%BD%AE)
-      - [连接配置](#%E8%BF%9E%E6%8E%A5%E9%85%8D%E7%BD%AE)
-      - [消费Binlog配置](#%E6%B6%88%E8%B4%B9binlog%E9%85%8D%E7%BD%AE)
+- [通过holo-client读写Hologres](#通过holo-client读写hologres)
+  - [功能介绍](#功能介绍)
+  - [holo-client引入](#holo-client引入)
+  - [连接数说明](#连接数说明)
+  - [数据写入](#数据写入)
+    - [写入普通表](#写入普通表)
+    - [fixed copy写入普通表](#fixed-copy写入普通表)
+    - [fixed copy写入分区表](#fixed-copy写入分区表)
+    - [写入分区表](#写入分区表)
+    - [写入含主键表](#写入含主键表)
+    - [基于主键删除（DELETE占比提高会降低整体的每秒写入）](#基于主键删除delete占比提高会降低整体的每秒写入)
+  - [数据查询](#数据查询)
+    - [基于完整主键查询](#基于完整主键查询)
+    - [Scan查询](#scan查询)
+  - [消费Binlog](#消费binlog)
+  - [异常处理](#异常处理)
+  - [自定义操作](#自定义操作)
+  - [实现](#实现)
+    - [写入](#写入)
+  - [1.X与2.X升级说明](#1x与2x升级说明)
+  - [2.X版本已知问题](#2x版本已知问题)
+  - [附录](#附录)
+    - [HoloConfig参数说明](#holoconfig参数说明)
+      - [基础配置](#基础配置)
+      - [通用配置](#通用配置)
+      - [写入配置](#写入配置)
+      - [查询配置](#查询配置)
+      - [连接配置](#连接配置)
+      - [消费Binlog配置](#消费binlog配置)
+    - [参数详解](#参数详解)
+      - [writeMode](#writemode)
+
 
 ## 功能介绍
 holo-client适用于大批量数据写入（批量、实时同步至holo）和高QPS点查（维表关联）场景。holo-client基于JDBC实现，使用时请确认实例剩余可用连接数。
@@ -45,13 +51,13 @@ select count(*) from pg_stat_activity where backend_type='client backend';
 <dependency>
   <groupId>com.alibaba.hologres</groupId>
   <artifactId>holo-client</artifactId>
-  <version>2.2.0</version>
+  <version>2.2.4</version>
 </dependency>
 ```
 
 - Gradle
 ```
-implementation 'com.alibaba.hologres:holo-client:2.2.0'
+implementation 'com.alibaba.hologres:holo-client:2.2.4'
 ```
 
 ## 连接数说明
@@ -82,6 +88,88 @@ try (HoloClient client = new HoloClient(config)) {
 }catch(HoloClientException e){
 }
 ```
+
+### fixed copy写入普通表
+fixed copy为hologres1.3.X 引入.
+相比HoloClient.put方法，fixed copy方式可以更高的吞吐（因为是流模式），更低的数据延时，更低的客户端内存消耗（因为不攒批),
+缺点是无法表达delete语义.
+相比原有的普通copy，fixed copy可以任意并发同时插入，并且插入即可见（普遍在2-20ms之间)，无需等到copy结束,
+缺点是没有事务性，插入失败已经插入的数据不会回滚.
+
+无delete场景，建议都使用fixed copy写入.
+```java
+public class CopyDemo {
+  public static void main(String[] args) throws Exception {
+    //注意!url里这个是hologres
+    String jdbcUrl = "jdbc:hologres://host:port/db";
+    String user = "";
+    String password = "";
+
+    //加载Driver类
+    Class.forName("com.alibaba.hologres.org.postgresql.Driver");
+
+		/*
+			CREATE TABLE copy_demo (id INT NOT NULL, name TEXT NOT NULL, address TEXT, PRIMARY KEY(id));
+		* */
+    String tableName = "copy_demo";
+    try (Connection conn = DriverManager.getConnection(jdbcUrl, user, password)) {
+      //所有postgresql相关类均在com.alibaba.hologres包下,如果项目同时引用了holo-client和postgresql,请注意包名
+      BaseConnection pgConn = conn.unwrap(BaseConnection.class);
+      TableSchema schema = ConnectionUtil.getTableSchema(conn, TableName.valueOf(tableName));
+
+      CopyManager copyManager = new CopyManager(pgConn.unwrap(PgConnection.class));
+      // 支持写入部分列, 列在List里的顺序一定要和建表保持一致.
+      List<String> columns = new ArrayList<>();
+      columns.add("id");
+      columns.add("name");
+				/*
+				我们觉得原来INSERT_OR_REPLACE和INSERT_OR_UPDATE的区分非常蠢，在这里INSERT_OR_REPLACE等同于INSERT_OR_UPDATE，总之就是给哪些列就更新哪些列,给了所有列就是更新所有列；
+				 */
+      String copySql = CopyUtil.buildCopyInSql(schema.getTableName(), columns
+              , true /*底层是否走二进制协议，二进制会更快，否则为文本模式，当二进制解析发现有bug的话给自己留一条后路*/
+              , schema.getPrimaryKeys().length > 0 /* 是否包含PK */, WriteMode.INSERT_OR_UPDATE);
+
+      //写入完成/异常后，仅RecordOutputStream调用close方法即可，CopyInOutputStream无需close.
+      CopyInOutputStream os = new CopyInOutputStream(copyManager.copyIn(copySql));
+      //maxCellBufferSize需要保证能放下一行数据，否则会写入失败.
+      try (RecordOutputStream ros = new RecordBinaryOutputStream(os, schema,
+              pgConn.unwrap(PgConnection.class), 1024 * 1024 * 10)) {
+        for (int i = 0; i < 10; ++i) {
+          Record record = new Record(schema);
+
+						/*
+						一定要和buildCopyInSql的columns保持一致，不然会错列.
+						  如果一列出现在columns中，这一列一定要调用setObject(index, obj);
+						  否则，这一列一定不能调用setObject.
+						*/
+          record.setObject(0, i);
+          record.setObject(1, "name0");
+
+          /*
+           * 如果有脏数据，写入失败的报错很难定位具体行.
+           * 此时可以启用RecordChecker做事前校验，找到有问题的数据.
+           * RecordChecker会对写入性能造成一定影响，非排查环节不建议开启.
+           * */
+          //RecordChecker.check(record);
+
+						/*
+						putRecord既将record发送给hologres引擎,并立即返回，
+						引擎会在第一时间尝试写入存储，普遍状态下数据会在5-20ms后可查.
+						当RecordOutputStream的close方法执行完成并且没有任何错误抛出，意味着所有数据均已写入完成可以查询.
+						*/
+          ros.putRecord(record);
+        }
+      }
+
+      System.out.println("rows:" + os.getResult());
+    }
+  }
+}
+```
+
+### fixed copy写入分区表
+fixed copy写入分区表仅可写入分区子表，暂不支持写入分区主表.
+
 ### 写入分区表
 注1：若分区已存在，不论DynamicPartition为何值，写入数据都将插入到正确的分区表中；若分区不存在，DynamicPartition设置为true时，将会自动创建不存在的分区，否则抛出异常
 注2: 写入分区表在HOLO 0.9及以后版本才能获得较好的性能，0.8建议先写到临时表，再通过insert into xxx select ...的方式写入到分区表
@@ -381,24 +469,23 @@ unnest格式相比multi values有如下优点:
 | connectionSizeWhenUseFixedFe | 1  | 仅useFixedFe=true时生效，表示除了Get/Put之外的调用使用的连接池大小 | 2.2.0 |
 
 #### 写入配置
-| 参数名 | 默认值 | 说明 |引入版本| 
-| --- | --- | --- | --- |
-| writeMode | INSERT_OR_REPLACE | 当INSERT目标表为有主键的表时采用不同策略<br>INSERT_OR_IGNORE 当主键冲突时，不写入<br>INSERT_OR_UPDATE 当主键冲突时，更新相应列<br>INSERT_OR_REPLACE当主键冲突时，更新所有列| 1.2.3|
-| writeBatchSize | 512 | 每个写入线程的最大批次大小，在经过WriteMode合并后的Put数量达到writeBatchSize时进行一次批量提交 | 1.2.3 |
-| writeBatchByteSize | 2097152（2 * 1024 * 1024） | 每个写入线程的最大批次bytes大小，单位为Byte，默认2MB，<br>在经过WriteMode合并后的Put数据字节数达到writeBatchByteSize时进行一次批量提交 | 1.2.3 |
-| writeBatchTotalByteSize | 20971520（20 * 1024 * 1024） | 所有表最大批次bytes大小，单位为Byte，默认20MB，在经过WriteMode合并后的Put数据字节数达到writeBatchByteSize时进行一次批量提交| 1.2.8.1 |
-| writeMaxIntervalMs | 10000 | 距离上次提交超过writeMaxIntervalMs会触发一次批量提交 | 1.2.4 |
-| writeFailStrategy | TYR_ONE_BY_ONE | 当发生写失败时的重试策略:<br>TYR_ONE_BY_ONE 当某一批次提交失败时，会将批次内的记录逐条提交（保序），其中某单条提交失败的记录将会跟随异常被抛出<br> NONE 直接抛出异常| 1.2.4|
-| writerShardCountResizeIntervalMs | 30s | 主动调用flush时，触发resize，两次resize间隔不短于writerShardCountResizeIntervalMs | 1.2.10.1 |
-| flushMaxWaitMs | 60000 | flush操作的最长等待时间  | 1.2.5 |
+| 参数名                                   | 默认值 | 说明 |引入版本| 
+|---------------------------------------| --- | --- | --- |
+| writeThreadSize                       | 1 | 处理HoloClient.put方法请求的最大连接数 |
+| [writeMode](#writeMode)               | INSERT_OR_REPLACE | 当INSERT目标表为有主键的表时采用不同策略<br>INSERT_OR_IGNORE 当主键冲突时，不写入<br>INSERT_OR_UPDATE 当主键冲突时，更新相应列<br>INSERT_OR_REPLACE当主键冲突时，更新所有列| 1.2.3|
+| writeBatchSize                        | 512 | 每个写入线程的最大批次大小，在经过WriteMode合并后的Put数量达到writeBatchSize时进行一次批量提交 | 1.2.3 |
+| writeBatchByteSize                    | 2097152（2 * 1024 * 1024） | 每个写入线程的最大批次bytes大小，单位为Byte，默认2MB，<br>在经过WriteMode合并后的Put数据字节数达到writeBatchByteSize时进行一次批量提交 | 1.2.3 |
+| writeBatchTotalByteSize               | 20971520（20 * 1024 * 1024） | 所有表最大批次bytes大小，单位为Byte，默认20MB，在经过WriteMode合并后的Put数据字节数达到writeBatchByteSize时进行一次批量提交| 1.2.8.1 |
+| writeMaxIntervalMs                    | 10000 | 距离上次提交超过writeMaxIntervalMs会触发一次批量提交 | 1.2.4 |
+| writerShardCountResizeIntervalMs      | 30s | 主动调用flush时，触发resize，两次resize间隔不短于writerShardCountResizeIntervalMs | 1.2.10.1 |
 | inputNumberAsEpochMsForDatetimeColumn | false | 当Number写入Date/timestamp/timestamptz列时，若为true，将number视作ApochMs   | 1.2.5 |
 | inputStringAsEpochMsForDatetimeColumn | false | 当String写入Date/timestamp/timestamptz列时，若为true，将String视作ApochMs   | 1.2.6 |
-| removeU0000InTextColumnValue | true | 当写入Text/Varchar列时，若为true，剔除字符串中的\u0000 | 1.2.10.1 |
-| enableDefaultForNotNullColumn | true | 启用时，not null且未在表上设置default的字段传入null时，将以默认值写入. String 默认“”,Number 默认0,Date/timestamp/timestamptz 默认1970-01-01 00:00:00 | 1.2.6 |
-| defaultTimeStampText | null | enableDefaultForNotNullColumn=true时，Date/timestamp/timestamptz的默认值 | 1.2.6 |
-| useLegacyPutHandler  | false | true时，写入sql格式为insert into xxx(c0,c1,...) values (?,?,...),... on conflict; false时优先使用sql格式为insert into xxx(c0,c1,...) select unnest(?),unnest(?),... on conflict | 2.0.1 |
-| maxRowsPerSql  | Integer.MAX_VALUE | useLegacyPutHandler=false，且通过unnest形式写入时，每条sql的最大行数 | 2.0.1 |
-| maxBytesPerSql  | Long.MAX_VALUE | useLegacyPutHandler=false，且通过unnest形式写入时，每条sql的最大字节数 | 2.0.1 |
+| removeU0000InTextColumnValue          | true | 当写入Text/Varchar列时，若为true，剔除字符串中的\u0000 | 1.2.10.1 |
+| enableDefaultForNotNullColumn         | true | 启用时，not null且未在表上设置default的字段传入null时，将以默认值写入. String 默认“”,Number 默认0,Date/timestamp/timestamptz 默认1970-01-01 00:00:00 | 1.2.6 |
+| defaultTimeStampText                  | null | enableDefaultForNotNullColumn=true时，Date/timestamp/timestamptz的默认值 | 1.2.6 |
+| useLegacyPutHandler                   | false | true时，写入sql格式为insert into xxx(c0,c1,...) values (?,?,...),... on conflict; false时优先使用sql格式为insert into xxx(c0,c1,...) select unnest(?),unnest(?),... on conflict | 2.0.1 |
+| maxRowsPerSql                         | Integer.MAX_VALUE | useLegacyPutHandler=false，且通过unnest形式写入时，每条sql的最大行数 | 2.0.1 |
+| maxBytesPerSql                        | Long.MAX_VALUE | useLegacyPutHandler=false，且通过unnest形式写入时，每条sql的最大字节数 | 2.0.1 |
 
 #### 查询配置
 | 参数名 | 默认值 | 说明 |引入版本| 
@@ -429,3 +516,22 @@ unnest格式相比multi values有如下优点:
 | binlogIgnoreDelete |false| 是否忽略消费Delete类型的binlog | 1.2.16.5 |
 | binlogIgnoreBeforeUpdate | false | 是否忽略消费BeforeUpdate类型的binlog | 1.2.16.5 |
 | retryCount | 3 | 消费失败时的重试次数，成功消费时重试次数会被重置 | 2.1.5 |
+
+### 参数详解
+#### writeMode
+- INSERT_OR_INGORE
+```sql
+-- 当表有PK列时，等价生成如下sql
+INSERT INTO t0 (pk, c0, c1, c2) values (?, ?, ?, ?) ON CONFLICT(pk) DO NOTHING;
+-- 当表无PK列时，等价生成如下sql
+INSERT INTO t0 (c0, c1, c2) values (?, ?, ?);
+```
+- INSERT_OR_UPDATE
+```sql
+-- 当表有PK列时，等价生成如下sql
+INSERT INTO t0 (pk, c0, c1, c2) values (?, ?, ?) ON CONFLICT(pk) DO UPDATE SET c0 = excluded.c0, c1 = excluded.c1, c2 = excluded.c2;
+-- 当表无PK列时，等价生成如下sql
+INSERT INTO t0 (c0, c1, c2) values (?, ?, ?);
+```
+- INSERT_OR_REPLACE
+INSERT_OR_REPLACE相比INSERT_OR_UPDATE最大的区别是，UPDATE只有显式调用过Put.setObject的列才会参与到SQL中，而REPLACE模式下，没有调用put.setObject列等同于调用过一次put.setObject(index, null)，所有列都会参与到sql中

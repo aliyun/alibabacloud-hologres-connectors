@@ -1,7 +1,10 @@
 package org.postgresql.jdbc;
 
+import org.postgresql.core.BaseConnection;
+import org.postgresql.core.Oid;
 import org.postgresql.util.PSQLException;
 
+import java.sql.SQLException;
 import java.util.List;
 
 /**
@@ -14,6 +17,20 @@ public class ArrayUtil {
 		final ArrayEncoding.ArrayEncoder arraySupport = ArrayEncoding.getArrayEncoder(elements);
 		final String arrayString = arraySupport.toArrayString(',', elements);
 		return arrayString;
+	}
+
+	public static byte[] arrayToBinary(BaseConnection conn, Object elements, String typeName) throws SQLException {
+		final ArrayEncoding.ArrayEncoder arraySupport = ArrayEncoding.getArrayEncoder(elements);
+		int oid = arraySupport.getDefaultArrayTypeOid();
+		// When element is type of String[], the getDefaultArrayTypeOid geturn Oid.VARCHAR_ARRAY.
+		// If typeName is _text, change the oid.
+		if (oid == Oid.VARCHAR_ARRAY) {
+			if ("_text".equals(typeName)) {
+				oid = Oid.TEXT_ARRAY;
+			}
+		}
+		final byte[] arrayBytes = arraySupport.toBinaryRepresentation(conn, elements, oid);
+		return arrayBytes;
 	}
 
 	public static void reverse(byte[] array) {
@@ -31,7 +48,7 @@ public class ArrayUtil {
 
 	public static long getArrayLength(String[] array) {
 		long len = 0;
-		if (array != null){
+		if (array != null) {
 			for (String str : array) {
 				if (str != null) {
 					len += str.length();
@@ -101,7 +118,7 @@ public class ArrayUtil {
 
 	public static long getArrayLength(PgArray array) {
 		long len = 0;
-		if (array != null && array.toString() != null){
+		if (array != null && array.toString() != null) {
 			len = array.toString().length();
 		} else {
 			len = 1024;

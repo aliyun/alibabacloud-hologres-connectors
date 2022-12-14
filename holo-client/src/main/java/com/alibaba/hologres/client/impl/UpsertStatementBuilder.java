@@ -95,29 +95,25 @@ public class UpsertStatementBuilder {
 	private SqlTemplate buildDeleteSqlTemplate(Tuple<TableSchema, TableName> tuple) {
 		TableSchema schema = tuple.l;
 		TableName tableName = tuple.r;
-		SqlTemplate sqlTemplate = deleteCache.get(tuple);
-		if (sqlTemplate == null) {
-			first = true;
-			StringBuilder sb = new StringBuilder();
-			sb.append("delete from ").append(tableName.getFullName());
-			sb.append(" where ");
-			String header = sb.toString();
-			sb.setLength(0);
-			sb.append("(");
-			for (int index : schema.getKeyIndex()) {
-				if (!first) {
-					sb.append(" and ");
-				}
-				first = false;
-				sb.append(IdentifierUtil.quoteIdentifier(schema.getColumnSchema()[index].getName(), true)).append("=?");
+		first = true;
+		StringBuilder sb = new StringBuilder();
+		sb.append("delete from ").append(tableName.getFullName());
+		sb.append(" where ");
+		String header = sb.toString();
+		sb.setLength(0);
+		sb.append("(");
+		for (int index : schema.getKeyIndex()) {
+			if (!first) {
+				sb.append(" and ");
 			}
-			sb.append(")");
-			String rowText = sb.toString();
-			int maxLevel = 32 - Integer.numberOfLeadingZeros(Short.MAX_VALUE / schema.getKeyIndex().length) - 1;
-			sqlTemplate = new SqlTemplate(header, null, rowText, DELIMITER_OR, maxLevel);
-			deleteCache.put(tuple, sqlTemplate);
+			first = false;
+			sb.append(IdentifierUtil.quoteIdentifier(schema.getColumnSchema()[index].getName(), true)).append("=?");
 		}
-		return sqlTemplate;
+		sb.append(")");
+		String rowText = sb.toString();
+		int maxLevel = 32 - Integer.numberOfLeadingZeros(Short.MAX_VALUE / schema.getKeyIndex().length) - 1;
+		return new SqlTemplate(header, null, rowText, DELIMITER_OR, maxLevel);
+
 	}
 
 	private SqlTemplate buildInsertSql(Tuple3<TableSchema, TableName, WriteMode> tuple, Tuple<BitSet, BitSet> input) {
@@ -628,6 +624,7 @@ public class UpsertStatementBuilder {
 					", delimiter='" + delimiter + '\'' +
 					'}';
 		}
+
 	}
 
 	/**
@@ -638,8 +635,8 @@ public class UpsertStatementBuilder {
 	 * @throws SQLException
 	 */
 	public List<PreparedStatementWithBatchInfo> buildStatements(Connection conn, HoloVersion version,
-		TableSchema schema, TableName tableName, Collection<Record> recordList,
-		WriteMode mode) throws
+																TableSchema schema, TableName tableName, Collection<Record> recordList,
+																WriteMode mode) throws
 			SQLException {
 		List<Record> deleteRecordList = new ArrayList<>();
 		Map<Tuple<BitSet, BitSet>, List<Record>> insertRecordList = new HashMap<>();

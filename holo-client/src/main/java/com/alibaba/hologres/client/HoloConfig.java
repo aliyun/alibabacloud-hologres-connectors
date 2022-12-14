@@ -384,6 +384,16 @@ public class HoloConfig implements Serializable {
 	 */
 	boolean refreshMetaBeforeGetTableSchema = true;
 
+	/**
+	 * 是否直连fe.
+	 * 当弹内用户的vip带宽不能满足需求，需要通过绕过vip直接连接fe时可打开该开关
+	 * 如果是公有云或其他与部署holo机器网络不通环境上的用户请勿打开，否则无法连接
+	 *
+	 * @HasGetter
+	 * @HasSetter
+	 */
+	boolean enableDirectConnection = false;
+
 	//------------------------endpoint conf--------------------------------------------
 	/**
 	 * 顾名思义，jdbcUrl.
@@ -714,6 +724,14 @@ public class HoloConfig implements Serializable {
 
 	public void setRefreshMetaBeforeGetTableSchema(boolean refreshMetaBeforeGetTableSchema) {
 		this.refreshMetaBeforeGetTableSchema = refreshMetaBeforeGetTableSchema;
+	}
+
+	public boolean isEnableDirectConnection() {
+		return enableDirectConnection;
+	}
+
+	public void setEnableDirectConnection(boolean enableDirectConnection) {
+		this.enableDirectConnection = enableDirectConnection;
 	}
 
 	public long getForceFlushInterval() {

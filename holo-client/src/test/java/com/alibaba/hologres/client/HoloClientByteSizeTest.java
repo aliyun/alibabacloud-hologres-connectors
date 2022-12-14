@@ -6,8 +6,8 @@ package com.alibaba.hologres.client;
 
 import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.model.WriteMode;
-import org.junit.Assert;
-import org.junit.Test;
+import org.testng.Assert;
+import org.testng.annotations.Test;
 
 import java.sql.Connection;
 import java.util.ArrayList;
@@ -123,7 +123,7 @@ public class HoloClientByteSizeTest extends HoloClientTestBase {
 		HoloConfig config = buildConfig();
 		config.setWriteMode(WriteMode.INSERT_OR_REPLACE);
 		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
-			String tableName = "holo_client_all_types_1";
+			String tableName = "testObjectArray";
 			String dropSql = "drop table if exists " + tableName;
 			String createSql = "create table " + tableName + "(" +
 					"a int," +
@@ -216,7 +216,7 @@ public class HoloClientByteSizeTest extends HoloClientTestBase {
 		HoloConfig config = buildConfig();
 		config.setWriteMode(WriteMode.INSERT_OR_REPLACE);
 		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
-			String tableName = "holo_client_all_types_1";
+			String tableName = "testArrayListArray";
 			String dropSql = "drop table if exists " + tableName;
 			String createSql = "create table " + tableName + "(" +
 					"a int," +

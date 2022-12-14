@@ -6,7 +6,7 @@
 
     <groupId>com.alibaba.hologres</groupId>
     <artifactId>holo-client</artifactId>
-    <version>2.2.0</version>
+    <version>2.2.4</version>
 
     <url>https://www.hologres.io/</url>
     <name>holo-client</name>
@@ -72,18 +72,17 @@
             <artifactId>binaryrow</artifactId>
             <version>0.0.2.3-SNAPSHOT</version>
         </dependency>
-
-        <dependency>
-            <groupId>junit</groupId>
-            <artifactId>junit</artifactId>
-            <version>4.13</version>
-            <scope>test</scope>
-        </dependency>
-
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-simple</artifactId>
             <version>${slf4j.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.testng</groupId>
+            <artifactId>testng</artifactId>
+            <version>7.5</version>
             <scope>test</scope>
         </dependency>
 
@@ -100,23 +99,6 @@
                     <target>8</target>
                 </configuration>
             </plugin>
-            <!--
-            <plugin>
-                <groupId>net.revelc.code.formatter</groupId>
-                <artifactId>formatter-maven-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <goals>
-                            <goal>format</goal>
-                        </goals>
-                        <configuration>
-                            <configFile>/tools/maven/checkstyle.xml</configFile>
-                            <encoding>UTF-8</encoding>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-            -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-checkstyle-plugin</artifactId>
@@ -157,13 +139,13 @@
                         </goals>
                         <configuration>
                             <filters>
-                            <filter>
-                                <artifact>com.alibaba.hologres:postgresql-holo</artifact>
-                                <excludes>
-                                    <exclude>META-INF/MANIFEST.MF</exclude>
-                                    <exclude>META-INF/services/java.sql.Driver</exclude>
-                                </excludes>
-                            </filter>
+                                <filter>
+                                    <artifact>org.postgresql:postgresql</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/MANIFEST.MF</exclude>
+                                        <exclude>META-INF/services/java.sql.Driver</exclude>
+                                    </excludes>
+                                </filter>
                             </filters>
                             <artifactSet>
                                 <excludes>
@@ -236,6 +218,14 @@
                         </configuration>
                     </execution>
                 </executions>
+            </plugin>
+            <plugin>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <suiteXmlFiles>
+                        <suiteXmlFile>testng.xml</suiteXmlFile>
+                    </suiteXmlFiles>
+                </configuration>
             </plugin>
         </plugins>
     </build>

@@ -1,10 +1,8 @@
 package com.alibaba.hologres.client.model;
 
 import com.alibaba.hologres.client.exception.InvalidIdentifierException;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.testng.Assert;
+import org.testng.annotations.Test;
 
 /**
  * TableName Tester.
@@ -13,14 +11,6 @@ import org.junit.Test;
  * @since <pre>12月 2, 2020</pre>
  */
 public class TableNameTest {
-
-	@Before
-	public void before() throws Exception {
-	}
-
-	@After
-	public void after() throws Exception {
-	}
 
 	/**
 	 * Method: valueOf(String schemaName, String tableName).
@@ -125,6 +115,55 @@ public class TableNameTest {
 		Assert.assertEquals("a\"A", tn.getTableName());
 		Assert.assertEquals("\"public\".\"a\"\"A\"", tn.getFullName());
 
+	}
+
+	/**
+	 * 有引号，大写，有.特殊字符.
+	 * Method: valueOf(String name).
+	 */
+	@Test
+	public void testValueOfName009() throws Exception {
+		TableName tn = TableName.valueOf("\"a.A\"");
+		Assert.assertEquals("public", tn.getSchemaName());
+		Assert.assertEquals("a.A", tn.getTableName());
+		Assert.assertEquals("\"public\".\"a.A\"", tn.getFullName());
+	}
+
+	/**
+	 * 无引号，有大写, 无特殊字符.
+	 * Method: valueOf(String name).
+	 */
+	@Test
+	public void testValueOfName010() throws Exception {
+		TableName tn = TableName.valueOf("a.B");
+		Assert.assertEquals("a", tn.getSchemaName());
+		Assert.assertEquals("b", tn.getTableName());
+		Assert.assertEquals("\"a\".\"b\"", tn.getFullName());
+	}
+
+
+	/**
+	 * 无引号，有大写, 无特殊字符.
+	 * Method: valueOf(String name).
+	 */
+	@Test
+	public void testValueOfName011() throws Exception {
+		TableName tn = TableName.valueOf("\"A\".B");
+		Assert.assertEquals("A", tn.getSchemaName());
+		Assert.assertEquals("b", tn.getTableName());
+		Assert.assertEquals("\"A\".\"b\"", tn.getFullName());
+	}
+
+	/**
+	 * 无引号，有大写, 无特殊字符.
+	 * Method: valueOf(String name).
+	 */
+	@Test
+	public void testValueOfName012() throws Exception {
+		TableName tn = TableName.valueOf("Ab.\"B\"");
+		Assert.assertEquals("ab", tn.getSchemaName());
+		Assert.assertEquals("B", tn.getTableName());
+		Assert.assertEquals("\"ab\".\"B\"", tn.getFullName());
 	}
 
 	/**
