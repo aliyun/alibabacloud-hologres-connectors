@@ -1,7 +1,5 @@
 package com.alibaba.hologres.spark2.sink
 
-import java.util.Optional
-
 import com.alibaba.hologres.spark.sink.BaseSourceProvider
 import org.apache.commons.cli.MissingArgumentException
 import org.apache.spark.sql.SaveMode
@@ -12,6 +10,7 @@ import org.apache.spark.sql.sources.v2.{DataSourceOptions, StreamWriteSupport, W
 import org.apache.spark.sql.streaming.OutputMode
 import org.apache.spark.sql.types.StructType
 
+import java.util.Optional
 import scala.collection.JavaConverters._
 
 /** SourceProvider Register. */
@@ -26,9 +25,8 @@ class SourceProvider extends DataSourceRegister with WriteSupport with StreamWri
     val opts = options.asMap().asScala.toMap
     val table = opts.getOrElse("table",
       throw new MissingArgumentException("Missing necessary parameter 'table'."))
-    val streamMode = Tuple2[Boolean, OutputMode](false, null)
 
-    Optional.of(new HoloWriter(table, opts, Some(schema), streamMode))
+    Optional.of(new HoloWriter(table, opts, Some(schema)))
   }
 
   override def createStreamWriter(
@@ -39,9 +37,8 @@ class SourceProvider extends DataSourceRegister with WriteSupport with StreamWri
     val opts = options.asMap().asScala.toMap
     val table = opts.getOrElse("table",
       throw new MissingArgumentException("Missing necessary parameter 'table'."))
-    val streamMode = Tuple2[Boolean, OutputMode](true, mode)
 
-    new HoloWriter(table, opts, Some(schema), streamMode)
+    new HoloWriter(table, opts, Some(schema))
   }
 }
 

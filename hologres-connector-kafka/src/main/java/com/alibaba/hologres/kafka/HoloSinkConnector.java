@@ -16,7 +16,7 @@ import java.util.Map;
 /** HoloSinkConnector. */
 public class HoloSinkConnector extends SinkConnector {
     private static final Logger log = LoggerFactory.getLogger(HoloSinkConnector.class);
-    private static final String VERSION = "hologres-connector-kafka-1.2-SNAPSHOT";
+    private static final String VERSION = "hologres-connector-kafka-1.3-SNAPSHOT";
 
     private Map<String, String> configProps;
 

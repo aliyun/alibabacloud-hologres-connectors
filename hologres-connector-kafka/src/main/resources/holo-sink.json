@@ -14,8 +14,8 @@
     "message_offset": "kafkaoffset",
     "message_timestamp": "kafkatimestamp",
     "connection.jdbcUrl": "jdbc:postgresql://hostname:port/database_name",
-    "connection.username": "your_username",
-    "connection.password": "your_password",
+    "connection.username": "",
+    "connection.password": "",
     "table": "test_json",
     "connection.writeMode": "INSERT_OR_REPLACE",
     "connection.writeThreadSize": "3"

@@ -64,7 +64,7 @@ public class JDBCOptions implements Serializable {
     }
 
     public String getDbUrl() {
-        return "jdbc:postgresql://" + endpoint + "/" + database;
+        return "jdbc:hologres://" + endpoint + "/" + database;
     }
 
     @Override

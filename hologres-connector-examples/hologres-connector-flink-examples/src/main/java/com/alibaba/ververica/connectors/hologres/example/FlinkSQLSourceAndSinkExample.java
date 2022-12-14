@@ -86,6 +86,7 @@ public class FlinkSQLSourceAndSinkExample {
                     + "  'tablename' = '%s',"
                     + "  'username' = '%s',"
                     + "  'password' = '%s',"
+                    + "  'jdbcCopyWriteMode' = 'true',"
                     + "  'endpoint' = '%s'"
                     + ")",
                 database, sinkTableName, userName, password, endPoint);

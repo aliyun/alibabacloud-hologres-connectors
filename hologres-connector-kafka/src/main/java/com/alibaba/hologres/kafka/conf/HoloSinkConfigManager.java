@@ -7,17 +7,23 @@ import com.alibaba.hologres.kafka.exception.KafkaHoloException;
 import com.alibaba.hologres.kafka.model.DirtyDataStrategy;
 import com.alibaba.hologres.kafka.model.InputFormat;
 import com.alibaba.hologres.kafka.utils.DirtyDataUtils;
+import com.alibaba.hologres.kafka.utils.JDBCUtils;
 import com.alibaba.hologres.kafka.utils.MessageInfo;
 
 import java.util.Map;
 
 /** HoloSinkConfigManager. */
 public class HoloSinkConfigManager {
-    private final HoloClient client;
+    private final HoloConfig holoConfig;
+    private final boolean copyWriteMode;
+    private final boolean copyWriteDirtyDataCheck;
+    private final String copyWriteFormat;
+    private boolean copyWriteDirectConnect;
     private final String tableName;
     private final InputFormat inputFormat;
     private final long initialTimestamp;
     private final DirtyDataUtils dirtyDataUtils = new DirtyDataUtils(DirtyDataStrategy.EXCEPTION);
+    private final boolean schemaForceCheck;
     private final MessageInfo messageInfo = new MessageInfo(true);
     private final int metricsReportInterval;
 
@@ -78,18 +84,24 @@ public class HoloSinkConfigManager {
                 throw new IllegalArgumentException(
                         "Could not recognize DirtyDataStrategy " + dirtyDataStrategyStr);
         }
+        schemaForceCheck = config.getBoolean(HoloSinkConfig.SCHEMA_FORCE_CHECK);
 
         // metrics report interval
         metricsReportInterval = config.getInt(HoloSinkConfig.METRICS_REPORT_INTERVAL);
 
-        // holo client
-        try {
-            HoloConfig holoConfig = new HoloConfig();
-            ConfLoader.load(props, "connection.", holoConfig);
-            holoConfig.setInputNumberAsEpochMsForDatetimeColumn(true);
+        // copy write
+        copyWriteMode = config.getBoolean(HoloSinkConfig.COPY_WRITE_MODE);
+        copyWriteDirtyDataCheck = config.getBoolean(HoloSinkConfig.COPY_WRITE_DIRTY_DATA_CHECK);
+        copyWriteFormat = config.getString(HoloSinkConfig.COPY_WRITE_FORMAT);
+        copyWriteDirectConnect = config.getBoolean(HoloSinkConfig.COPY_WRITE_DIRECT_CONNECT);
 
-            client = new HoloClient(holoConfig);
-            client.setAsyncCommit(true);
+        // holo config
+        try {
+            holoConfig = new HoloConfig();
+            ConfLoader.load(props, "connection.", holoConfig);
+            // use jdbc:hologres instead of jdbc:postgresql
+            holoConfig.setJdbcUrl(JDBCUtils.formatUrlWithHologres(holoConfig.getJdbcUrl()));
+            holoConfig.setInputNumberAsEpochMsForDatetimeColumn(true);
         } catch (Exception e) {
             throw new KafkaHoloException(e);
         }
@@ -111,12 +123,46 @@ public class HoloSinkConfigManager {
         return dirtyDataUtils;
     }
 
+    public boolean isSchemaForceCheck() {
+        return schemaForceCheck;
+    }
+
     public int getMetricsReportInterval() {
         return metricsReportInterval;
     }
 
+    public HoloConfig getHoloConfig() {
+        return holoConfig;
+    }
+
+    public boolean isCopyWriteMode() {
+        return copyWriteMode;
+    }
+
+    public boolean isCopyWriteDirtyDataCheck() {
+        return copyWriteDirtyDataCheck;
+    }
+
+    public String getCopyWriteFormat() {
+        return copyWriteFormat;
+    }
+
+    public boolean isCopyWriteDirectConnect() {
+        return copyWriteDirectConnect;
+    }
+
+    public void setCopyWriteDirectConnect(boolean copyWriteDirectConnect) {
+        this.copyWriteDirectConnect = copyWriteDirectConnect;
+    }
+
     public HoloClient getClient() {
-        return client;
+        try {
+            HoloClient client = new HoloClient(holoConfig);
+            client.setAsyncCommit(true);
+            return client;
+        } catch (Exception e) {
+            throw new KafkaHoloException(e);
+        }
     }
 
     public MessageInfo getMessageInfo() {

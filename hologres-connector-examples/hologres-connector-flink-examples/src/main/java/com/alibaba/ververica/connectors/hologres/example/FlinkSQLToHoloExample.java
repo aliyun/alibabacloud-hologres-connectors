@@ -61,6 +61,7 @@ public class FlinkSQLToHoloExample {
                                 + ") with ("
                                 + "  'connector'='hologres',"
                                 + "  'dbname' = '%s',"
+                                + "  'jdbcCopyWriteMode' = 'true',"
                                 + "  'tablename' = '%s',"
                                 + "  'username' = '%s',"
                                 + "  'password' = '%s',"

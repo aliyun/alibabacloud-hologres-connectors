@@ -38,7 +38,7 @@
 当前example默认使用Flink 1.13版本，实际使用时connector版本请与Flink集群的版本保持一致
 
 ```
-flink run -c com.alibaba.ververica.connectors.hologres.example.FlinkDSAndSQLToHoloExample target/hologres-connector-flink-examples-1.2.0-jar-with-dependencies.jar --endpoint ${ip:port} --username ${user_name} --password ${password} --database {database} --tablename sink_table
+flink run -c com.alibaba.ververica.connectors.hologres.example.FlinkDSAndSQLToHoloExample target/hologres-connector-flink-examples-1.3-SNAPSHOT-jar-with-dependencies.jar --endpoint ${ip:port} --username ${user_name} --password ${password} --database {database} --tablename sink_table
 ```
 其中需要替换对应的endpoint、username、password、database参数
 
@@ -48,8 +48,8 @@ flink run -c com.alibaba.ververica.connectors.hologres.example.FlinkDSAndSQLToHo
 
 在本项目(hologres-connector-flink-examples)根目录运行```mvn package -DskipTests```
 
-### 创建Hologres结果表用于接收数据
-在自己的Hologres实例，创建结果表并插入数据，创建结果表:
+### 创建Hologres源表和结果表
+在自己的Hologres实例，创建源表并插入数据，并创建结果表:
 
 ```
 create table source_table(user_id bigint, user_name text, price decimal(38,2),sale_timestamp timestamptz);
@@ -62,7 +62,7 @@ create table sink_table(user_id bigint, user_name text, price decimal(38,2), sal
 当前example默认使用Flink 1.13版本，实际使用时connector版本请与Flink集群的版本保持一致
 
 ```
-flink run -c com.alibaba.ververica.connectors.hologres.example.FlinkSQLSourceAndSinkExample target/hologres-connector-flink-examples-1.2-SNAPSHOT-jar-with-dependencies.jar --endpoint ${ip:port} --username ${user_name} --password ${password} --database {database} --source source_table --sink sink_table
+flink run -c com.alibaba.ververica.connectors.hologres.example.FlinkSQLSourceAndSinkExample target/hologres-connector-flink-examples-1.3-SNAPSHOT-jar-with-dependencies.jar --endpoint ${ip:port} --username ${user_name} --password ${password} --database {database} --source source_table --sink sink_table
 ```
 其中需要替换对应的endpoint、username、password、database参数
 

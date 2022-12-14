@@ -4,12 +4,12 @@ import org.apache.flink.table.data.GenericRowData;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.types.DataType;
 
+import com.alibaba.hologres.org.postgresql.PGConnection;
+import com.alibaba.hologres.org.postgresql.copy.PGCopyInputStream;
 import com.alibaba.ververica.connectors.hologres.config.JDBCOptions;
 import com.alibaba.ververica.connectors.hologres.utils.HologresUtils;
 import com.alibaba.ververica.connectors.hologres.utils.JDBCUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
-import org.postgresql.PGConnection;
-import org.postgresql.copy.PGCopyInputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

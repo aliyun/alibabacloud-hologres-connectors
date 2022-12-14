@@ -24,9 +24,12 @@ class BaseSourceProvider() {
   val DYNAMIC_PARTITION = "dynamic_partition"
   val FIXED_CONNECTION_MODE = "fixed_connection_mode"
 
-  def getOrCreateHoloClient(sourceOptions: Map[String, String]): HoloClient = {
-    val hologresConfigs: HologresConfigs = new HologresConfigs(sourceOptions)
+  val COPY_WRITE_MODE = "copy_write_mode"
+  val COPY_WRITE_FORMAT = "copy_write_format"
+  val COPY_WRITE_DIRTY_DATA_CHECK = "copy_write_dirty_data_check"
+  val COPY_WRITE_DIRECT_CONNECT = "copy_write_direct_connect"
 
+  def getOrCreateHoloClient(hologresConfigs: HologresConfigs): HoloClient = {
     val holoClient = new HoloClient(hologresConfigs.holoConfig)
     holoClient.setAsyncCommit(true)
 

@@ -1,28 +1,35 @@
 ## 依赖hologres-connector-spark-base，实现了Spark 2.x版本的Connector
 
 ## 准备工作
+
 - 需要**Hologres 0.9**及以上版本。
 - 需要**spark2.4.x**以及**scala2.11.x**
 
 ### 从中央仓库获取jar
+
 可以在项目pom文件中通过如下方式引入依赖，其中`<classifier>`必须加上，防止发生依赖冲突。
+
 ```xml
+
 <dependency>
     <groupId>com.alibaba.hologres</groupId>
     <artifactId>hologres-connector-spark-2.x</artifactId>
-    <version>1.2.0</version>
+    <version>1.3.0</version>
     <classifier>jar-with-dependencies</classifier>
 </dependency>
 ```
+
 ### 自行编译
+
 #### build base jar 并 install 到本地maven仓库
-  - -P指定相关版本参数，本项目使用scala2.11以及spark2.4，详情请查看hologres-connector-spark-base子项目README
+
+- -P指定相关版本参数，本项目使用scala2.11以及spark2.4，详情请查看hologres-connector-spark-base子项目README
 
   ```
   mvn install -pl hologres-connector-spark-base clean package -DskipTests -Pscala-2.11 -Pspark-2
   ```
 
-  打包结果名称为 hologres-connector-spark-base_2.11_spark2-1.2-SNAPSHOT.jar
+打包结果名称为 hologres-connector-spark-base_2.11_spark2-1.3-SNAPSHOT.jar
 
 #### build jar
 
@@ -30,8 +37,25 @@
   mvn -pl hologres-connector-spark-2.x clean package -DskipTests
   ```
 
+## 注意事项
+
+hologres spark connector在进行读写时，会使用一定的jdbc连接数。可能受到如下因素影响：
+
+1. spark的并发，在作业运行时于spark UI处可以看到的同步执行的task数量
+2. connector每个并发使用的连接数：fixed copy方式写入，每个并发仅使用一个jdbc连接。insert 方式写入，每个并发会使用write_thread_size个jdbc连接。
+3. 其他方面可能使用的连接数：作业启动时，会有schema获取等操作，可能短暂的建立1个连接
+
+因此作业使用的总的连接数可以通过如下公示计算：
+
+* fixed copy 模式： parallelism * 1 + 1
+* 普通insert模式： parallelism * write_thread_size + 1
+
+> spark task并发可能受到用户设置的参数影响，也可能受到hadoop对文件分块策略的影响，详情可以参考spark相关文档。
+
 ## 使用示例-批量导入
+
 ### 1.手动创建Hologres表并组织数据进行写入
+
 #### 1.1 创建holo表
 
 ```sql
@@ -57,7 +81,7 @@ CREATE TABLE tb008 (
 
 #### 1.2 组织数据并存入Holo
 
-- 可以 spark-shell --jars hologres-connector-spark-2.x-1.2-SNAPSHOT-jar-with-dependencies.jar，然后spark-shell里执行测试
+- 可以 spark-shell --jars hologres-connector-spark-2.x-1.3-SNAPSHOT-jar-with-dependencies.jar，然后spark-shell里执行测试
 - 可以使用 :load spark-test.scala 执行测试文件
 - spark-test.scala 文件示例：
 
@@ -121,19 +145,20 @@ df.write.format("hologres") //必须配置为hologres
 其中
 
 ```scala
-.option(SourceProvider.endpoint, "Ip:Port")//Hologres实时数据API的Ip和Port。
-.option(SourceProvider.database, "test_database")//Hologres的数据库名称,示例为test_database。
+.option(SourceProvider.endpoint, "Ip:Port") //Hologres实时数据API的Ip和Port。
+  .option(SourceProvider.database, "test_database") //Hologres的数据库名称,示例为test_database。
 ```
 
 可以替换为（可选）
 
 ```scala
-.option(SourceProvider.jdbcUrl, "jdbc:postgresql://Ip:Port/test_database")//Hologres实时数据API的jdbcUrl,与endpoint+database的设置二选一
+.option(SourceProvider.jdbcUrl, "jdbc:postgresql://Ip:Port/test_database") //Hologres实时数据API的jdbcUrl,与endpoint+database的设置二选一
 ```
 
 ### 2. 使用Spark sql从其他数据源读取数据并存入Holo
+
 - 以Hive、postgressql为例，也可以是spark支持的其他数据源（如parquet格式的文件等）
- 
+
   使用Spark从Hive中读取数据
 
 ```scala
@@ -186,6 +211,7 @@ df.write
 ```
 
 ## 使用示例-实时写入
+
 #### 1.1 创建holo表
 
 ```sql
@@ -200,38 +226,39 @@ CREATE TABLE test_table_stream
 
 ```scala
  val spark = SparkSession
-      .builder
-      .appName("StreamToHologres")
-      .master("local[*]")
-      .getOrCreate()
+  .builder
+  .appName("StreamToHologres")
+  .master("local[*]")
+  .getOrCreate()
 
-    spark.sparkContext.setLogLevel("WARN")
-    import spark.implicits._
+spark.sparkContext.setLogLevel("WARN")
 
-    val lines = spark.readStream
-      .format("socket")
-      .option("host", "localhost")
-      .option("port", 9999)
-      .load()
+import spark.implicits._
 
-    // Split the lines into words
-    val words = lines.as[String].flatMap(_.split(" "))
+val lines = spark.readStream
+  .format("socket")
+  .option("host", "localhost")
+  .option("port", 9999)
+  .load()
 
-    // Generate running word count
-    val wordCounts = words.groupBy("value").count()
+// Split the lines into words
+val words = lines.as[String].flatMap(_.split(" "))
 
-    wordCounts.writeStream
-        .outputMode(OutputMode.Complete())
-        .format("hologres")
-        .option(SourceProvider.USERNAME, "your_username")
-        .option(SourceProvider.PASSWORD, "your_password")
-        .option(SourceProvider.JDBCURL, "jdbc:postgresql://Ip:Port/test_db")
-        .option(SourceProvider.TABLE, "test_table_stream")
-        .option("batchsize", 1)
-        .option("isolationLevel", "NONE")
-        .option("checkpointLocation", checkpointLocation)
-        .start()
-        .awaitTermination()
+// Generate running word count
+val wordCounts = words.groupBy("value").count()
+
+wordCounts.writeStream
+  .outputMode(OutputMode.Complete())
+  .format("hologres")
+  .option(SourceProvider.USERNAME, "your_username")
+  .option(SourceProvider.PASSWORD, "your_password")
+  .option(SourceProvider.JDBCURL, "jdbc:postgresql://Ip:Port/test_db")
+  .option(SourceProvider.TABLE, "test_table_stream")
+  .option("batchsize", 1)
+  .option("isolationLevel", "NONE")
+  .option("checkpointLocation", checkpointLocation)
+  .start()
+  .awaitTermination()
 ```
 
 ## 参数说明
@@ -244,6 +271,10 @@ CREATE TABLE test_table_stream
 | ENDPOINT | 无 | 与jdbcUrl二选一| Hologres实时数据API的Ip和Port |
 | DATABASE | 无 | 与jdbcUrl二选一| Hologres接收数据的表所在数据库名称 |
 | JDBCURL | 无 | 与endpoint+database组合设置二选一| Hologres实时数据API的jdbcUrl |
+| COPY_WRITE_MODE | true | 否 | 是否使用fixed copy方式写入，fixed copy是hologres1.3新增的能力，相比insert方法，fixed copy方式可以更高的吞吐（因为是流模式），更低的数据延时，更低的客户端内存消耗（因为不攒批)|
+| COPY_WRITE_FORMAT | binary | 否 | 底层是否走二进制协议，二进制会更快，否则为文本模式|
+| COPY_WRITE_DIRTY_DATA_CHECK | false | 否 | 是否进行脏数据校验，打开之后如果有脏数据，可以定位到写入失败的具体行，RecordChecker会对写入性能造成一定影响，非排查环节不建议开启.|
+| COPY_WRITE_DIRECT_CONNECT | 对于可以直连的环境会默认使用直连 | 否 | copy的瓶颈往往是VIP endpoint的网络吞吐，因此我们会测试当前环境能否直连holo fe，支持的话默认使用直连。此参数设置为false则不进行直连。|
 | WRITE_MODE | INSERT_OR_REPLACE | 否 | 当INSERT目标表为有主键的表时采用不同策略:<br>INSERT_OR_IGNORE 当主键冲突时，不写入<br>INSERT_OR_UPDATE 当主键冲突时，更新相应列<br>INSERT_OR_REPLACE 当主键冲突时，更新所有列|
 | WRITE_BATCH_SIZE | 512 | 否 | 每个写入线程的最大批次大小，<br>在经过WriteMode合并后的Put数量达到writeBatchSize时进行一次批量提交 |
 | WRITE_BATCH_BYTE_SIZE | 2097152（2 * 1024 * 1024） | 否 | 每个写入线程的最大批次bytes大小，单位为Byte，默认2MB，<br>在经过WriteMode合并后的Put数据字节数达到writeBatchByteSize时进行一次批量提交 |
@@ -255,10 +286,11 @@ CREATE TABLE test_table_stream
 | RETRY_SLEEP_INIT_MS | 1000 | 否 | 每次重试的等待时间=retrySleepInitMs+retry*retrySleepStepMs |
 | RETRY_SLEEP_STEP_MS | 10000 | 否 | 每次重试的等待时间=retrySleepInitMs+retry*retrySleepStepMs|
 | CONNECTION_MAX_IDLE_MS| 60000 | 否 | 写入线程和点查线程数据库连接的最大Idle时间，超过连接将被释放|
-| DYNAMIC_PARTITION| false|	否 |若为true，写入分区表父表时，当分区不存在时自动创建分区 |
-| FIXED_CONNECTION_MODE| false|   否| 写入和点查不占用连接数（beta功能，需要connector版本>=1.2.0，hologres引擎版本>=1.3）|
+| DYNAMIC_PARTITION| false|    否 |若为true，写入分区表父表时，当分区不存在时自动创建分区 |
+| FIXED_CONNECTION_MODE| false|   否| 非copy write 模式（insert默认）下，写入和点查不占用连接数（beta功能，需要connector版本>=1.2.0，hologres引擎版本>=1.3）|
 
 ## 类型映射
+
 |spark|holo|
 |:---:|:---:|
 | IntegerType | INT |

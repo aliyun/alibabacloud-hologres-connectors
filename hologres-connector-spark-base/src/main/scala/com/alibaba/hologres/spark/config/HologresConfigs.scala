@@ -3,23 +3,22 @@ package com.alibaba.hologres.spark.config
 import com.alibaba.hologres.client.HoloConfig
 import com.alibaba.hologres.client.model.{WriteFailStrategy, WriteMode}
 import com.alibaba.hologres.spark.utils.JDBCUtil._
-import org.apache.commons.cli.MissingArgumentException
 
 /** Hologres config parameters process. */
-class HologresConfigs(sourceOptions: Map[String, String]) {
+class HologresConfigs(sourceOptions: Map[String, String]) extends Serializable {
   val holoConfig = new HoloConfig
 
   val username: String = sourceOptions.getOrElse("username",
-    throw new MissingArgumentException("Missing necessary parameter 'username'."))
+    throw new IllegalArgumentException("Missing necessary parameter 'username'."))
   holoConfig.setUsername(username)
   val password: String = sourceOptions.getOrElse("password",
-    throw new MissingArgumentException("Missing necessary parameter 'password'."))
+    throw new IllegalArgumentException("Missing necessary parameter 'password'."))
   holoConfig.setPassword(password)
 
   lazy val database: String = sourceOptions.getOrElse("database",
-    throw new MissingArgumentException("If jdbcUrl is not provided, please provide parameter 'database'."))
+    throw new IllegalArgumentException("If jdbcUrl is not provided, please provide parameter 'database'."))
   lazy val endpoint: String = sourceOptions.getOrElse("endpoint",
-    throw new MissingArgumentException("If jdbcUrl is not provided, please provide parameter 'endpoint'."))
+    throw new IllegalArgumentException("If jdbcUrl is not provided, please provide parameter 'endpoint'."))
   val jdbcUrl: String = sourceOptions.getOrElse("jdbcurl", getDbUrl(endpoint, database))
   holoConfig.setJdbcUrl(jdbcUrl)
 
@@ -29,7 +28,7 @@ class HologresConfigs(sourceOptions: Map[String, String]) {
     case "insertorreplace" | "insert_or_replace" => WriteMode.INSERT_OR_REPLACE
     case "insertorupdate" | "insert_or_update" => WriteMode.INSERT_OR_UPDATE
     case _ =>
-      throw new MissingArgumentException("Could not recognize writeMode " + writeMode)
+      throw new IllegalArgumentException("Could not recognize writeMode " + writeMode)
   }
   holoConfig.setWriteMode(wMode)
 
@@ -37,7 +36,7 @@ class HologresConfigs(sourceOptions: Map[String, String]) {
   val wFailStrategy: WriteFailStrategy = writeFailStrategy match {
     case "tryonebyone" | "try_one_by_one" => WriteFailStrategy.TRY_ONE_BY_ONE
     case "none" => WriteFailStrategy.NONE
-    case _ => throw new MissingArgumentException("Could not recognize WriteFailStrategy " + writeFailStrategy)
+    case _ => throw new IllegalArgumentException("Could not recognize WriteFailStrategy " + writeFailStrategy)
   }
   holoConfig.setWriteFailStrategy(wFailStrategy)
 
@@ -53,5 +52,11 @@ class HologresConfigs(sourceOptions: Map[String, String]) {
   sourceOptions.get("connection_max_idle_ms").map(v => holoConfig.setConnectionMaxIdleMs(v.toLong))
   sourceOptions.get("fixed_connection_mode").map(v => holoConfig.setUseFixedFe(v.toBoolean))
 
+  var copy_write_mode: Boolean = sourceOptions.getOrElse("copy_write_mode", "true").toBoolean
+  val copy_write_format: String = sourceOptions.getOrElse("copy_write_format", "binary")
+  val copy_write_dirty_data_check: Boolean = sourceOptions.getOrElse("copy_write_dirty_data_check", "false").toBoolean
+  var copy_write_direct_connect: Boolean = sourceOptions.getOrElse("copy_write_direct_connect", "true").toBoolean
+
   holoConfig.setInputNumberAsEpochMsForDatetimeColumn(true)
+  holoConfig.setAppName("hologres-connector-spark")
 }

@@ -1,8 +1,9 @@
 package com.alibaba.hologres.spark.sink
 
-import com.alibaba.hologres.client.{HoloClient, Put}
 import com.alibaba.hologres.client.exception.{HoloClientException, HoloClientWithDetailsException}
-import com.alibaba.hologres.client.model.{Record, TableName, TableSchema}
+import com.alibaba.hologres.client.model.{Record, TableSchema}
+import com.alibaba.hologres.client.{HoloClient, Put}
+import com.alibaba.hologres.spark.config.HologresConfigs
 import com.alibaba.hologres.spark.exception.SparkHoloException
 import com.alibaba.hologres.spark.table.{Column, ColumnType, TableColumn}
 import org.apache.spark.internal.Logging
@@ -10,26 +11,16 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.types._
 import org.slf4j.LoggerFactory
 
-import scala.collection.immutable
-
 /** BaseHoloJdbcDataWriter. */
 abstract class BaseHoloDataWriter(
-                                   table: String,
-                                   sourceOptions: immutable.Map[String, String],
+                                   hologresConfigs: HologresConfigs,
                                    sparkSchema: Option[StructType],
-                                   clientInstance: HoloClient) extends Logging {
+                                   holoSchema: TableSchema) extends Logging {
   private val logger = LoggerFactory.getLogger(getClass)
 
-  // StreamWriter's Complete OutputMode always create new writer, if not reuse holo-client, it will exceed the number of connections.
-  private var client: HoloClient = _
-  if (clientInstance == null) {
-    logger.debug("create new holo client")
-    client = new BaseSourceProvider().getOrCreateHoloClient(sourceOptions)
-  }else{
-    logger.debug("reuse holo client instance")
-    client = clientInstance
-  }
-  private val holoSchema: TableSchema = client.getTableSchema(TableName.valueOf(table))
+  logger.debug("create new holo client")
+  private val client: HoloClient = new BaseSourceProvider().getOrCreateHoloClient(hologresConfigs)
+
   private val tableColumn: TableColumn = new TableColumn(sparkSchema.get, holoSchema)
   private val columns: Array[Column] = tableColumn.getColumns
   private val columnIdToHoloId: Array[Int] = tableColumn.getColumnIdToHoloId

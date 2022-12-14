@@ -7,6 +7,11 @@ public enum HoloStorageConfig {
     PASSWORD("password", false),
     JDBC_URL("jdbc.url", true),
 
+    COPY_WRITE_MODE("copy_write_mode", false),
+    COPY_WRITE_FORMAT("copy_write_format", false),
+    COPY_WRITE_DIRTY_DATA_CHECK("copy_write_dirty_data_check", false),
+    COPY_WRITE_DIRECT_CONNECT("copy_write_direct_connect", false),
+
     WRITE_MODE("write_mode", false),
     WRITE_BATCH_SIZE("write_batch_size", false),
     WRITE_BATCH_BYTE_SIZE("write_batch_byte_size", false),
@@ -22,7 +27,9 @@ public enum HoloStorageConfig {
     SCAN_FETCH_SIZE("scan_fetch_size", false),
     SCAN_TIMEOUT_SECONDS("scan_timeout_seconds", false),
     SCAN_SPLITS("scan_splits", false),
+    @Deprecated
     COPY_MODE("copy_mode", false),
+    COPY_SCAN_MODE("copy_scan_mode", false),
 
     RETRY_COUNT("retry_count", false),
     RETRY_SLEEP_INIT_MS("retry_sleep_init_ms", false),

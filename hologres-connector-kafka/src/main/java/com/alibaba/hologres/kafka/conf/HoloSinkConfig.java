@@ -102,6 +102,29 @@ public class HoloSinkConfig extends AbstractConfig {
             "写入和点查不占用连接数（beta功能，需要connector版本>=1.2.0，hologres引擎版本>=1.3）";
     private static final String FIXED_CONNECTION_MODE_DISPLAY = "fixed Connection Mode";
 
+    public static final String COPY_WRITE_MODE = "copyWriteMode";
+    public static final boolean COPY_WRITE_MODE_DEFAULT = true;
+    private static final String COPY_WRITE_MODE_DOC =
+            "copy模式写入，可以使用更少的连接，写入延迟也更小，hologres引擎版本>=1.3.24默认使用次模式";
+    private static final String COPY_WRITE_MODE_DISPLAY = "copy Write Mode";
+
+    public static final String COPY_WRITE_DIRTY_DATA_CHECK = "copyWriteDirtyDataCheck";
+    public static final boolean COPY_WRITE_DIRTY_DATA_CHECK_DEFAULT = false;
+    private static final String COPY_WRITE_DIRTY_DATA_CHECK_DOC =
+            "copy模式写入是否进行脏数据校验，打开之后如果有脏数据，可以定位到写入失败的具体行";
+    private static final String COPY_WRITE_DIRTY_DATA_CHECK_DISPLAY = "copy Write Dirty Data Check";
+
+    public static final String COPY_WRITE_FORMAT = "copyWriteFormat";
+    public static final String COPY_WRITE_FORMAT_DEFAULT = "binary";
+    private static final String COPY_WRITE_FORMAT_DOC = "底层是否走二进制协议，二进制会更快，否则为文本模式，默认binary即二进制";
+    private static final String COPY_WRITE_FORMAT_DISPLAY = "copy Write Format";
+
+    public static final String COPY_WRITE_DIRECT_CONNECT = "copyWriteDirectConnect";
+    public static final boolean COPY_WRITE_DIRECT_CONNECT_DEFAULT = true;
+    private static final String COPY_WRITE_DIRECT_CONNECT_DOC =
+            "是否直连hologres fe，从而不受vip endpoint的IO吞吐限制，默认根据环境判断能直连则直连";
+    private static final String COPY_WRITE_DIRECT_CONNECT_DISPLAY = "copy Write Direct Connect";
+
     /** CONVERT CONFIG. */
     private static final String CONFIG_CONVERT_GROUP = "Convert";
 
@@ -158,6 +181,12 @@ public class HoloSinkConfig extends AbstractConfig {
     public static final String DIRTY_DATA_TO_SKIP_ONCE_DEFAULT = "null,-1,-1";
     private static final String DIRTY_DATA_TO_SKIP_ONCE_DOC = "跳过特定的一条脏数据";
     private static final String DIRTY_DATA_TO_SKIP_ONCE_DISPLAY = "Dirty data skip once";
+
+    public static final String SCHEMA_FORCE_CHECK = "schema_force_check";
+    public static final boolean SCHEMA_FORCE_CHECK_DEFAULT = false;
+    private static final String SCHEMA_FORCE_CHECK_DOC =
+            "是否强制校验holo的schema，false表示出现不存在的字段时，不抛出异常直接忽略";
+    private static final String SCHEMA_FORCE_CHECK_DISPLAY = "Dirty data skip once";
 
     /** Metrics CONFIG. */
     private static final String METRICS_GROUP = "Metrics";
@@ -357,6 +386,50 @@ public class HoloSinkConfig extends AbstractConfig {
                 ConfigDef.Width.LONG,
                 FIXED_CONNECTION_MODE_DISPLAY);
 
+        config.define(
+                COPY_WRITE_MODE,
+                ConfigDef.Type.BOOLEAN,
+                COPY_WRITE_MODE_DEFAULT,
+                ConfigDef.Importance.HIGH,
+                COPY_WRITE_MODE_DOC,
+                CONFIG_CONNECTION_GROUP,
+                1,
+                ConfigDef.Width.LONG,
+                COPY_WRITE_MODE_DISPLAY);
+
+        config.define(
+                COPY_WRITE_DIRTY_DATA_CHECK,
+                ConfigDef.Type.BOOLEAN,
+                COPY_WRITE_DIRTY_DATA_CHECK_DEFAULT,
+                ConfigDef.Importance.HIGH,
+                COPY_WRITE_DIRTY_DATA_CHECK_DOC,
+                CONFIG_CONNECTION_GROUP,
+                1,
+                ConfigDef.Width.LONG,
+                COPY_WRITE_DIRTY_DATA_CHECK_DISPLAY);
+
+        config.define(
+                COPY_WRITE_FORMAT,
+                ConfigDef.Type.STRING,
+                COPY_WRITE_FORMAT_DEFAULT,
+                ConfigDef.Importance.HIGH,
+                COPY_WRITE_FORMAT_DOC,
+                CONFIG_CONNECTION_GROUP,
+                1,
+                ConfigDef.Width.LONG,
+                COPY_WRITE_FORMAT_DISPLAY);
+
+        config.define(
+                COPY_WRITE_DIRECT_CONNECT,
+                ConfigDef.Type.BOOLEAN,
+                COPY_WRITE_DIRECT_CONNECT_DEFAULT,
+                ConfigDef.Importance.HIGH,
+                COPY_WRITE_DIRECT_CONNECT_DOC,
+                CONFIG_CONNECTION_GROUP,
+                1,
+                ConfigDef.Width.LONG,
+                COPY_WRITE_DIRECT_CONNECT_DISPLAY);
+
         // CONFIG_CONVERT_GROUP
         config.define(
                 INPUT_FORMAT,
@@ -459,6 +532,17 @@ public class HoloSinkConfig extends AbstractConfig {
                 1,
                 ConfigDef.Width.LONG,
                 DIRTY_DATA_TO_SKIP_ONCE_DISPLAY);
+
+        config.define(
+                SCHEMA_FORCE_CHECK,
+                ConfigDef.Type.BOOLEAN,
+                SCHEMA_FORCE_CHECK_DEFAULT,
+                ConfigDef.Importance.HIGH,
+                SCHEMA_FORCE_CHECK_DOC,
+                CONFIG_CONNECTION_GROUP,
+                1,
+                ConfigDef.Width.LONG,
+                SCHEMA_FORCE_CHECK_DISPLAY);
 
         // CONFIG_METRICS_GROUP
         config.define(

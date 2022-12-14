@@ -56,4 +56,16 @@ public class HologresJDBCConfigs {
             ConfigOptions.key("insertIfNotExists".toLowerCase()).booleanType().defaultValue(false);
     public static final ConfigOption<Integer> ASYNC_CALLBACK_EXECUTION_POOL =
             ConfigOptions.key("asyncCallbackPool".toLowerCase()).intType().defaultValue(1);
+
+    // Copy options
+    public static final ConfigOption<Boolean> COPY_WRITE_MODE =
+            key("jdbcCopyWriteMode".toLowerCase()).booleanType().defaultValue(false);
+    public static final ConfigOption<String> COPY_WRITE_FORMAT =
+            key("jdbcCopyWriteFormat".toLowerCase())
+                    .stringType()
+                    .defaultValue("binary")
+                    .withDescription(
+                            "copy format will be binary or text, if value is not binary, we use text");
+    public static final ConfigOption<Boolean> COPY_WRITE_DIRECT_CONNECT =
+            key("jdbcCopyWriteDirectConnect".toLowerCase()).booleanType().defaultValue(true);
 }

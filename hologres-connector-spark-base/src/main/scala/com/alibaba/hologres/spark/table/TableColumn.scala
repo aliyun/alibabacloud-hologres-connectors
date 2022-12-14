@@ -1,6 +1,6 @@
 package com.alibaba.hologres.spark.table
 
-import com.alibaba.hologres.client.model.{Record, TableSchema}
+import com.alibaba.hologres.client.model.TableSchema
 import com.alibaba.hologres.spark.exception.SparkHoloException
 import org.apache.spark.sql.types.StructType
 
@@ -9,8 +9,6 @@ class TableColumn(sparkSchema: StructType, holoSchema: TableSchema) {
   private val columnCounts = sparkSchema.size
   private val columns = new Array[Column](columnCounts)
   private val columnIdToHoloId = new Array[Int](columnCounts)
-
-  private val record = Record.build(holoSchema)
 
   var idx = 0
   sparkSchema.foreach(field => {
@@ -25,10 +23,10 @@ class TableColumn(sparkSchema: StructType, holoSchema: TableSchema) {
     }
     else {
       this.columns(idx) = column
-      if (record.getSchema.getColumnIndex(column.getColumnName) == null) {
+      if (holoSchema.getColumnIndex(column.getColumnName) == null) {
         throw new SparkHoloException("Column name <" + column.getColumnName + "> not exist in hologres")
       }
-      this.columnIdToHoloId(idx) = record.getSchema.getColumnIndex(column.getColumnName)
+      this.columnIdToHoloId(idx) = holoSchema.getColumnIndex(column.getColumnName)
     }
   }
 

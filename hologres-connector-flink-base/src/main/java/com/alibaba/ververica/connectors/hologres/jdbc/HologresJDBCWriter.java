@@ -13,11 +13,15 @@ import com.alibaba.ververica.connectors.hologres.api.HologresTableSchema;
 import com.alibaba.ververica.connectors.hologres.api.HologresWriter;
 import com.alibaba.ververica.connectors.hologres.api.table.HologresRowDataConverter;
 import com.alibaba.ververica.connectors.hologres.config.HologresConnectionParam;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 
 /** An IO writer implementation for JDBC. */
 public class HologresJDBCWriter<T> extends HologresWriter<T> {
+    private static final transient Logger LOG = LoggerFactory.getLogger(HologresJDBCWriter.class);
+
     private transient HologresJDBCClientProvider clientProvider;
     private transient HologresTableSchema schema;
     private HologresRecordConverter<T, Record> recordConverter;
@@ -48,6 +52,10 @@ public class HologresJDBCWriter<T> extends HologresWriter<T> {
 
     @Override
     public void open(RuntimeContext runtimeContext) throws IOException {
+        LOG.info(
+                "Initiating connection to database [{}] / table[{}]",
+                param.getJdbcOptions().getDatabase(),
+                param.getTable());
         try {
             this.clientProvider = new HologresJDBCClientProvider(param);
             schema =
@@ -56,6 +64,10 @@ public class HologresJDBCWriter<T> extends HologresWriter<T> {
         } catch (HoloClientException e) {
             throw new IOException(e);
         }
+        LOG.info(
+                "Successfully initiated connection to database [{}] / table[{}]",
+                param.getJdbcOptions().getDatabase(),
+                param.getTable());
     }
 
     @Override

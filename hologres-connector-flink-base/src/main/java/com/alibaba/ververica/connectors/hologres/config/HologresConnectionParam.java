@@ -67,6 +67,10 @@ public class HologresConnectionParam implements Serializable {
     private final boolean jdbcEnableDefaultForNotNullColumn;
     // JDBC dim
     private final boolean insertIfNotExists;
+    // JDBC copy sink
+    private final boolean copyWriteMode;
+    private final String copyWriteFormat;
+    private boolean copyWriteDirectConnect;
 
     public HologresConnectionParam(ReadableConfig properties) {
         this.options = JDBCUtils.getJDBCOptions(properties);
@@ -122,6 +126,9 @@ public class HologresConnectionParam implements Serializable {
                 properties.get(
                         HologresJDBCConfigs.OPTIONAL_JDBC_ENABLE_DEFAULT_FOR_NOT_NULL_COLUMN);
         this.insertIfNotExists = properties.get(HologresJDBCConfigs.INSERT_IF_NOT_EXISTS);
+        this.copyWriteMode = properties.get(HologresJDBCConfigs.COPY_WRITE_MODE);
+        this.copyWriteFormat = properties.get(HologresJDBCConfigs.COPY_WRITE_FORMAT);
+        this.copyWriteDirectConnect = properties.get(HologresJDBCConfigs.COPY_WRITE_DIRECT_CONNECT);
     }
 
     public static WriteMode getJDBCWriteMode(ReadableConfig tableProperties) {
@@ -274,6 +281,22 @@ public class HologresConnectionParam implements Serializable {
 
     public WriteMode getJDBCWriteMode() {
         return this.writeMode;
+    }
+
+    public boolean isCopyWriteMode() {
+        return copyWriteMode;
+    }
+
+    public String getCopyWriteFormat() {
+        return copyWriteFormat;
+    }
+
+    public boolean isCopyWriteDirectConnect() {
+        return copyWriteDirectConnect;
+    }
+
+    public void setCopyWriteDirectConnect(boolean copyWriteDirectConnect) {
+        this.copyWriteDirectConnect = copyWriteDirectConnect;
     }
 
     @Override

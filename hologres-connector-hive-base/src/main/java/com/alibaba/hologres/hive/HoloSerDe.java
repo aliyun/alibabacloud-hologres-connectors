@@ -17,6 +17,7 @@ package com.alibaba.hologres.hive;
 
 import com.alibaba.hologres.client.model.Column;
 import com.alibaba.hologres.client.model.TableSchema;
+import com.alibaba.hologres.hive.conf.HoloClientParam;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.serde.serdeConstants;
 import org.apache.hadoop.hive.serde2.AbstractSerDe;
@@ -68,8 +69,9 @@ public class HoloSerDe extends AbstractSerDe {
      */
     @Override
     public void initialize(Configuration conf, Properties props) throws SerDeException {
+        HoloClientParam param = new HoloClientParam(conf, props);
+        HoloClientProvider clientProvider = new HoloClientProvider(param);
         try {
-            HoloClientProvider clientProvider = new HoloClientProvider(conf, props);
             TableSchema schema = clientProvider.getTableSchema();
             holoColumns = schema.getColumnSchema();
             hiveColumnNames = parseProperty(props.getProperty(serdeConstants.LIST_COLUMNS), ",");
@@ -114,6 +116,8 @@ public class HoloSerDe extends AbstractSerDe {
         } catch (Exception e) {
             LOGGER.error("Caught exception while initializing the SqlSerDe", e);
             throw new SerDeException(e);
+        } finally {
+            clientProvider.closeClient();
         }
     }
 
@@ -179,11 +183,24 @@ public class HoloSerDe extends AbstractSerDe {
                 case Types.VARBINARY:
                     matched = (columnType == PrimitiveCategory.BINARY);
                     break;
+                case Types.OTHER:
+                    switch (holoColumn.getTypeName()) {
+                        case "json":
+                        case "jsonb":
+                            matched = (columnType == PrimitiveCategory.STRING);
+                            break;
+                        default:
+                            throw new IllegalArgumentException(
+                                    String.format(
+                                            "Does not support column %s with data type %s and hologres type %s for now!",
+                                            columnName, columnType, holoColumn.getTypeName()));
+                    }
+                    break;
                 default:
                     throw new IllegalArgumentException(
                             String.format(
-                                    "Does not support column %s with data type %s for now!",
-                                    columnName, columnType));
+                                    "Does not support column %s with data type %s and hologres type %s for now!",
+                                    columnName, columnType, holoColumn.getTypeName()));
             }
             if (!matched) {
                 throw new IllegalArgumentException(

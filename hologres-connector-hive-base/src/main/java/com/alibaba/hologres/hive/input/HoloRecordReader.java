@@ -1,7 +1,6 @@
 package com.alibaba.hologres.hive.input;
 
 import com.alibaba.hologres.client.Exporter;
-import com.alibaba.hologres.client.HoloClient;
 import com.alibaba.hologres.client.RecordInputFormat;
 import com.alibaba.hologres.client.Scan;
 import com.alibaba.hologres.client.SortKeys;
@@ -12,6 +11,7 @@ import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.model.RecordScanner;
 import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.hive.HoloClientProvider;
+import com.alibaba.hologres.hive.conf.HoloClientParam;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.ql.exec.SerializationUtilities;
 import org.apache.hadoop.hive.ql.plan.ExprNodeDesc;
@@ -37,7 +37,6 @@ public class HoloRecordReader implements RecordReader<LongWritable, MapWritable>
     private static final Logger LOGGER = LoggerFactory.getLogger(HoloRecordReader.class);
 
     HoloClientProvider clientProvider;
-    HoloClient client;
     RecordScanner scanner;
     TableSchema schema;
     RecordInputFormat recordFormat;
@@ -52,23 +51,29 @@ public class HoloRecordReader implements RecordReader<LongWritable, MapWritable>
 
         Configuration conf = context.getConfiguration();
         try {
-            clientProvider = new HoloClientProvider(conf);
-            client = clientProvider.createOrGetClient();
+            HoloClientParam param = new HoloClientParam(conf);
+            clientProvider = new HoloClientProvider(param);
             schema = clientProvider.getTableSchema();
 
             String filterXml = conf.get(TableScanDesc.FILTER_EXPR_CONF_STR);
             // Use copy only when copyMode is true and there is no filter EXPR
-            if (filterXml == null && clientProvider.isCopyMode()) {
+            if (filterXml == null && param.isCopyScanMode()) {
                 LOGGER.info("Use copy mode");
 
-                ExportContext er = client.exportData(Exporter.newBuilder(schema).build());
+                ExportContext er =
+                        clientProvider
+                                .createOrGetClient()
+                                .exportData(Exporter.newBuilder(schema).build());
                 recordFormat = new RecordInputFormat(er, schema);
             } else {
                 // Use scan default, or have filter conditions
                 LOGGER.info("Use scan mode");
 
                 Scan.Builder scanBuilder = Scan.newBuilder(schema);
-                scanner = client.scan(scanBuilder.setSortKeys(SortKeys.NONE).build());
+                scanner =
+                        clientProvider
+                                .createOrGetClient()
+                                .scan(scanBuilder.setSortKeys(SortKeys.NONE).build());
                 if (filterXml != null) {
                     ExprNodeDesc conditionNode =
                             SerializationUtilities.deserializeExpression(filterXml);
@@ -167,13 +172,20 @@ public class HoloRecordReader implements RecordReader<LongWritable, MapWritable>
 
     @Override
     public void close() throws IOException {
-        if (client != null) {
+        if (scanner != null) {
+            scanner.close();
+        }
+        if (recordFormat != null) {
             try {
-                client.flush();
-            } catch (HoloClientException throwables) {
-                throw new IOException(throwables);
+                recordFormat.cancel();
+            } catch (HoloClientException e) {
+                e.printStackTrace();
+            } finally {
+                recordFormat = null;
             }
-            client.close();
+        }
+        if (clientProvider != null) {
+            clientProvider.closeClient();
         }
     }
 
@@ -200,6 +212,12 @@ public class HoloRecordReader implements RecordReader<LongWritable, MapWritable>
 
             if (node.toString().startsWith("GenericUDFOPOr")) {
                 LOGGER.warn("Not Support OR Filter Currently : " + node.getExprString());
+                continue;
+            }
+            if (node.getChildren() == null) {
+                continue;
+            }
+            if (node.getChildren().get(0) == null) {
                 continue;
             }
             if (node.getChildren().get(0).getChildren() == null) {
