@@ -19,20 +19,20 @@ Connectors for Hologres
 * [hologres-connector-examples](hologres-connector-examples)
   
     该模块提供了若干使用该项目下Connector的各种实例代码<br/><br/>
-  
+
 
 * [hologres-connector-flink-base](./hologres-connector-flink-base)
-  
-    该模块实现了Hologres Flink Connector的通用核心代码
+
+  该模块实现了Hologres Flink Connector的通用核心代码
 * [hologres-connector-flink-1.11](https://github.com/aliyun/alibabacloud-hologres-connectors/tree/flink-1.11/1.12/hologres-connector-flink-1.11)
-  
-    依赖hologres-connector-flink-base，实现了Flink 1.11版本的Connector
+
+  依赖hologres-connector-flink-base，实现了Flink 1.11版本的Connector
 * [hologres-connector-flink-1.12](https://github.com/aliyun/alibabacloud-hologres-connectors/tree/flink-1.11/1.12/hologres-connector-flink-1.12)
-  
-    依赖hologres-connector-flink-base，实现了Flink 1.12版本的Connector，相较于1.11，主要新增了维表场景一对多的实现
+
+  依赖hologres-connector-flink-base，实现了Flink 1.12版本的Connector，相较于1.11，主要新增了维表场景一对多的实现
 * [hologres-connector-flink-1.13](./hologres-connector-flink-1.13)
 
-    依赖hologres-connector-flink-base，实现了Flink 1.13版本的Connector, 相较于1.12，支持消费holo源表
+  依赖hologres-connector-flink-base，实现了Flink 1.13版本的Connector, 相较于1.12，支持消费holo源表
 * [hologres-connector-flink-1.14](./hologres-connector-flink-1.14)
 
   依赖hologres-connector-flink-base，实现了Flink 1.14版本的Connector<br/><br/>
