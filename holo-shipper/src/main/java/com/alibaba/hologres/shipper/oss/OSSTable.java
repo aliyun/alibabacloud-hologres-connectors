@@ -127,7 +127,7 @@ public class OSSTable extends AbstractTable {
         }
     }
 
-    public Map<Integer, Integer> getBatches(int numBatch, int dstShardCount) {
+    public Map<Integer, Integer> getBatches(int numBatch, int dstShardCount, boolean disableShardCopy) {
         Map<Integer, Integer> batches = new HashMap<>();
         Map<Integer, Integer> defaultBatches = new HashMap<>();
         defaultBatches.put(-1, -1);
@@ -148,7 +148,7 @@ public class OSSTable extends AbstractTable {
                 batches.put(startShard, endShard);
             }
         }
-        if(shardCount == dstShardCount || dstShardCount == 0)
+        if(shardCount == dstShardCount || dstShardCount == 0 || !disableShardCopy)
             return batches;
         return defaultBatches;
     }

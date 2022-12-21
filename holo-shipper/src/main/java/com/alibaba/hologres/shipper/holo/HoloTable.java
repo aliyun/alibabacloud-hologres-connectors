@@ -390,6 +390,8 @@ public class HoloTable extends AbstractTable {
             while (!exportContext.getRowCount().isDone()) {
                 Thread.sleep(5000L);
             }
+            //throw if has exception
+            exportContext.getRowCount().get();
             if(startShard == -1)
                 LOGGER.info(String.format("Read table %s done", tableName));
             else
@@ -416,6 +418,8 @@ public class HoloTable extends AbstractTable {
             while (!importContext.getRowCount().isDone()) {
                 Thread.sleep(5000L);
             }
+            //throw if has exception
+            importContext.getRowCount().get();
             if(startShard == -1)
                 LOGGER.info(String.format("Write table %s done", tableName));
             else
@@ -445,10 +449,10 @@ public class HoloTable extends AbstractTable {
         }
     }
 
-    public Map<Integer, Integer> getBatches(int numBatch, int dstShardCount) {
+    public Map<Integer, Integer> getBatches(int numBatch, int dstShardCount, boolean disableShardCopy) {
         Map<Integer, Integer> batches = new HashMap<>();
         int shardCount = this.getShardCount();
-        if(shardCount == 0 || (shardCount != dstShardCount && dstShardCount > 0)) {
+        if(shardCount == 0 || (shardCount != dstShardCount && dstShardCount > 0) || disableShardCopy) {
             batches.put(-1, -1); //不分shard
             return batches;
         }

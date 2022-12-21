@@ -22,7 +22,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class HoloShipper {
-    public static final String VERSION = "1.2.1";
+    public static final String VERSION = "1.2.2";
     public static final Logger LOGGER = LoggerFactory.getLogger(HoloShipper.class);
     AbstractInstance source;
     AbstractInstance sink;
@@ -38,6 +38,8 @@ public class HoloShipper {
     boolean restoreData;
     boolean restoreForeign;
     boolean restoreView;
+    boolean allowSinkTableExists;
+    boolean disableShardCopy;
     String shipListPath;
 
     List<String> dbsToShip;
@@ -66,11 +68,14 @@ public class HoloShipper {
         restoreData = true;
         restoreForeign = true;
         restoreView = true;
+        allowSinkTableExists = false;
+        disableShardCopy = false;
 
         Options options = new Options();
         options.addOption(Option.builder("s").hasArgs().required().build());
         options.addOption(Option.builder("d").hasArgs().required().build());
         options.addOption(Option.builder("l").hasArg().required().build());
+        options.addOption(Option.builder().longOpt("max-task-num").hasArg().optionalArg(true).build());
         options.addOption(Option.builder().longOpt("no-owner").build());
         options.addOption(Option.builder().longOpt("no-all-roles").build());
         options.addOption(Option.builder().longOpt("no-guc").build());
@@ -79,6 +84,8 @@ public class HoloShipper {
         options.addOption(Option.builder().longOpt("no-data").build());
         options.addOption(Option.builder().longOpt("no-foreign").build());
         options.addOption(Option.builder().longOpt("no-view").build());
+        options.addOption(Option.builder().longOpt("allow-table-exists").build());
+        options.addOption(Option.builder().longOpt("disable-shard-copy").build());
         CommandLineParser parser = new DefaultParser();
         CommandLine commandLine = parser.parse(options, args);
 
@@ -89,7 +96,16 @@ public class HoloShipper {
         LOGGER.info("Destination info:");
         this.setSink(parseInstannce(dstInfo));
         this.shipListPath = commandLine.getOptionValue("l");
-
+        if (commandLine.getOptionValue("max-task-num") != null) {
+            Integer threadNum = Integer.parseInt(commandLine.getOptionValue("max-task-num"));
+            LOGGER.info("user config max-task-num: " + threadNum);
+            this.MAX_NUM_THREAD_TABLE = Math.min(this.MAX_NUM_THREAD_TABLE, threadNum);
+            this.MAX_NUM_THREAD_SHARD = Math.min(this.MAX_NUM_THREAD_SHARD, threadNum);
+        }
+        if (commandLine.hasOption("disable-shard-copy")) {
+            this.disableShardCopy = true;
+            LOGGER.info("Disable shard copy");
+        }
         if (commandLine.hasOption("no-owner"))
         {
             LOGGER.info("Do not ship owner");
@@ -129,6 +145,11 @@ public class HoloShipper {
         {
             LOGGER.info("Do not ship view");
             this.restoreView = false;
+        }
+        if (commandLine.hasOption("allow-table-exists"))
+        {
+            LOGGER.info("Allow table exists");
+            this.allowSinkTableExists = true;
         }
     }
 
@@ -247,6 +268,8 @@ public class HoloShipper {
                         dbShipper.setSource(sourceDB);
                         dbShipper.setSink(sinkDB);
                         dbShipper.setTableListMeta(dbsMeta.get(db), schemaMappings.get(db), tgMappings.get(db));
+                        dbShipper.setAllowSinkTableExists(allowSinkTableExists);
+                        dbShipper.setDisableShardCopy(disableShardCopy);
                         List<String> failedTablesList = dbShipper.ship(restoreOwner,restoreGUC,restoreExt,restorePriv,restoreData,threadPoolForTable,threadPoolForShard);
                         failedTables.put(db, failedTablesList);
                     } catch (Exception e) {

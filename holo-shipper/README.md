@@ -28,6 +28,8 @@ holo-shipper 是支持将Holo Instance的部分表导入导出的备份工具。
     
     文件格式见下方示例
 
+--max-task-num 并发数（默认10，且最大10），该参数表示同时执行的最大任务数；
+
 --no-owner 不把表的所有权设置对应源数据库，否则holo-shipper默认保留表的owner
 
 --no-all-roles 不ship源实例的所有用户，只ship需要的用户（需要ship的表的owner和对表有权限的相关用户）。如果同时设置--no-owner 和 --no-priv 那么不会ship任何用户。holo-shipper默认会ship所有用户
@@ -45,6 +47,9 @@ holo-shipper 是支持将Holo Instance的部分表导入导出的备份工具。
 
 --no-view 不迁移视图，不添加这个选项的话默认迁移满足shipList条件的视图
 
+--allow-table-exists 允许目标表已存在 注意：开启这个选项用户需保证表结构和源表一致
+
+--disable-shard-copy  holoshipper对于导holo内表，且源表和目标表shard数一致时，会分成多个shard进行导入；当此参数开启时，则禁止分shard导入的行为。
 
 示例：
 
@@ -135,4 +140,6 @@ DB2中schema4下的表会变为schema5下，i.e. schema4.table4在destination会
 ```
 $ mvn package
 ```
-holo-shipper/target/holo-shipper-1.2.x.jar 即为生成的可执行jar包
+holo-shipper/target/holo-shipper-1.2.2.jar 即为生成的可执行jar包
+
+最新holoshipper下载地址:https://github.com/aliyun/alibabacloud-hologres-connectors/releases/download/release-1.3.0/holo-shipper-1.2.2.jar

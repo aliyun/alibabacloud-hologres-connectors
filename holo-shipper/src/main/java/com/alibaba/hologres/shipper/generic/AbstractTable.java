@@ -14,7 +14,7 @@ public abstract class AbstractTable implements Closeable {
     public abstract void writeTableData(PipedInputStream is, int startShard, int endShard);
     public abstract String getPrivileges();
     public abstract void setPrivileges(String privInfo);
-    public abstract Map<Integer, Integer> getBatches(int numBatch, int dstShardCount);
+    public abstract Map<Integer, Integer> getBatches(int numBatch, int dstShardCount, boolean disableShardCopy);
     public void close() {}
     public int getShardCount() {return 0;}
 }

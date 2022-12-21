@@ -16,7 +16,7 @@ import java.util.concurrent.ExecutorService;
 
 public class HoloDBShipper {
     public static final Logger LOGGER = LoggerFactory.getLogger(HoloDBShipper.class);
-    public static final int NUM_BATCH = 5;
+    public static int NUM_BATCH = 5;
     AbstractDB sourceDB;
     AbstractDB sinkDB;
     String dbName;
@@ -32,6 +32,8 @@ public class HoloDBShipper {
     Map<String, String> tgMapping;
     Map<String, String> parentMapping;
     boolean hasToolkit;
+    boolean allowSinkTableExists = false;
+    boolean disableShardCopy = false;
 
     private static final int RETRY_TIME = 3;
     private static final long RETRY_SLEEP_TIME = 1000;
@@ -52,6 +54,8 @@ public class HoloDBShipper {
     public void setSink(AbstractDB sinkDB) {
         this.sinkDB = sinkDB;
     }
+    public void setAllowSinkTableExists(Boolean allowSinkTableExists) { this.allowSinkTableExists = allowSinkTableExists; }
+    public void setDisableShardCopy(Boolean disableShardCopy) { this.disableShardCopy = disableShardCopy; }
     public List<String> ship(boolean restoreOwner, boolean restoreGUC, boolean restoreExt, boolean restorePriv, boolean restoreData, ExecutorService threadPoolForTable, ExecutorService threadPoolForShard) {
         LOGGER.info("Starting shipping database "+dbName);
         hasToolkit = sourceDB.prepareRead();
@@ -95,21 +99,28 @@ public class HoloDBShipper {
                 public void run() {
                     try {
                         String sinkTableName = getSinkTableName(table);
+                        boolean tableExists = false;
                         if (sinkDB.checkTableExistence(sinkTableName)) {
-                            LOGGER.warn(String.format("Table %s already exists in %s, skipping", sinkTableName, dbName));
-                            return;
+                            tableExists = true;
+                            if (!allowSinkTableExists) {
+                                LOGGER.warn(String.format("Table %s already exists in %s, skipping", sinkTableName, dbName));
+                                return;
+                            }
+                            LOGGER.info(String.format("Table %s already exists in %s, not skipping", sinkTableName, dbName));
                         }
                         for(int i = 0; i < RETRY_TIME; ++i) {
                             try (AbstractTable sourceTable = sourceDB.getTable(table);
                                 AbstractTable sinkTable = sinkDB.getTable(sinkTableName))
                             {
-                                String tableDDL = sourceTable.getTableDDL(hasToolkit);
-                                String rectifiedDDL = rectifyDDL(table, tableDDL, restoreOwner);
-                                sinkTable.setTableDDL(rectifiedDDL);
-                                if(restorePriv) {
-                                    String privInfo = sourceTable.getPrivileges();
-                                    privInfo = privInfo.replace(HoloUtils.getTableNameWithQuotes(table), HoloUtils.getTableNameWithQuotes(sinkTableName));
-                                    sinkTable.setPrivileges(privInfo);
+                                if(!tableExists) {
+                                    String tableDDL = sourceTable.getTableDDL(hasToolkit);
+                                    String rectifiedDDL = rectifyDDL(table, tableDDL, restoreOwner);
+                                    sinkTable.setTableDDL(rectifiedDDL);
+                                    if (restorePriv) {
+                                        String privInfo = sourceTable.getPrivileges();
+                                        privInfo = privInfo.replace(HoloUtils.getTableNameWithQuotes(table), HoloUtils.getTableNameWithQuotes(sinkTableName));
+                                        sinkTable.setPrivileges(privInfo);
+                                    }
                                 }
                                 if(shipData) {
                                     shipTableData(sourceTable, sinkTable, threadPoolForShard, table);
@@ -144,7 +155,7 @@ public class HoloDBShipper {
     }
 
     public void shipTableData(AbstractTable sourceTable, AbstractTable sinkTable, ExecutorService threadPoolForShard, String tableName) {
-        Map<Integer, Integer> batches = sourceTable.getBatches(NUM_BATCH, sinkTable.getShardCount());
+        Map<Integer, Integer> batches = sourceTable.getBatches(NUM_BATCH, sinkTable.getShardCount(), disableShardCopy);
         final CountDownLatch latch = new CountDownLatch(batches.size());
         for(int startShard : batches.keySet()) {
             int endShard = batches.get(startShard);
