@@ -6,11 +6,13 @@
   - [连接数说明](#连接数说明)
   - [数据写入](#数据写入)
     - [写入普通表](#写入普通表)
-    - [fixed copy写入普通表](#fixed-copy写入普通表)
-    - [fixed copy写入分区表](#fixed-copy写入分区表)
     - [写入分区表](#写入分区表)
     - [写入含主键表](#写入含主键表)
+    - [局部更新主键表](#局部更新主键表)
     - [基于主键删除（DELETE占比提高会降低整体的每秒写入）](#基于主键删除delete占比提高会降低整体的每秒写入)
+  - [fixed copy](#fixed-copy)
+    - [fixed copy写入普通表](#fixed-copy写入普通表)
+    - [fixed copy写入分区表](#fixed-copy写入分区表)
   - [数据查询](#数据查询)
     - [基于完整主键查询](#基于完整主键查询)
     - [Scan查询](#scan查询)
@@ -85,90 +87,9 @@ try (HoloClient client = new HoloClient(config)) {
     ...
     //强制提交所有未提交put请求；HoloClient内部也会根据WriteBatchSize、WriteBatchByteSize、writeMaxIntervalMs三个参数自动提交
     //client.flush(); 
-}catch(HoloClientException e){
+} catch (HoloClientException e) {
 }
 ```
-
-### fixed copy写入普通表
-fixed copy为hologres1.3.X 引入.
-相比HoloClient.put方法，fixed copy方式可以更高的吞吐（因为是流模式），更低的数据延时，更低的客户端内存消耗（因为不攒批),
-缺点是无法表达delete语义.
-相比原有的普通copy，fixed copy可以任意并发同时插入，并且插入即可见（普遍在2-20ms之间)，无需等到copy结束,
-缺点是没有事务性，插入失败已经插入的数据不会回滚.
-
-无delete场景，建议都使用fixed copy写入.
-```java
-public class CopyDemo {
-  public static void main(String[] args) throws Exception {
-    //注意!url里这个是hologres
-    String jdbcUrl = "jdbc:hologres://host:port/db";
-    String user = "";
-    String password = "";
-
-    //加载Driver类
-    Class.forName("com.alibaba.hologres.org.postgresql.Driver");
-
-		/*
-			CREATE TABLE copy_demo (id INT NOT NULL, name TEXT NOT NULL, address TEXT, PRIMARY KEY(id));
-		* */
-    String tableName = "copy_demo";
-    try (Connection conn = DriverManager.getConnection(jdbcUrl, user, password)) {
-      //所有postgresql相关类均在com.alibaba.hologres包下,如果项目同时引用了holo-client和postgresql,请注意包名
-      BaseConnection pgConn = conn.unwrap(BaseConnection.class);
-      TableSchema schema = ConnectionUtil.getTableSchema(conn, TableName.valueOf(tableName));
-
-      CopyManager copyManager = new CopyManager(pgConn.unwrap(PgConnection.class));
-      // 支持写入部分列, 列在List里的顺序一定要和建表保持一致.
-      List<String> columns = new ArrayList<>();
-      columns.add("id");
-      columns.add("name");
-				/*
-				我们觉得原来INSERT_OR_REPLACE和INSERT_OR_UPDATE的区分非常蠢，在这里INSERT_OR_REPLACE等同于INSERT_OR_UPDATE，总之就是给哪些列就更新哪些列,给了所有列就是更新所有列；
-				 */
-      String copySql = CopyUtil.buildCopyInSql(schema.getTableName(), columns
-              , true /*底层是否走二进制协议，二进制会更快，否则为文本模式，当二进制解析发现有bug的话给自己留一条后路*/
-              , schema.getPrimaryKeys().length > 0 /* 是否包含PK */, WriteMode.INSERT_OR_UPDATE);
-
-      //写入完成/异常后，仅RecordOutputStream调用close方法即可，CopyInOutputStream无需close.
-      CopyInOutputStream os = new CopyInOutputStream(copyManager.copyIn(copySql));
-      //maxCellBufferSize需要保证能放下一行数据，否则会写入失败.
-      try (RecordOutputStream ros = new RecordBinaryOutputStream(os, schema,
-              pgConn.unwrap(PgConnection.class), 1024 * 1024 * 10)) {
-        for (int i = 0; i < 10; ++i) {
-          Record record = new Record(schema);
-
-						/*
-						一定要和buildCopyInSql的columns保持一致，不然会错列.
-						  如果一列出现在columns中，这一列一定要调用setObject(index, obj);
-						  否则，这一列一定不能调用setObject.
-						*/
-          record.setObject(0, i);
-          record.setObject(1, "name0");
-
-          /*
-           * 如果有脏数据，写入失败的报错很难定位具体行.
-           * 此时可以启用RecordChecker做事前校验，找到有问题的数据.
-           * RecordChecker会对写入性能造成一定影响，非排查环节不建议开启.
-           * */
-          //RecordChecker.check(record);
-
-						/*
-						putRecord既将record发送给hologres引擎,并立即返回，
-						引擎会在第一时间尝试写入存储，普遍状态下数据会在5-20ms后可查.
-						当RecordOutputStream的close方法执行完成并且没有任何错误抛出，意味着所有数据均已写入完成可以查询.
-						*/
-          ros.putRecord(record);
-        }
-      }
-
-      System.out.println("rows:" + os.getResult());
-    }
-  }
-}
-```
-
-### fixed copy写入分区表
-fixed copy写入分区表仅可写入分区子表，暂不支持写入分区主表.
 
 ### 写入分区表
 注1：若分区已存在，不论DynamicPartition为何值，写入数据都将插入到正确的分区表中；若分区不存在，DynamicPartition设置为true时，将会自动创建不存在的分区，否则抛出异常
@@ -193,7 +114,7 @@ try (HoloClient client = new HoloClient(config)) {
     ...
     //强制提交所有未提交put请求；HoloClient内部也会根据WriteBatchSize、WriteBatchByteSize、writeMaxIntervalMs三个参数自动提交
     //client.flush(); 
-}catch(HoloClientException e){
+} catch (HoloClientException e) {
 }
 ```
 ### 写入含主键表
@@ -223,7 +144,39 @@ try (HoloClient client = new HoloClient(config)) {
     ...
     //强制提交所有未提交put请求；HoloClient内部也会根据WriteBatchSize、WriteBatchByteSize、writeMaxIntervalMs三个参数自动提交
     //client.flush();
-}catch(HoloClientException e){
+} catch (HoloClientException e) {
+}
+```
+
+### 局部更新主键表
+```java
+// 配置参数,url格式为 jdbc:postgresql://host:port/db
+HoloConfig config = new HoloConfig();
+config.setJdbcUrl(url);
+config.setUsername(username);
+config.setPassword(password);
+
+config.setWriteMode(WriteMode.INSERT_OR_UPDATE);//局部更新时，配置主键冲突时策略为INSERT_OR_UPDATE
+
+try (HoloClient client = new HoloClient(config)) {
+    //create table t0(id int not null,name0 text,address text,primary key(id))
+    TableSchema schema0 = client.getTableSchema("t0");
+    /*
+    表的字段为id，name0，address 只put id 和 name0两个字段，当主键冲突则更新对应字段，否则写入
+    */
+    Put put = new Put(schema0);
+    put.setObject("id", 1);
+    put.setObject("name0", "name0");
+    client.put(put); 
+    ...
+    put = new Put(schema0);
+    put.setObject(0, 1);
+    put.setObject(1, "newName");
+    client.put(put);
+    ...
+    //强制提交所有未提交put请求；HoloClient内部也会根据WriteBatchSize、WriteBatchByteSize、writeMaxIntervalMs三个参数自动提交
+    //client.flush();
+} catch (HoloClientException e) {
 }
 ```
 
@@ -247,10 +200,105 @@ try (HoloClient client = new HoloClient(config)) {
     ...
     //强制提交所有未提交put请求；HoloClient内部也会根据WriteBatchSize、WriteBatchByteSize、writeMaxIntervalMs三个参数自动提交
     //client.flush();
-}catch(HoloClientException e){
+} catch (HoloClientException e) {
 }
 
 ```
+
+## fixed copy
+fixed copy为hologres1.3.x 引入.
+fixed copy与HoloClient.put，以及普通copy的差异如下：
+
+| 对比项 | 普通copy | fixed copy | HoloClient.put | 
+| --- | --- | --- | --- |
+| 锁类型 | 表锁 | 行锁 | 行锁 |
+| 数据可见性 | copy命令执行结束后可见 | 写入即可见 | 写入即可见 |
+| 事务性 | 有，copy失败回滚 | 无，失败已经插入的数据不会回滚| 有，单行事务|
+| 支持的主键冲突策略 | NONE（冲突则报错） | <br>INSERT_OR_UPDATE<br>INSERT_OR_IGNORE | <br>INSERT_OR_UPDATE<br>INSERT_OR_IGNORE<br>INSERT_OR_REPLACE |
+| 是否支持delete | 否 | 否 | 是 |
+| 性能 | 非常高 | 很高 | 高 |
+
+- 实时写入场景
+  - 写入有delete 使用HoloClient.put方法写入.
+  - 无delete时，建议使用fixed copy写入，相比HoloClient.put方法，fixed copy方式可以更高的吞吐（因为是流模式），更低的数据延时，更低的客户端内存消耗（因为不攒批).
+
+对于无delete的实时写入场景，建议都使用fixed copy写入.
+
+### fixed copy写入普通表
+```java
+public class CopyDemo {
+	public static void main(String[] args) throws Exception {
+		//注意,jdbcurl里需要是jdbc:hologres
+		String jdbcUrl = "jdbc:hologres://host:port/db";
+		String user = "";
+		String password = "";
+
+		//加载Driver类
+		Class.forName("com.alibaba.hologres.org.postgresql.Driver");
+
+		/*
+		CREATE TABLE copy_demo (id INT NOT NULL, name TEXT NOT NULL, address TEXT, PRIMARY KEY(id));
+		* */
+		String tableName = "copy_demo";
+		try (Connection conn = DriverManager.getConnection(jdbcUrl, user, password)) {
+			//所有postgresql相关类均在com.alibaba.hologres包下,如果项目同时引用了holo-client和postgresql,请注意包名
+			BaseConnection pgConn = conn.unwrap(BaseConnection.class);
+			TableSchema schema = ConnectionUtil.getTableSchema(conn, TableName.valueOf(tableName));
+
+			CopyManager copyManager = new CopyManager(pgConn.unwrap(PgConnection.class));
+			// 支持写入部分列, 列在List里的顺序一定要和建表保持一致.
+			List<String> columns = new ArrayList<>();
+			columns.add("id");
+			columns.add("name");
+            /*
+            INSERT_OR_REPLACE是INSERT_OR_UPDATE的一种特殊情况，考虑到实用性，在fixed copy这里没有做区分；
+            这里INSERT_OR_REPLACE语义等同于INSERT_OR_UPDATE，当主键冲突时只对columns里添加的列进行更新；
+             */
+			String copySql = CopyUtil.buildCopyInSql(schema.getTableName(), columns
+					, true /*底层是否走二进制协议，二进制格式的速率更快，否则为文本模式.*/
+					, schema.getPrimaryKeys().length > 0 /* 是否包含PK */, WriteMode.INSERT_OR_UPDATE);
+
+			//写入完成/异常后，仅RecordOutputStream调用close方法即可，CopyInOutputStream无需close.
+			CopyInOutputStream os = new CopyInOutputStream(copyManager.copyIn(copySql));
+			//maxCellBufferSize需要保证能放下一行数据，否则会写入失败.
+			try (RecordOutputStream ros = new RecordBinaryOutputStream(os, schema,
+					pgConn.unwrap(PgConnection.class), 1024 * 1024 * 10)) {
+				for (int i = 0; i < 10; ++i) {
+					Record record = new Record(schema);
+    
+                    /*
+                    一定要和buildCopyInSql的columns保持一致，不然会错列.
+                      如果一列出现在columns中，这一列一定要调用setObject(index, obj);
+                      否则，这一列一定不能调用setObject.
+                    */
+					record.setObject(0, i);
+					record.setObject(1, "name0");
+
+					/*
+					 * 如果有脏数据，写入失败的报错很难定位具体行.
+					 * 此时可以启用RecordChecker做事前校验，找到有问题的数据.
+					 * RecordChecker会对写入性能造成一定影响，非排查环节不建议开启.
+					 * */
+					//RecordChecker.check(record);
+    
+                    /*
+                    putRecord既将record发送给hologres引擎,并立即返回，
+                    引擎会在第一时间尝试写入存储，普遍状态下数据会在5-20ms后可查.
+                    当RecordOutputStream的close方法执行完成并且没有任何错误抛出，意味着所有数据均已写入完成可以查询.
+                    */
+					ros.putRecord(record);
+				}
+			}
+
+			System.out.println("rows:" + os.getResult());
+		}
+	}
+}
+```
+
+### fixed copy写入分区表
+fixed copy写入分区表仅可写入分区子表，暂不支持写入分区主表.
+
 ## 数据查询
 ### 基于完整主键查询
 ```java
@@ -267,7 +315,7 @@ try (HoloClient client = new HoloClient(config)) {
     client.get(get).thenAcceptAsync((record)->{
         // do something after get result
     });
-}catch(HoloClientException e){
+} catch (HoloClientException e) {
 }
     
 ```
@@ -301,8 +349,8 @@ try (HoloClient client = new HoloClient(config)) {
             Record record = rs.getRecord();
             //handle record
         }
+    } catch (HoloClientException e) {
     }
-catch(HoloClientException e){
 }   
 ```
 
@@ -366,9 +414,9 @@ BinlogShardGroupReader reader = client.binlogSubscribe(subscribe);
 ## 异常处理
 ```java
 public void doPut(HoloClient client, Put put) throws HoloClientException {
-    try{
+    try {
         client.put(put);
-    }catch(HoloClientWithDetailsException e){
+    } catch (HoloClientWithDetailsException e) {
         for(int i=0;i<e.size();++i){
             //写入失败的记录
             Record failedRecord = e.getFailRecord(i);
@@ -376,16 +424,16 @@ public void doPut(HoloClient client, Put put) throws HoloClientException {
             HoloClientException cause = e.getException(i);
             //脏数据处理逻辑
         }
-    }catch(HoloClientException e){
+    } catch (HoloClientException e) {
         //非HoloClientWithDetailsException的异常一般是fatal的
         throw e;
     }
 }
 
 public void doFlush(HoloClient client) throws HoloClientException {
-    try{
+    try {
         client.flush();
-    }catch(HoloClientWithDetailsException e){
+    } catch (HoloClientWithDetailsException e) {
         for(int i=0;i<e.size();++i){
             //写入失败的记录
             Record failedRecord = e.getFailRecord(i);
@@ -393,7 +441,7 @@ public void doFlush(HoloClient client) throws HoloClientException {
             HoloClientException cause = e.getException(i);
             //脏数据处理逻辑
         }
-    }catch(HoloClientException e){
+    } catch (HoloClientException e) {
         //非HoloClientWithDetailsException的异常一般是fatal的
         throw e;
     }
