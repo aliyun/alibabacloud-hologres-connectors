@@ -10,15 +10,17 @@ holo-shipper 是支持将Holo Instance的部分表导入导出的备份工具。
 ### 命令行参数
 -s ship的源头，可以为Holo instance, OSS或本地存储， required 
 
-    Holo的格式： -s holo -h ip_number -p port_number -u username -w password
+    Holo的格式： -s holo -h endpoint -p port -u accessKeyId -w accessKeySecret
 
     OSS的格式: -s oss -h endpoint -u accessKeyId -w accessKeySecret -b bucketName -p folder_path
 
     本地存储的格式：-s local_path
-
+     
+    ak获取方式可参考：https://help.aliyun.com/document_detail/130338.html
+    
 -d ship的终点，可以为Holo instance， OSS或本地存储， required
 
-    Holo的格式： -d holo -h ip_number -p port_number -u username -w password
+    Holo的格式： -d holo -h address -p port -u accessKeyId -w accessKeySecret
 
     OSS的格式: -s oss -h endpoint -u accessKeyId -w accessKeySecret -b bucketName -p folder_path
 
@@ -47,40 +49,40 @@ holo-shipper 是支持将Holo Instance的部分表导入导出的备份工具。
 
 --no-view 不迁移视图，不添加这个选项的话默认迁移满足shipList条件的视图
 
---allow-table-exists 允许目标表已存在 注意：开启这个选项用户需保证表结构和源表一致
+--allow-table-exists 允许目标表已存在 注意：开启这个选项用户需保证表结构和源表一致，该参数开启时，导入仍为全量导入，如果导入前表存在数据，既不会被清理，也不会被覆盖，建议用户提供空表；
 
---disable-shard-copy  holoshipper对于导holo内表，且源表和目标表shard数一致时，会分成多个shard进行导入；当此参数开启时，则禁止分shard导入的行为。
+--disable-shard-copy  holoshipper对于导holo内表，且源表和目标表shard数一致时，会分成多个shard进行导入；当此参数开启时，则禁止分shard导入的行为; 正常情况下推荐不开启该参数
 
 示例：
 
 将一个Holo实例中的表dump到本地存储，并且不保留GUC参数信息
 ```
-$ java -jar holo-shipper.jar -s holo -h xx.xx.xx.xx -p xxxx -u username -w password -d local_storage_path -l ship_list_json_path --no-guc
+$ java -jar holo-shipper.jar -s holo -h xxxxxxxxx -p xxxx -u accessKeyId -w accessKeySecret -d local_storage_path -l ship_list_json_path --no-guc
 ```
 
 将一个Holo实例中的表ship到另一个Holo实例中并且不保留表的owner信息
 ```
-$ java -jar holo-shipper.jar -s holo -h xx.xx.xx.xx -p xxxx -u username -w password -d holo -h xx.xx.xx.xx -p xxxx -u username2 -w password2  -l ship_list_json_path --no-owner
+$ java -jar holo-shipper.jar -s holo -h xxxxxxxxx -p xxxx -u accessKeyId -w accessKeySecret -d holo -h xxxxxxxxx -p xxxx -u username2 -w password2  -l ship_list_json_path --no-owner
 ```
 
 将一个Holo实例中的某些表ship到另一个Holo实例中，保留源表owner和权限，不同步与这些表无关的用户，不同步源数据库的guc参数和extension
 ```
-$ java -jar holo-shipper.jar -s holo -h xx.xx.xx.xx -p xxxx -u username -w password -d holo -h xx.xx.xx.xx -p xxxx -u username2 -w password2  -l ship_list_json_path --no-all-roles --no-guc --no-ext
+$ java -jar holo-shipper.jar -s holo -h xxxxxxxxx -p xxxx -u accessKeyId -w accessKeySecret -d holo -h xxxxxxxxx -p xxxx -u username2 -w password2  -l ship_list_json_path --no-all-roles --no-guc --no-ext
 ```
 
 将一个之前dump到本地的备份restore到另一个Holo实例
 ```
-$ java -jar holo-shipper.jar -s local_storage_path -d holo -h xx.xx.xx.xx -p xxxx -u username -w password -l ship_list_json_path
+$ java -jar holo-shipper.jar -s local_storage_path -d holo -h xxxxxxxxx -p xxxx -u accessKeyId -w accessKeySecret -l ship_list_json_path
 ```
 
 将一个Holo实例中的表备份到OSS存储（bucket为testBucket, 存储的根目录为 testDump/）,并保留所有信息
 ```
-$ java -jar holo-shipper.jar -s holo -h xx.xx.xx.xx -p xxxx -u username -w password -d oss -h endpoint -u accessKeyId -w accessKeySecret -b testBucket -p testDump/ -l ship_list_json_path
+$ java -jar holo-shipper.jar -s holo -h xxxxxxxxx -p xxxx -u accessKeyId -w accessKeySecret -d oss -h endpoint -u accessKeyId -w accessKeySecret -b testBucket -p testDump/ -l ship_list_json_path
 ```
 
 将一个之前在OSS的备份restore到另一个Holo实例
 ```
-$ java -jar holo-shipper.jar -s oss -h endpoint -u accessKeyId -w accessKeySecret -b testBucket -p testDump/ -d holo -h xx.xx.xx.xx -p xxxx -u username -w password -l ship_list_json_path
+$ java -jar holo-shipper.jar -s oss -h endpoint -u accessKeyId -w accessKeySecret -b testBucket -p testDump/ -d holo -h xxxxxxxxx -p xxxx -u accessKeyId -w accessKeySecret -l ship_list_json_path
 ```
 
 json 文件格式：
@@ -141,5 +143,3 @@ DB2中schema4下的表会变为schema5下，i.e. schema4.table4在destination会
 $ mvn package
 ```
 holo-shipper/target/holo-shipper-1.2.2.jar 即为生成的可执行jar包
-
-最新holoshipper下载地址:https://github.com/aliyun/alibabacloud-hologres-connectors/releases/download/release-1.3.0/holo-shipper-1.2.2.jar
