@@ -30,6 +30,13 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.Properties;
+import java.util.Random;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.alibaba.hologres.client.model.WriteMode.INSERT_OR_IGNORE;
 import static com.alibaba.hologres.client.model.WriteMode.INSERT_OR_UPDATE;
@@ -38,24 +45,46 @@ import static com.alibaba.hologres.client.model.WriteMode.INSERT_OR_UPDATE;
 public class HoloRecordCopyWriter implements FileSinkOperator.RecordWriter {
 
     private static final Logger logger = LoggerFactory.getLogger(HoloRecordCopyWriter.class);
-    private final transient CopyContext copyContext;
+    private final int maxWriterNumberPerTask;
+
+    private ScheduledExecutorService backgroundExecutorService;
+    private final AtomicInteger nextCopyContextIndex;
+    private final transient ConcurrentMap<Integer, CopyContext> copyContexts;
+    private final int maxWriterNumber;
+
     private final boolean binary;
     private final HoloClientParam param;
     private final TableSchema schema;
+    private final String appName;
+    private long count = 0;
 
     public HoloRecordCopyWriter(
             HoloClientParam param, TableSchema schema, TaskAttemptContext context)
             throws IOException {
+        this.maxWriterNumberPerTask = param.getMaxWriterNumberPerTask();
         this.param = param;
         this.binary = "binary".equals(param.getCopyWriteFormat());
         this.schema = schema;
-        this.copyContext = new CopyContext();
-        this.copyContext.init(param);
+        this.appName = String.format("hologres-connector-hive_copy_%s", context.getJobID());
+        CopyContext copyContext = new CopyContext();
+        copyContext.init(param, appName);
+        this.nextCopyContextIndex = new AtomicInteger(0);
+        this.copyContexts = new ConcurrentHashMap<>(1);
+        this.copyContexts.put(nextCopyContextIndex.getAndIncrement(), copyContext);
+        this.maxWriterNumber = param.getMaxWriterNumber();
+        // 当此参数大于0时，会适当增加每个task的copy writer数量，每个task不超过5
+        if (maxWriterNumber > 0) {
+            this.backgroundExecutorService = Executors.newSingleThreadScheduledExecutor();
+            this.backgroundExecutorService.scheduleAtFixedRate(
+                    this::checkIfNeedIncreaseCopyContexts,
+                    new Random().nextInt(60),
+                    60,
+                    TimeUnit.SECONDS);
+        }
     }
 
     @Override
     public void write(Writable writable) throws IOException {
-
         if (!(writable instanceof HoloRecordWritable)) {
             throw new IOException(
                     "Expected HoloRecordWritable. Got " + writable.getClass().getName());
@@ -66,7 +95,8 @@ public class HoloRecordCopyWriter implements FileSinkOperator.RecordWriter {
             Put put = new Put(schema);
             recordWritable.write(put);
             Record record = put.getRecord();
-            if (param.isCopyWriteDirtyDataCheck()) {
+            ++count;
+            if (param.isDirtyDataCheck()) {
                 try {
                     RecordChecker.check(record);
                 } catch (HoloClientException e) {
@@ -77,8 +107,25 @@ public class HoloRecordCopyWriter implements FileSinkOperator.RecordWriter {
                             e);
                 }
             }
+            // nextCopyContextIndex既是map的size
+            writeWithCopyContext(
+                    record, copyContexts.get((int) (count % nextCopyContextIndex.get())));
+        } catch (HiveHoloStorageException e) {
+            if (copyContexts != null) {
+                for (CopyContext copyContext : copyContexts.values()) {
+                    if (copyContext != null) {
+                        copyContext.close();
+                    }
+                }
+            }
+            throw new IOException(e);
+        }
+    }
+
+    private void writeWithCopyContext(Record record, CopyContext copyContext) throws IOException {
+        try {
             if (copyContext.os == null) {
-                com.alibaba.hologres.client.model.TableSchema schema = record.getSchema();
+                TableSchema schema = record.getSchema();
                 copyContext.schema = schema;
 
                 String sql =
@@ -105,8 +152,7 @@ public class HoloRecordCopyWriter implements FileSinkOperator.RecordWriter {
             }
 
             copyContext.os.putRecord(record);
-        } catch (HiveHoloStorageException | SQLException e) {
-            logger.error("close copyContext", e);
+        } catch (SQLException e) {
             copyContext.close();
             throw new IOException(e);
         }
@@ -114,18 +160,49 @@ public class HoloRecordCopyWriter implements FileSinkOperator.RecordWriter {
 
     @Override
     public void close(boolean b) throws IOException {
-        if (copyContext.os != null) {
-            try {
-                copyContext.os.close();
-            } catch (IOException e) {
-                logger.warn("close fail", e);
-                throw new IOException(e);
-            } finally {
-                copyContext.os = null;
+        if (backgroundExecutorService != null) {
+            backgroundExecutorService.shutdown();
+        }
+        if (copyContexts != null) {
+            for (CopyContext copyContext : copyContexts.values()) {
+                if (copyContext != null) {
+                    copyContext.close();
+                }
             }
         }
-        copyContext.close();
-        logger.error("close copyContext");
+    }
+
+    private void checkIfNeedIncreaseCopyContexts() {
+        if (copyContexts.size() >= maxWriterNumberPerTask) {
+            return;
+        }
+        // 当前以jobId为application_name的连接数
+        int connectionsNumber = JDBCUtils.getConnectionsNumberOfThisJob(param, appName);
+        // 当前连接数小于最大连接数，可以适当增加copy writer数量，避免长尾
+        if (probabilityIncrease(connectionsNumber)) {
+            CopyContext temp = new CopyContext();
+            temp.init(param, appName);
+            copyContexts.put(nextCopyContextIndex.get(), temp);
+            // 新的copy context添加到map之后，再对index进行加一
+            if (nextCopyContextIndex.incrementAndGet() != copyContexts.size()) {
+                throw new RuntimeException(
+                        String.format(
+                                "should not happened, the size of copyContexts %s not equals to nextCopyContextIndex %s",
+                                copyContexts.size(), nextCopyContextIndex.incrementAndGet()));
+            }
+            logger.info(
+                    "create new enhance copy contexts, current number is {}",
+                    nextCopyContextIndex.get());
+        }
+    }
+
+    private boolean probabilityIncrease(int connectionsNumber) {
+        if (maxWriterNumber <= connectionsNumber) {
+            return false;
+        }
+        // 防止多个task同时创建新连接超出最大连接数限制，可用的空闲连接数越大，创建的概率越大
+        double rate = (double) (maxWriterNumber - connectionsNumber) / (connectionsNumber + 1);
+        return new Random().nextInt(100) < rate * 100;
     }
 
     static class CopyContext {
@@ -134,20 +211,19 @@ public class HoloRecordCopyWriter implements FileSinkOperator.RecordWriter {
         RecordOutputStream os = null;
         com.alibaba.hologres.client.model.TableSchema schema;
 
-        public void init(HoloClientParam param) {
+        public void init(HoloClientParam param, String appName) {
             Connection conn = null;
             String url = param.getUrl();
             Properties info = new Properties();
             PGProperty.USER.set(info, param.getUsername());
             PGProperty.PASSWORD.set(info, param.getPassword());
-            PGProperty.APPLICATION_NAME.set(info, "hologres-connector-hive_copy");
+            PGProperty.APPLICATION_NAME.set(info, appName);
 
             try {
                 // copy write mode 的瓶颈往往是vip endpoint的网络吞吐，因此我们在可以直连holo fe的场景默认使用直连
-                if (param.isCopyWriteDirectConnect()) {
+                if (param.isDirectConnect()) {
                     String directUrl = JDBCUtils.getJdbcDirectConnectionUrl(param);
                     try {
-                        logger.info("try connect directly to holo with url {}", directUrl);
                         conn = DriverManager.getConnection(directUrl, info);
                         logger.info("init conn success with direct url {}", directUrl);
                     } catch (Exception e) {
@@ -177,6 +253,16 @@ public class HoloRecordCopyWriter implements FileSinkOperator.RecordWriter {
         }
 
         public void close() {
+            logger.info("close copyContext");
+            if (os != null) {
+                try {
+                    os.close();
+                } catch (IOException e) {
+                    logger.warn("close fail", e);
+                } finally {
+                    os = null;
+                }
+            }
             manager = null;
             if (pgConn != null) {
                 try {

@@ -78,9 +78,18 @@ public class HoloOutputFormat
                         holoVersion);
             }
             if (param.isCopyWriteMode() && supportCopy) {
-                if (param.isCopyWriteDirectConnect()) {
+                try {
+                    param.setHologresFrontendsNumber(
+                            clientProvider
+                                    .createOrGetClient()
+                                    .sql(JDBCUtils::getFrontendsNumber)
+                                    .get());
+                } catch (Exception e) {
+                    throw new IOException("Failed to get holo version", e);
+                }
+                if (param.isDirectConnect()) {
                     // 尝试直连，无法直连则各个tasks内的copy writer不需要进行尝试
-                    param.setCopyWriteDirectConnect(JDBCUtils.couldDirectConnect(param));
+                    param.setDirectConnect(JDBCUtils.couldDirectConnect(param));
                 }
                 return new HoloRecordCopyWriter(param, schema, taskAttemptContext);
             } else {

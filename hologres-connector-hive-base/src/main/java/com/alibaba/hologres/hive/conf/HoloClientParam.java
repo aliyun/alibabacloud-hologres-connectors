@@ -18,8 +18,11 @@ public class HoloClientParam {
 
     private final boolean copyWriteMode;
     private final String copyWriteFormat;
-    private final boolean copyWriteDirtyDataCheck;
-    private boolean copyWriteDirectConnect;
+    private final boolean dirtyDataCheck;
+    private boolean directConnect;
+    private final int maxWriterNumber;
+    private final int maxWriterNumberPerTask;
+    private int hologresFrontendsNumber = 0;
 
     private final int writeBatchSize;
     private final long writeBatchByteSize;
@@ -70,12 +73,14 @@ public class HoloClientParam {
                 conf.getBoolean(HoloStorageConfig.COPY_WRITE_MODE.getPropertyName(), true);
         this.copyWriteFormat =
                 conf.get(HoloStorageConfig.COPY_WRITE_FORMAT.getPropertyName(), "binary");
-        this.copyWriteDirtyDataCheck =
-                conf.getBoolean(
-                        HoloStorageConfig.COPY_WRITE_DIRTY_DATA_CHECK.getPropertyName(), false);
-        this.copyWriteDirectConnect =
-                conf.getBoolean(
-                        HoloStorageConfig.COPY_WRITE_DIRECT_CONNECT.getPropertyName(), true);
+        this.dirtyDataCheck =
+                conf.getBoolean(HoloStorageConfig.DIRTY_DATA_CHECK.getPropertyName(), false);
+        this.directConnect =
+                conf.getBoolean(HoloStorageConfig.DIRECT_CONNECT.getPropertyName(), true);
+        this.maxWriterNumber =
+                conf.getInt(HoloStorageConfig.MAX_WRITER_NUMBER.getPropertyName(), 20);
+        this.maxWriterNumberPerTask =
+                conf.getInt(HoloStorageConfig.MAX_WRITER_NUMBER_PER_TASK.getPropertyName(), 3);
 
         // write options
         this.writeBatchSize =
@@ -221,16 +226,32 @@ public class HoloClientParam {
         return copyWriteMode;
     }
 
-    public boolean isCopyWriteDirtyDataCheck() {
-        return copyWriteDirtyDataCheck;
+    public boolean isDirtyDataCheck() {
+        return dirtyDataCheck;
     }
 
-    public boolean isCopyWriteDirectConnect() {
-        return copyWriteDirectConnect;
+    public boolean isDirectConnect() {
+        return directConnect;
     }
 
-    public void setCopyWriteDirectConnect(boolean copyWriteDirectConnect) {
-        this.copyWriteDirectConnect = copyWriteDirectConnect;
+    public void setDirectConnect(boolean directConnect) {
+        this.directConnect = directConnect;
+    }
+
+    public int getMaxWriterNumber() {
+        return maxWriterNumber;
+    }
+
+    public int getMaxWriterNumberPerTask() {
+        return maxWriterNumberPerTask;
+    }
+
+    public int getHologresFrontendsNumber() {
+        return hologresFrontendsNumber;
+    }
+
+    public void setHologresFrontendsNumber(int hologresFrontendNumber) {
+        this.hologresFrontendsNumber = hologresFrontendNumber;
     }
 
     public boolean isCopyScanMode() {

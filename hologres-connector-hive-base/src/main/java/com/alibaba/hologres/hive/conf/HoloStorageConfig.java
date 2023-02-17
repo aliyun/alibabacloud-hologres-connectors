@@ -3,14 +3,16 @@ package com.alibaba.hologres.hive.conf;
 /** HoloStorageConfig. */
 public enum HoloStorageConfig {
     TABLE("table", true),
-    USERNAME("username", false),
-    PASSWORD("password", false),
+    USERNAME("username", true),
+    PASSWORD("password", true),
     JDBC_URL("jdbc.url", true),
 
     COPY_WRITE_MODE("copy_write_mode", false),
     COPY_WRITE_FORMAT("copy_write_format", false),
-    COPY_WRITE_DIRTY_DATA_CHECK("copy_write_dirty_data_check", false),
-    COPY_WRITE_DIRECT_CONNECT("copy_write_direct_connect", false),
+    DIRTY_DATA_CHECK("dirty_data_check", false),
+    DIRECT_CONNECT("direct_connect", false),
+    MAX_WRITER_NUMBER("max_writer_number", false),
+    MAX_WRITER_NUMBER_PER_TASK("max_writer_number_per_task", false),
 
     WRITE_MODE("write_mode", false),
     WRITE_BATCH_SIZE("write_batch_size", false),

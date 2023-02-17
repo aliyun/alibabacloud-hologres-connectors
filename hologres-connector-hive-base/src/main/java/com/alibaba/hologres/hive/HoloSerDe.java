@@ -18,17 +18,22 @@ package com.alibaba.hologres.hive;
 import com.alibaba.hologres.client.model.Column;
 import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.hive.conf.HoloClientParam;
+import com.alibaba.hologres.hive.utils.DataTypeUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.serde.serdeConstants;
 import org.apache.hadoop.hive.serde2.AbstractSerDe;
 import org.apache.hadoop.hive.serde2.SerDeException;
 import org.apache.hadoop.hive.serde2.SerDeStats;
 import org.apache.hadoop.hive.serde2.io.HiveDecimalWritable;
+import org.apache.hadoop.hive.serde2.lazy.LazyArray;
+import org.apache.hadoop.hive.serde2.lazybinary.LazyBinaryArray;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
+import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector.Category;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspectorFactory;
 import org.apache.hadoop.hive.serde2.objectinspector.PrimitiveObjectInspector.PrimitiveCategory;
 import org.apache.hadoop.hive.serde2.objectinspector.StructObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory;
+import org.apache.hadoop.hive.serde2.typeinfo.ListTypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.PrimitiveTypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoUtils;
@@ -59,7 +64,7 @@ public class HoloSerDe extends AbstractSerDe {
     private Column[] holoColumns;
     private List<Object> row;
 
-    private PrimitiveTypeInfo[] hiveColumnTypes;
+    private TypeInfo[] hiveColumnTypes;
 
     /*
      * This method gets called multiple times by Hive. On some invocations, the properties will be empty.
@@ -93,17 +98,27 @@ public class HoloSerDe extends AbstractSerDe {
                     TypeInfoUtils.getTypeInfosFromTypeString(
                             props.getProperty(serdeConstants.LIST_COLUMN_TYPES));
 
-            hiveColumnTypes = new PrimitiveTypeInfo[hiveColumnTypesList.size()];
+            hiveColumnTypes = new TypeInfo[hiveColumnTypesList.size()];
             List<ObjectInspector> fieldInspectors = new ArrayList<>(hiveColumnCount);
             for (int i = 0; i < hiveColumnCount; i++) {
                 TypeInfo ti = hiveColumnTypesList.get(i);
-                if (ti.getCategory() != ObjectInspector.Category.PRIMITIVE) {
-                    throw new SerDeException("Non primitive types not supported yet");
+                if (ti.getCategory() == ObjectInspector.Category.PRIMITIVE) {
+                    fieldInspectors.add(
+                            PrimitiveObjectInspectorFactory.getPrimitiveJavaObjectInspector(
+                                    (PrimitiveTypeInfo) ti));
+                } else if (ti.getCategory() == ObjectInspector.Category.LIST) {
+                    fieldInspectors.add(
+                            ObjectInspectorFactory.getStandardListObjectInspector(
+                                    PrimitiveObjectInspectorFactory.getPrimitiveJavaObjectInspector(
+                                            (PrimitiveTypeInfo)
+                                                    ((ListTypeInfo) ti).getListElementTypeInfo())));
+                } else {
+                    throw new SerDeException(
+                            String.format(
+                                    "Non primitive type or array type %s not supported yet, column name %s",
+                                    ti.getTypeName(), hiveColumnNames[i]));
                 }
-                hiveColumnTypes[i] = (PrimitiveTypeInfo) ti;
-                fieldInspectors.add(
-                        PrimitiveObjectInspectorFactory.getPrimitiveJavaObjectInspector(
-                                hiveColumnTypes[i]));
+                hiveColumnTypes[i] = ti;
             }
             validateColumns(schema, hiveColumnNames, hiveColumnTypes);
 
@@ -123,90 +138,118 @@ public class HoloSerDe extends AbstractSerDe {
 
     /** 创建表时验证数据类型. */
     private void validateColumns(
-            TableSchema schema, String[] hiveColumnNames, PrimitiveTypeInfo[] hiveColumnTypes) {
-        String columnName;
-        PrimitiveCategory columnType;
-
+            TableSchema schema, String[] hiveColumnNames, TypeInfo[] hiveColumnTypes) {
         for (int i = 0; i < hiveColumnCount; i++) {
-            columnName = hiveColumnNames[i];
-            columnType = hiveColumnTypes[i].getPrimitiveCategory();
+            String columnName = hiveColumnNames[i];
             Column holoColumn;
             try {
                 holoColumn = schema.getColumn(schema.getColumnIndex(columnName));
             } catch (NullPointerException e) {
                 throw new IllegalArgumentException(
-                        String.format(
-                                "Column %s with data type %s does not exist in hologres!",
-                                columnName, columnType));
+                        String.format("Column %s does not exist in hologres!", columnName));
             }
+
             boolean matched = false;
-            switch (holoColumn.getType()) {
-                case Types.TINYINT:
-                    matched = (columnType == PrimitiveCategory.BYTE);
-                    break;
-                case Types.SMALLINT:
-                    matched = (columnType == PrimitiveCategory.SHORT);
-                    break;
-                case Types.INTEGER:
-                    matched = (columnType == PrimitiveCategory.INT);
-                    break;
-                case Types.BIGINT:
-                    matched = (columnType == PrimitiveCategory.LONG);
-                    break;
-                case Types.REAL:
-                case Types.FLOAT:
-                    matched = (columnType == PrimitiveCategory.FLOAT);
-                    break;
-                case Types.DOUBLE:
-                    matched = (columnType == PrimitiveCategory.DOUBLE);
-                    break;
-                case Types.NUMERIC:
-                case Types.DECIMAL:
-                    matched = (columnType == PrimitiveCategory.DECIMAL);
-                    break;
-                case Types.BOOLEAN:
-                case Types.BIT:
-                    matched = (columnType == PrimitiveCategory.BOOLEAN);
-                    break;
-                case Types.CHAR:
-                case Types.VARCHAR:
-                case Types.LONGVARCHAR:
-                    matched = (columnType == PrimitiveCategory.STRING);
-                    break;
-                case Types.DATE:
-                    matched = (columnType == PrimitiveCategory.DATE);
-                    break;
-                case Types.TIMESTAMP:
-                    matched = (columnType == PrimitiveCategory.TIMESTAMP);
-                    break;
-                case Types.BINARY:
-                case Types.VARBINARY:
-                    matched = (columnType == PrimitiveCategory.BINARY);
-                    break;
-                case Types.OTHER:
-                    switch (holoColumn.getTypeName()) {
-                        case "json":
-                        case "jsonb":
-                            matched = (columnType == PrimitiveCategory.STRING);
-                            break;
-                        default:
-                            throw new IllegalArgumentException(
-                                    String.format(
-                                            "Does not support column %s with data type %s and hologres type %s for now!",
-                                            columnName, columnType, holoColumn.getTypeName()));
-                    }
-                    break;
-                default:
-                    throw new IllegalArgumentException(
-                            String.format(
-                                    "Does not support column %s with data type %s and hologres type %s for now!",
-                                    columnName, columnType, holoColumn.getTypeName()));
+            if (holoColumn.getType() == Types.ARRAY) {
+                String arrayElementTypeName =
+                        ((ListTypeInfo) hiveColumnTypes[i]).getListElementTypeInfo().getTypeName();
+                switch (holoColumn.getTypeName()) {
+                    case "_int4":
+                        matched = ("int".equals(arrayElementTypeName));
+                        break;
+                    case "_int8":
+                        matched = ("bigint".equals(arrayElementTypeName));
+                        break;
+                    case "_float4":
+                        matched = ("float".equals(arrayElementTypeName));
+                        break;
+                    case "_float8":
+                        matched = ("double".equals(arrayElementTypeName));
+                        break;
+                    case "_bool":
+                        matched = ("boolean".equals(arrayElementTypeName));
+                        break;
+                    case "_varchar":
+                    case "_text":
+                        matched = ("string".equals(arrayElementTypeName));
+                        break;
+                    default:
+                        throw new IllegalArgumentException(
+                                String.format(
+                                        "Does not support array element type %s , column name %s!",
+                                        arrayElementTypeName, hiveColumnNames[i]));
+                }
+            } else {
+                PrimitiveCategory columnType =
+                        ((PrimitiveTypeInfo) hiveColumnTypes[i]).getPrimitiveCategory();
+                switch (holoColumn.getType()) {
+                    case Types.TINYINT:
+                        matched = (columnType == PrimitiveCategory.BYTE);
+                        break;
+                    case Types.SMALLINT:
+                        matched = (columnType == PrimitiveCategory.SHORT);
+                        break;
+                    case Types.INTEGER:
+                        matched = (columnType == PrimitiveCategory.INT);
+                        break;
+                    case Types.BIGINT:
+                        matched = (columnType == PrimitiveCategory.LONG);
+                        break;
+                    case Types.REAL:
+                    case Types.FLOAT:
+                        matched = (columnType == PrimitiveCategory.FLOAT);
+                        break;
+                    case Types.DOUBLE:
+                        matched = (columnType == PrimitiveCategory.DOUBLE);
+                        break;
+                    case Types.NUMERIC:
+                    case Types.DECIMAL:
+                        matched = (columnType == PrimitiveCategory.DECIMAL);
+                        break;
+                    case Types.BOOLEAN:
+                    case Types.BIT:
+                        matched = (columnType == PrimitiveCategory.BOOLEAN);
+                        break;
+                    case Types.CHAR:
+                    case Types.VARCHAR:
+                    case Types.LONGVARCHAR:
+                        matched = (columnType == PrimitiveCategory.STRING);
+                        break;
+                    case Types.DATE:
+                        matched = (columnType == PrimitiveCategory.DATE);
+                        break;
+                    case Types.TIMESTAMP:
+                        matched = (columnType == PrimitiveCategory.TIMESTAMP);
+                        break;
+                    case Types.BINARY:
+                    case Types.VARBINARY:
+                        matched = (columnType == PrimitiveCategory.BINARY);
+                        break;
+                    case Types.OTHER:
+                        switch (holoColumn.getTypeName()) {
+                            case "json":
+                            case "jsonb":
+                                matched = (columnType == PrimitiveCategory.STRING);
+                                break;
+                            default:
+                                throw new IllegalArgumentException(
+                                        String.format(
+                                                "Does not support column %s with data type %s and hologres type %s for now!",
+                                                columnName, columnType, holoColumn.getTypeName()));
+                        }
+                        break;
+                    default:
+                        throw new IllegalArgumentException(
+                                String.format(
+                                        "Does not support column %s with data type %s and hologres type %s for now!",
+                                        columnName, columnType, holoColumn.getTypeName()));
+                }
             }
             if (!matched) {
                 throw new IllegalArgumentException(
                         String.format(
                                 "Column %s with data type %s does not match the hologres data type!",
-                                columnName, columnType));
+                                columnName, hiveColumnTypes[i].getTypeName()));
             }
         }
     }
@@ -240,7 +283,41 @@ public class HoloSerDe extends AbstractSerDe {
             if (value == NullWritable.get()) {
                 row.add(null);
             } else {
-                switch (hiveColumnTypes[i].getPrimitiveCategory()) {
+                if (hiveColumnTypes[i].getCategory() == Category.LIST) {
+                    String arrayElementTypeName =
+                            ((ListTypeInfo) hiveColumnTypes[i])
+                                    .getListElementTypeInfo()
+                                    .getTypeName();
+                    LOGGER.info(
+                            "yt_debug {} {} {}",
+                            arrayElementTypeName,
+                            value.toString(),
+                            value.getClass());
+                    switch (arrayElementTypeName) {
+                            // case "int":
+                            //    break;
+                            // case "bigint":
+                            //    row.add(value);
+                            //    break;
+                            // case "float":
+                            //    break;
+                            // case "double":
+                            //    break;
+                            // case "boolean":
+                            //    break;
+                            // case "string":
+                            //    break;
+                        default:
+                            throw new IllegalArgumentException(
+                                    String.format(
+                                            "Does not support read array now, array element type %s , column name %s!",
+                                            arrayElementTypeName, hiveColumnNames[i]));
+                    }
+                    // continue;
+                }
+                PrimitiveCategory columnType =
+                        ((PrimitiveTypeInfo) hiveColumnTypes[i]).getPrimitiveCategory();
+                switch (columnType) {
                     case BYTE:
                         row.add(Byte.valueOf(value.toString()));
                         break;
@@ -280,8 +357,10 @@ public class HoloSerDe extends AbstractSerDe {
                         row.add(value.toString().getBytes(StandardCharsets.UTF_8));
                         break;
                     default:
-                        // do nothing
-                        break;
+                        throw new SerDeException(
+                                String.format(
+                                        "hologres connector not support type %s, column name %s",
+                                        columnType.name(), hiveColumnNames[i]));
                 }
             }
         }
@@ -317,51 +396,110 @@ public class HoloSerDe extends AbstractSerDe {
         for (int i = 0; i < hiveColumnCount; i++) {
             Object rowData = ((Object[]) row)[i];
             if (null != rowData) {
-                switch (hiveColumnTypes[i].getPrimitiveCategory()) {
-                    case INT:
-                        rowData = Integer.valueOf(rowData.toString());
-                        break;
-                    case SHORT:
-                        rowData = Short.valueOf(rowData.toString());
-                        break;
-                    case BYTE:
-                        rowData = Byte.valueOf(rowData.toString());
-                        break;
-                    case LONG:
-                        rowData = Long.valueOf(rowData.toString());
-                        break;
-                    case FLOAT:
-                        rowData = Float.valueOf(rowData.toString());
-                        break;
-                    case DOUBLE:
-                        rowData = Double.valueOf(rowData.toString());
-                        break;
-                    case DECIMAL:
-                        rowData =
-                                new HiveDecimalWritable(rowData.toString())
-                                        .getHiveDecimal()
-                                        .bigDecimalValue();
-                        break;
-                    case BOOLEAN:
-                        rowData = Boolean.valueOf(rowData.toString());
-                        break;
-                    case CHAR:
-                    case VARCHAR:
-                    case STRING:
-                        rowData = String.valueOf(rowData.toString());
-                        break;
-                    case DATE:
-                        rowData = java.sql.Date.valueOf(rowData.toString());
-                        break;
-                    case TIMESTAMP:
-                        rowData = java.sql.Timestamp.valueOf(rowData.toString());
-                        break;
-                    case BINARY:
-                        rowData = rowData.toString().getBytes(StandardCharsets.UTF_8);
-                        break;
-                    default:
+                if (hiveColumnTypes[i].getCategory() == Category.LIST) {
+                    String arrayElementTypeName =
+                            ((ListTypeInfo) hiveColumnTypes[i])
+                                    .getListElementTypeInfo()
+                                    .getTypeName();
+
+                    // 根据获取数据源方式的不同，此处array rowData的class可能会有不同：LazyArray、LazyBinaryArray、ArrayList。
+                    if (rowData instanceof LazyBinaryArray) {
+                        rowData = ((LazyBinaryArray) rowData).getList();
+                    } else if (rowData instanceof LazyArray) {
+                        rowData = ((LazyArray) rowData).getList();
+                    } else if (rowData instanceof ArrayList) {
                         // do nothing
-                        break;
+                    } else {
+                        throw new IllegalArgumentException(
+                                String.format(
+                                        "Does not support array class %s, this array type is %s , column name is %s!",
+                                        rowData.getClass(),
+                                        arrayElementTypeName,
+                                        hiveColumnNames[i]));
+                    }
+
+                    LOGGER.info("yt_debug {} {} ", rowData.toString(), rowData.getClass());
+                    switch (arrayElementTypeName) {
+                        case "int":
+                            rowData = DataTypeUtils.castIntWritableArrayListToArray(rowData);
+                            break;
+                        case "bigint":
+                            rowData = DataTypeUtils.castLongWritableArrayListToArray(rowData);
+                            break;
+                        case "float":
+                            rowData = DataTypeUtils.castFloatWritableArrayListToArray(rowData);
+                            break;
+                        case "double":
+                            rowData = DataTypeUtils.castDoubleWritableArrayListToArray(rowData);
+                            break;
+                        case "boolean":
+                            rowData = DataTypeUtils.castBooleanWritableArrayListToArray(rowData);
+                            break;
+                        case "string":
+                            rowData = DataTypeUtils.castHiveTextArrayListToArray(rowData);
+                            break;
+                        default:
+                            throw new IllegalArgumentException(
+                                    String.format(
+                                            "Does not support array element type %s , column name %s!",
+                                            arrayElementTypeName, hiveColumnNames[i]));
+                    }
+                } else {
+                    PrimitiveCategory columnType =
+                            ((PrimitiveTypeInfo) hiveColumnTypes[i]).getPrimitiveCategory();
+                    // 根据获取数据源方式的不同，如读取外表，直接insert数据，此处rowData的class可能会有不同：LazyX、LazyBinaryX、XWritable，因此统一toString后处理。
+                    switch (columnType) {
+                        case INT:
+                            rowData = Integer.valueOf(rowData.toString());
+                            break;
+                        case SHORT:
+                            rowData = Short.valueOf(rowData.toString());
+                            break;
+                        case BYTE:
+                            rowData = Byte.valueOf(rowData.toString());
+                            break;
+                        case LONG:
+                            rowData = Long.valueOf(rowData.toString());
+                            break;
+                        case FLOAT:
+                            rowData = Float.valueOf(rowData.toString());
+                            break;
+                        case DOUBLE:
+                            rowData = Double.valueOf(rowData.toString());
+                            break;
+                        case DECIMAL:
+                            rowData =
+                                    new HiveDecimalWritable(rowData.toString())
+                                            .getHiveDecimal()
+                                            .bigDecimalValue();
+                            break;
+                        case BOOLEAN:
+                            rowData = Boolean.valueOf(rowData.toString());
+                            break;
+                        case CHAR:
+                        case VARCHAR:
+                        case STRING:
+                            rowData = String.valueOf(rowData.toString());
+                            break;
+                        case DATE:
+                            // the object is DateWritable in hive2, but DateWritableV2 in hive3, so
+                            // we use string to convert.
+                            rowData = java.sql.Date.valueOf(rowData.toString());
+                            break;
+                        case TIMESTAMP:
+                            // the object is TimestampWritable in hive2, but TimestampWritableV2 in
+                            // hive3, so we use string to convert.
+                            rowData = java.sql.Timestamp.valueOf(rowData.toString());
+                            break;
+                        case BINARY:
+                            rowData = rowData.toString().getBytes(StandardCharsets.UTF_8);
+                            break;
+                        default:
+                            throw new SerDeException(
+                                    String.format(
+                                            "hologres connector not support type %s, column name %s",
+                                            columnType.name(), hiveColumnNames[i]));
+                    }
                 }
             }
             dbRecordWritable.set(i, rowData);
