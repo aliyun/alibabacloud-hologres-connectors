@@ -63,6 +63,11 @@ object JDBCUtil {
   def getJdbcDirectConnectionUrl(configs: HologresConfigs): String = {
     var endpoint: String = null
     try {
+      try Class.forName("com.alibaba.hologres.org.postgresql.Driver")
+      catch {
+        case e: ClassNotFoundException =>
+          throw new RuntimeException(e)
+      }
       val conn = DriverManager.getConnection(configs.jdbcUrl, configs.username, configs.password)
       try {
         val stat = conn.createStatement

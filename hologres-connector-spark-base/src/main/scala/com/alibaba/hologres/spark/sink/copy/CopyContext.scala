@@ -21,8 +21,13 @@ class CopyContext {
   var schema: TableSchema = _
 
   def init(configs: HologresConfigs): Unit = {
+    try Class.forName("com.alibaba.hologres.org.postgresql.Driver")
+    catch {
+      case e: ClassNotFoundException =>
+        throw new RuntimeException(e)
+    }
     var conn: Connection = null
-    val url = JDBCUtil.formatUrlWithHologres(configs.jdbcUrl)
+    val url = configs.jdbcUrl
 
     val info: Properties = new Properties
     PGProperty.USER.set(info, configs.username)
@@ -32,7 +37,7 @@ class CopyContext {
     try {
       // copy write mode 的瓶颈往往是vip endpoint的网络吞吐，因此我们在可以直连holo fe的场景默认使用直连
       if (configs.copy_write_direct_connect) {
-        val directUrl = JDBCUtil.formatUrlWithHologres(JDBCUtil.getJdbcDirectConnectionUrl(configs))
+        val directUrl = JDBCUtil.getJdbcDirectConnectionUrl(configs)
         try {
           logger.info("try connect directly to holo with url {}", directUrl)
           conn = DriverManager.getConnection(directUrl, info)

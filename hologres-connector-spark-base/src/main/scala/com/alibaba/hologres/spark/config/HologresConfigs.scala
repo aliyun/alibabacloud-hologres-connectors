@@ -2,6 +2,7 @@ package com.alibaba.hologres.spark.config
 
 import com.alibaba.hologres.client.HoloConfig
 import com.alibaba.hologres.client.model.{WriteFailStrategy, WriteMode}
+import com.alibaba.hologres.spark.utils.JDBCUtil
 import com.alibaba.hologres.spark.utils.JDBCUtil._
 
 /** Hologres config parameters process. */
@@ -19,7 +20,7 @@ class HologresConfigs(sourceOptions: Map[String, String]) extends Serializable {
     throw new IllegalArgumentException("If jdbcUrl is not provided, please provide parameter 'database'."))
   lazy val endpoint: String = sourceOptions.getOrElse("endpoint",
     throw new IllegalArgumentException("If jdbcUrl is not provided, please provide parameter 'endpoint'."))
-  val jdbcUrl: String = sourceOptions.getOrElse("jdbcurl", getDbUrl(endpoint, database))
+  val jdbcUrl: String = JDBCUtil.formatUrlWithHologres(sourceOptions.getOrElse("jdbcurl", getDbUrl(endpoint, database)))
   holoConfig.setJdbcUrl(jdbcUrl)
 
   val writeMode: String = sourceOptions.getOrElse("write_mode", "insertOrIgnore").toLowerCase

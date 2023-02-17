@@ -88,7 +88,7 @@ CREATE TABLE tb008 (
 ```scala
 import java.sql.{Timestamp, Date}
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.Row
+import org.apache.spark.sql.{Row, SaveMode}
 import com.alibaba.hologres.spark3.sink.SourceProvider
 
 val byteArray = Array(1.toByte, 2.toByte, 3.toByte, 'b'.toByte, 'a'.toByte)
@@ -97,7 +97,7 @@ val longArray = Array(1L, 2L, 3L)
 val floatArray = Array(1.2F, 2.44F, 3.77F)
 val doubleArray = Array(1.222, 2.333, 3.444)
 val booleanArray = Array(true, false, false)
-val stringArray = Array("abcd", "bcde", "defg")
+val stringArray = Array(null, "bcde", "defg") //hologres不支持数组元素为null，null将在holo中写为空字符串""
 
 val data = Seq(
   Row(-7L, 100, "phone1", BigDecimal(1234.567891234), false, 199.35, 6.7F, Timestamp.valueOf("2021-01-01 00:00:00"), Date.valueOf("2021-01-01"), byteArray, intArray, longArray, floatArray, doubleArray, booleanArray, stringArray),
@@ -192,6 +192,7 @@ val readDf = spark.read
 将读取的数据写入hologres
 
 ```scala
+import org.apache.spark.sql.SaveMode
 import com.alibaba.hologres.spark3.sink.SourceProvider
 
 // 函数实现见测试用例,也可以手动创建数据表

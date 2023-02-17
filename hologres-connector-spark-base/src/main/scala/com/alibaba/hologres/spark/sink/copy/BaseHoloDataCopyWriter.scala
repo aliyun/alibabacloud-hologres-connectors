@@ -119,7 +119,14 @@ abstract class BaseHoloDataCopyWriter(
           case ColumnType.BOOLEANA => put.setObject(columnHoloId, row.getArray(idx).toBooleanArray())
           case ColumnType.TEXTA => {
             // copy writer just support set Array[String]
-            put.setObject(columnHoloId, row.getArray(idx).toObjectArray(StringType).map(e => e.toString))
+            put.setObject(columnHoloId, row.getArray(idx).toObjectArray(StringType).map(e => {
+              // 与InternalRow get array 表现一致，当数组元素有null值时，使用默认值空字符串""
+              if (e == null) {
+                ""
+              } else {
+                e.toString
+              }
+            }))
           }
           case ColumnType.TEXT => put.setObject(columnHoloId, row.getString(idx))
         }

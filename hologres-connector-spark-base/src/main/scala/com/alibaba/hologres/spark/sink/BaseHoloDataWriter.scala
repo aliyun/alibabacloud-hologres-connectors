@@ -11,6 +11,9 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.types._
 import org.slf4j.LoggerFactory
 
+import java.sql.{Date, Timestamp}
+import java.time.LocalDate
+
 /** BaseHoloJdbcDataWriter. */
 abstract class BaseHoloDataWriter(
                                    hologresConfigs: HologresConfigs,
@@ -84,9 +87,9 @@ abstract class BaseHoloDataWriter(
           case ColumnType.FLOAT => put.setObject(columnHoloId, row.getFloat(idx))
           case ColumnType.DOUBLE => put.setObject(columnHoloId, row.getDouble(idx))
           case ColumnType.BOOLEAN => put.setObject(columnHoloId, row.getBoolean(idx))
-          case ColumnType.TIMESTAMP => put.setObject(columnHoloId, row.getLong(idx) / 1000)
+          case ColumnType.TIMESTAMP => put.setObject(columnHoloId, new Timestamp(row.getLong(idx) / 1000))
           case ColumnType.BYTEA => put.setObject(columnHoloId, row.getBinary(idx))
-          case ColumnType.DATE => put.setObject(columnHoloId, row.getLong(idx) * 24 * 60 * 60 * 1000)
+          case ColumnType.DATE => put.setObject(columnHoloId, Date.valueOf(LocalDate.ofEpochDay(row.getLong(idx))))
           case ColumnType.DECIMAL =>
             put.setObject(columnHoloId, row.getDecimal(idx, columns(idx).getPrecision, columns(idx).getScale).toJavaBigDecimal)
           case ColumnType.INTA => put.setObject(columnHoloId, row.getArray(idx).toIntArray())
@@ -94,7 +97,16 @@ abstract class BaseHoloDataWriter(
           case ColumnType.FLOATA => put.setObject(columnHoloId, row.getArray(idx).toFloatArray())
           case ColumnType.DOUBLEA => put.setObject(columnHoloId, row.getArray(idx).toDoubleArray())
           case ColumnType.BOOLEANA => put.setObject(columnHoloId, row.getArray(idx).toBooleanArray())
-          case ColumnType.TEXTA => put.setObject(columnHoloId, row.getArray(idx).toObjectArray(StringType))
+          case ColumnType.TEXTA => {
+            put.setObject(columnHoloId, row.getArray(idx).toObjectArray(StringType).map(e => {
+              // 与InternalRow get array 表现一致，当数组元素有null值时，使用默认值空字符串""
+              if (e == null) {
+                ""
+              } else {
+                e.toString
+              }
+            }))
+          }
           case ColumnType.TEXT => put.setObject(columnHoloId, row.getString(idx))
         }
       } else {
