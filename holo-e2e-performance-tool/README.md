@@ -7,6 +7,8 @@ Hologres是兼容PostgreSQL协议的一站式实时数仓引擎，支持海量�
 - 点查场景：主要用于测试引擎针对行存、行列共存表进行主键过滤的点查性能。
 - 前缀扫描场景：主要用于测试引擎对行存，行列共存表进行前缀主键扫描的查询性能。
 
+下载地址：https://github.com/aliyun/alibabacloud-hologres-connectors/releases/download/release-1.3.0/holo-e2e-performance-tool-1.0.0.jar
+
 # 使用说明
 ## 数据写入场景
 ### 原理说明
