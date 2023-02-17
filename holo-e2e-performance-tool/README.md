@@ -83,7 +83,7 @@ put.vacuumTableBeforeRun=false
 java -jar <JAR_file_name> test_insert.conf <mode> > <log_file_location>
 
 --示例：使用Fixed copy模式进行数据写入测试，并将日志文件存储于jar_result文件下
-java -jar holo-e2e-performance-tool-1.0-SNAPSHOT.jar test_insert.conf FIXED_COPY > ./jar_result/fixed_copy_$(date '+%Y-%m-%d-%H:%M:%S').log
+java -jar holo-e2e-performance-tool-1.0.0.jar test_insert.conf FIXED_COPY > ./jar_result/fixed_copy_$(date '+%Y-%m-%d-%H:%M:%S').log
 ```
 ## 数据更新
 ### 原理说明
@@ -130,7 +130,7 @@ put.vacuumTableBeforeRun=false
 java -jar <JAR_file_name> test_update.conf <mode> > <log_file_location>
 
 --示例：使用Fixed copy模式进行数据写入测试，并将日志文件存储于jar_result文件下
-java -jar holo-e2e-performance-tool-1.0-SNAPSHOT.jar test_update.conf FIXED_COPY > ./jar_result/fixed_copy_$(date '+%Y-%m-%d-%H:%M:%S').log
+java -jar holo-e2e-performance-tool-1.0.0.jar test_update.conf FIXED_COPY > ./jar_result/fixed_copy_$(date '+%Y-%m-%d-%H:%M:%S').log
 ```
 ### 局部更新
 - 创建名为test_update_part.conf的测试配置文件
@@ -169,7 +169,7 @@ put.vacuumTableBeforeRun=false
 java -jar <JAR_file_name> test_update_part.conf <mode> > <log_file_location>
 
 --示例：使用Fixed copy模式进行数据写入测试，并将日志文件存储于jar_result文件下
-java -jar holo-e2e-performance-tool-1.0-SNAPSHOT.jar test_update_part.conf FIXED_COPY > ./jar_result/fixed_copy_$(date '+%Y-%m-%d-%H:%M:%S').log
+java -jar holo-e2e-performance-tool-1.0.0.jar test_update_part.conf FIXED_COPY > ./jar_result/fixed_copy_$(date '+%Y-%m-%d-%H:%M:%S').log
 ```
 
 ## 点查
@@ -235,8 +235,8 @@ java -jar <JAR_file_name> test.conf <mode> > <log_file_location>
 
 --示例：使用GET模式进行点查测试，并将日志文件存储于jar_result文件下
   同一份配置文件，先通过PREPARE_GET_DATA模式准备数据，再通过GET模式进行点查测试
-java -jar holo-e2e-performance-tool-1.0-SNAPSHOT.jar test.conf PREPARE_GET_DATA
-java -jar holo-e2e-performance-tool-1.0-SNAPSHOT.jar test.conf GET > ./jar_result/select_$(date '+%Y-%m-%d-%H:%M:%S').log
+java -jar holo-e2e-performance-tool-1.0.0.jar test.conf PREPARE_GET_DATA
+java -jar holo-e2e-performance-tool-1.0.0.jar test.conf GET > ./jar_result/select_$(date '+%Y-%m-%d-%H:%M:%S').log
 ```
 
 ## 前缀扫描
@@ -300,8 +300,8 @@ java -jar <JAR_file_name> test.conf <mode> > <log_file_location>
 
 --示例：使用SCAN模式进行前缀扫描测试，并将日志文件存储于jar_result文件下
   同一份配置文件，先通过PREPARE_SCAN_DATA模式准备数据，再通过SCAN模式进行前缀扫描测试
-java -jar holo-e2e-performance-tool-1.0-SNAPSHOT.jar test.conf PREPARE_SCAN_DATA
-java -jar holo-e2e-performance-tool-1.0-SNAPSHOT.jar test.conf SCAN > ./jar_result/select_$(date '+%Y-%m-%d-%H:%M:%S').log
+java -jar holo-e2e-performance-tool-1.0.0.jar test.conf PREPARE_SCAN_DATA
+java -jar holo-e2e-performance-tool-1.0.0.jar test.conf SCAN > ./jar_result/select_$(date '+%Y-%m-%d-%H:%M:%S').log
 ```
 
 # 测试结果
