@@ -12,6 +12,10 @@ Connectors for Hologres
 
     介绍golang使用holo-client-c读写Hologres<br/><br/>
 
+* [holo-e2e-performance-tool](./holo-e2e-performance-tool)
+
+  holo-e2e-performance-tool 是Hologres在数据写入、数据更新、点查场景的性能测试工具。<br/><br/>
+    
 * [holo-shipper](./holo-shipper)
 
   holo-shipper 是支持将Holo Instance的部分表导入导出的备份工具。可以在Holo之间搬迁表，也可以dump到中间存储然后再恢复。<br/><br/>
@@ -19,7 +23,6 @@ Connectors for Hologres
 * [hologres-connector-examples](hologres-connector-examples)
   
     该模块提供了若干使用该项目下Connector的各种实例代码<br/><br/>
-
 
 * [hologres-connector-flink-base](./hologres-connector-flink-base)
 
@@ -36,6 +39,7 @@ Connectors for Hologres
 * [hologres-connector-flink-1.14](./hologres-connector-flink-1.14)
 
   依赖hologres-connector-flink-base，实现了Flink 1.14版本的Connector<br/><br/>
+
 
 * [hologres-connector-hive-base](./hologres-connector-hive-base)
 
