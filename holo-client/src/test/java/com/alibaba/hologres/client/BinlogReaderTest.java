@@ -81,9 +81,9 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String createSql3 = "create publication " + publicationName + " for table " + tableName + ";\n";
 			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
 
-			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1, dropSql2});
+			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
 			try {
-				execute(conn, new String[]{dropSql3});
+				execute(conn, new String[]{dropSql2, dropSql3});
 			} catch (SQLException e) {
 				LOG.info(slotName + " not exists.");
 			}
@@ -193,9 +193,9 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String createSql3 = "create publication " + publicationName + " for table " + tableName + ";\n";
 			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
 
-			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1, dropSql2});
+			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
 			try {
-				execute(conn, new String[]{dropSql3});
+				execute(conn, new String[]{dropSql2, dropSql3});
 			} catch (SQLException e) {
 				LOG.info(slotName + " not exists.");
 			}
@@ -282,9 +282,9 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String createSql3 = "create publication " + publicationName + " for table " + tableName + ";\n";
 			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
 
-			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1, dropSql2});
+			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
 			try {
-				execute(conn, new String[]{dropSql3});
+				execute(conn, new String[]{dropSql2, dropSql3});
 			} catch (SQLException e) {
 				LOG.info(slotName + " not exists.");
 			}
@@ -399,9 +399,9 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String createSql3 = "create publication " + publicationName + " for table " + tableName + ";\n";
 			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
 
-			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1, dropSql2});
+			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
 			try {
-				execute(conn, new String[]{dropSql3});
+				execute(conn, new String[]{dropSql2, dropSql3});
 			} catch (SQLException e) {
 				LOG.info(slotName + " not exists.");
 			}
@@ -487,9 +487,9 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String createSql3 = "create publication " + publicationName + " for table " + tableName + ";\n";
 			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
 
-			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1, dropSql2});
+			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
 			try {
-				execute(conn, new String[]{dropSql3});
+				execute(conn, new String[]{dropSql2, dropSql3});
 			} catch (SQLException e) {
 				LOG.info(slotName + " not exists.");
 			}
@@ -598,9 +598,9 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String createSql3 = "create publication " + publicationName + " for table " + tableName + ";\n";
 			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
 
-			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1, dropSql2});
+			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
 			try {
-				execute(conn, new String[]{dropSql3});
+				execute(conn, new String[]{dropSql2, dropSql3});
 			} catch (SQLException e) {
 				LOG.info(slotName + " not exists.");
 			}
@@ -706,9 +706,9 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
 			String deleteSql = "delete from " + tableName + ";\n";
 
-			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1, dropSql2});
+			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
 			try {
-				execute(conn, new String[]{dropSql3});
+				execute(conn, new String[]{dropSql2, dropSql3});
 			} catch (SQLException e) {
 				LOG.info(slotName + " not exists.");
 			}
@@ -796,9 +796,9 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
 			String deleteSql = "delete from " + tableName + ";\n";
 
-			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1, dropSql2});
+			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
 			try {
-				execute(conn, new String[]{dropSql3});
+				execute(conn, new String[]{dropSql2, dropSql3});
 			} catch (SQLException e) {
 				LOG.info(slotName + " not exists.");
 			}
@@ -888,9 +888,9 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
 			String alterSql = "ALTER TABLE IF EXISTS " + tableName + " ADD COLUMN new_column_1 int;\n";
 
-			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1, dropSql2});
+			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
 			try {
-				execute(conn, new String[]{dropSql3});
+				execute(conn, new String[]{dropSql2, dropSql3});
 			} catch (SQLException e) {
 				LOG.info(slotName + " not exists.");
 			}
@@ -1018,9 +1018,9 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String alterSql = "set hg_experimental_enable_drop_column=true;\n"
 					+ "ALTER TABLE IF EXISTS " + tableName + " DROP COLUMN ba;\n";
 
-			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1, dropSql2});
+			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
 			try {
-				execute(conn, new String[]{dropSql3});
+				execute(conn, new String[]{dropSql2, dropSql3});
 			} catch (SQLException e) {
 				LOG.info(slotName + " not exists.");
 			}
@@ -1128,9 +1128,9 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String createSql3 = "create publication " + publicationName + " for table " + tableName + ";\n";
 			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
 
-			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1, dropSql2});
+			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
 			try {
-				execute(conn, new String[]{dropSql3});
+				execute(conn, new String[]{dropSql2, dropSql3});
 			} catch (SQLException e) {
 				LOG.info(slotName + " not exists.");
 			}
@@ -1252,9 +1252,9 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '"
 					+ publicationName + "');\n";
 
-			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1, dropSql2});
+			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
 			try {
-				execute(conn, new String[]{dropSql3});
+				execute(conn, new String[]{dropSql2, dropSql3});
 			} catch (SQLException e) {
 				LOG.info(slotName + " not exists.");
 			}
@@ -1379,9 +1379,9 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String createSql3 = "create publication " + publicationName + " for table " + tableName + ";\n";
 			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
 
-			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1, dropSql2});
+			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
 			try {
-				execute(conn, new String[]{dropSql3});
+				execute(conn, new String[]{dropSql2, dropSql3});
 			} catch (SQLException e) {
 				LOG.info(slotName + " not exists.");
 			}
@@ -1502,9 +1502,9 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String createSql3 = "create publication " + publicationName + " for table " + tableName + ";\n";
 			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
 
-			execute(conn, new String[]{dropSql1, dropSql2});
+			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
 			try {
-				execute(conn, new String[]{dropSql3});
+				execute(conn, new String[]{dropSql2, dropSql3});
 			} catch (SQLException e) {
 				LOG.info(slotName + " not exists.");
 			}
@@ -1629,9 +1629,9 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String createSql3 = "create publication " + publicationName + " for table " + tableName + ";\n";
 			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
 
-			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1, dropSql2});
+			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
 			try {
-				execute(conn, new String[]{dropSql3});
+				execute(conn, new String[]{dropSql2, dropSql3});
 			} catch (SQLException e) {
 				LOG.info(slotName + " not exists.");
 			}
@@ -1719,9 +1719,9 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String createSql3 = "create publication " + publicationName + " for table " + tableName + ";\n";
 			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
 
-			execute(conn, new String[]{dropSql1, dropSql2});
+			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
 			try {
-				execute(conn, new String[]{dropSql3});
+				execute(conn, new String[]{dropSql2, dropSql3});
 			} catch (SQLException e) {
 				LOG.info(slotName + " not exists.");
 			}
@@ -1838,9 +1838,9 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String createSql3 = "create publication " + publicationName + " for table " + tableName + ";\n";
 			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
 
-			execute(conn, new String[]{dropSql1, dropSql2});
+			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
 			try {
-				execute(conn, new String[]{dropSql3});
+				execute(conn, new String[]{dropSql2, dropSql3});
 			} catch (SQLException e) {
 				LOG.info(slotName + " not exists.");
 			}

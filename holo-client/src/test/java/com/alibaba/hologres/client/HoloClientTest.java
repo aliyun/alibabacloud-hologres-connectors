@@ -3446,7 +3446,16 @@ public class HoloClientTest extends HoloClientTestBase {
 					+ "(id int not null,\"nAme\" text,\"address\" text not null,primary key(id)); call set_table_property"
 					+ " ('"
 					+ tableName + "','distribution_key','');";
-			execute(conn, new String[]{createSchema, dropSql, createSql});
+			try {
+				execute(conn, new String[]{createSchema, dropSql, createSql});
+			} catch (Exception e) {
+				// could not set distribution key empty string after hologres version 1.3.27
+				if (e.getMessage().contains("with primary key, distribution key can not be empty string")) {
+					return;
+				} else {
+					throw e;
+				}
+			}
 
 			try (HoloClient client = new HoloClient(config)) {
 				TableSchema schema = client.getTableSchema(tableName);
@@ -3513,5 +3522,43 @@ public class HoloClientTest extends HoloClientTestBase {
 			Assert.assertEquals("address2", r.getObject(2));
 			execute(conn, new String[]{dropSql});
 		}
+	}
+
+	/**
+	 * HoloConfig 的enableAffectedRows参数设置测试.
+	 */
+	@Test
+	public void testDisableAffectRows() throws Exception {
+		if (properties == null) {
+			return;
+		}
+		HoloConfig config = buildConfig();
+		//default false
+		Assert.assertEquals(config.isEnableAffectedRows(), false);
+		try (HoloClient client = new HoloClient(config)) {
+			client.sql(conn -> {
+				try (Statement st = conn.createStatement()) {
+					try (ResultSet rs = st.executeQuery("show hg_experimental_enable_fixed_dispatcher_affected_rows")) {
+						rs.next();
+						Assert.assertEquals(rs.getBoolean(1), false);
+					}
+				}
+				return true;
+			}).get();
+		}
+
+		config.setEnableAffectedRows(true);
+		try (HoloClient client = new HoloClient(config)) {
+			client.sql(conn -> {
+				try (Statement st = conn.createStatement()) {
+					try (ResultSet rs = st.executeQuery("show hg_experimental_enable_fixed_dispatcher_affected_rows")) {
+						rs.next();
+						Assert.assertEquals(rs.getString(1), "on");
+					}
+				}
+				return true;
+			}).get();
+		}
+
 	}
 }

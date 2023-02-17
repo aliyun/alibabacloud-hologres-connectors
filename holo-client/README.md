@@ -53,13 +53,13 @@ select count(*) from pg_stat_activity where backend_type='client backend';
 <dependency>
   <groupId>com.alibaba.hologres</groupId>
   <artifactId>holo-client</artifactId>
-  <version>2.2.4</version>
+  <version>2.2.6</version>
 </dependency>
 ```
 
 - Gradle
 ```
-implementation 'com.alibaba.hologres:holo-client:2.2.4'
+implementation 'com.alibaba.hologres:holo-client:2.2.6'
 ```
 
 ## 连接数说明
@@ -534,6 +534,7 @@ unnest格式相比multi values有如下优点:
 | useLegacyPutHandler                   | false | true时，写入sql格式为insert into xxx(c0,c1,...) values (?,?,...),... on conflict; false时优先使用sql格式为insert into xxx(c0,c1,...) select unnest(?),unnest(?),... on conflict | 2.0.1 |
 | maxRowsPerSql                         | Integer.MAX_VALUE | useLegacyPutHandler=false，且通过unnest形式写入时，每条sql的最大行数 | 2.0.1 |
 | maxBytesPerSql                        | Long.MAX_VALUE | useLegacyPutHandler=false，且通过unnest形式写入时，每条sql的最大字节数 | 2.0.1 |
+| enableAffectedRows                    | false | 开启时 若用户用holoclient.sql执行statement.executeUpdate将会返回正确的affectrow计数，但对于行存表进行holoclient.put会有性能下降 | 2.2.5 |
 
 #### 查询配置
 | 参数名 | 默认值 | 说明 |引入版本| 

@@ -5,6 +5,7 @@ import org.postgresql.core.Oid;
 import org.postgresql.util.PSQLException;
 
 import java.sql.SQLException;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -124,5 +125,11 @@ public class ArrayUtil {
 			len = 1024;
 		}
 		return len;
+	}
+
+	public static <T> T[] arrayConcat(T[] a, T[] b) {
+		T[] result = Arrays.copyOf(a, a.length + b.length);
+		System.arraycopy(b, 0, result, a.length, b.length);
+		return result;
 	}
 }

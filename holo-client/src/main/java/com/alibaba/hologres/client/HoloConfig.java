@@ -124,6 +124,15 @@ public class HoloConfig implements Serializable {
 	boolean enableDefaultForNotNullColumn = true;
 
 	/**
+	 * psql中对于 insert/update/delete语句的执行默认是会返回affect的行数，比如向空表insert into table values (?,?) 会返回 INSERT 0 1，这种行为在某些场景下可能增加开销；
+	 * 而holoclient中目前不需要收集affect的行数，考虑导性能，默认关闭affect rows.
+	 *
+	 * @HasGetter
+	 * @HasSetter
+	 */
+	boolean enableAffectedRows = false;
+
+	/**
 	 * defaultTimestamp.
 	 * String
 	 *
@@ -636,6 +645,14 @@ public class HoloConfig implements Serializable {
 
 	public void setEnableDefaultForNotNullColumn(boolean enableDefaultForNotNullColumn) {
 		this.enableDefaultForNotNullColumn = enableDefaultForNotNullColumn;
+	}
+
+	public boolean isEnableAffectedRows() {
+		return enableAffectedRows;
+	}
+
+	public void setEnableAffectedRows(boolean enableAffectedRows) {
+		this.enableAffectedRows = enableAffectedRows;
 	}
 
 	public String getDefaultTimestampText() {

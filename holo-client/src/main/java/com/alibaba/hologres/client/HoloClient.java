@@ -99,6 +99,7 @@ public class HoloClient implements Closeable {
 	boolean isShadingEnv = false;
 
 	boolean isEmbeddedPool = false;
+	boolean isEmbeddedFixedPool = false;
 
 	public HoloClient(HoloConfig config) throws HoloClientException {
 		String url = config.getJdbcUrl();
@@ -270,8 +271,11 @@ public class HoloClient implements Closeable {
 			synchronized (this) {
 				if (pool == null) {
 					ExecutionPool temp = new ExecutionPool("embedded-" + config.getAppName(), config, isShadingEnv, false);
-					// 当useFixedFe为true时, 这里创建的collector会被下面fixedPool创建的覆盖，调用这个函数仅仅为了把pool标记为started.
-					collector = temp.register(this, config);
+					// 当useFixedFe为true 则不赋值新的collector，调用这个函数仅仅为了把pool标记为started.
+					ActionCollector tempCollector = temp.register(this, config);
+					if (!this.useFixedFe) {
+						collector = tempCollector;
+					}
 					pool = temp;
 					isEmbeddedPool = true;
 				}
@@ -279,7 +283,7 @@ public class HoloClient implements Closeable {
 		}
 		if (!pool.isRunning()) {
 			throw new HoloClientException(ExceptionCode.ALREADY_CLOSE,
-				"already close at %s" + pool.getCloseReasonStack().l, pool.getCloseReasonStack().r);
+				"already close at " + pool.getCloseReasonStack().l, pool.getCloseReasonStack().r);
 		}
 		if (useFixedFe && fixedPool == null) {
 			synchronized (this) {
@@ -288,6 +292,7 @@ public class HoloClient implements Closeable {
 					// 当useFixedFe为true时, 只会使用这个fixedPool注册的collector.
 					collector = temp.register(this, config);
 					fixedPool = temp;
+					isEmbeddedFixedPool = true;
 				}
 			}
 		}
@@ -296,14 +301,27 @@ public class HoloClient implements Closeable {
 		}
 	}
 
-	/**
-	 * fixedPool 不需要复用.
-	 */
 	public synchronized void setPool(ExecutionPool pool) throws HoloClientException {
+		if (pool.isFixedPool()) {
+			throw new HoloClientException(ExceptionCode.INTERNAL_ERROR, "fixed pool recived, require is not fixed");
+		}
 		ExecutionPool temp = pool;
-		collector = temp.register(this, config);
+		ActionCollector tempCollector = temp.register(this, config);
+		if (!this.useFixedFe) {
+			collector = tempCollector;
+		}
 		this.pool = temp;
 		isEmbeddedPool = false;
+	}
+
+	public synchronized void setFixedPool(ExecutionPool fixedPool) throws HoloClientException {
+		if (!useFixedFe || fixedPool == null || !fixedPool.isFixedPool()) {
+			throw new HoloClientException(ExceptionCode.INTERNAL_ERROR, "fixedPool required not null, and enable HoloConfig:useFixedFe");
+		}
+		ExecutionPool tempFixedPool = fixedPool;
+		this.fixedPool = tempFixedPool;
+		collector = tempFixedPool.register(this, config);
+		isEmbeddedFixedPool = false;
 	}
 
 	private void tryThrowException() throws HoloClientException {
@@ -639,7 +657,9 @@ public class HoloClient implements Closeable {
 		}
 		if (fixedPool != null && fixedPool.isRegister(this)) {
 			fixedPool.unregister(this);
-			fixedPool.close();
+			if (isEmbeddedFixedPool) {
+				fixedPool.close();
+			}
 		}
 	}
 

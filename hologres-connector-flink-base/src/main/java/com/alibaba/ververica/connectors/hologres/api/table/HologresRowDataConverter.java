@@ -166,11 +166,11 @@ public class HologresRowDataConverter<T> implements HologresRecordConverter<RowD
                 case Types.DECIMAL:
                     matched = flinkType.getTypeRoot().equals(LogicalTypeRoot.DECIMAL);
                     break;
-                case Types.TINYINT:
-                    matched = flinkType.getTypeRoot().equals(LogicalTypeRoot.TINYINT);
-                    break;
                 case Types.SMALLINT:
-                    matched = flinkType.getTypeRoot().equals(LogicalTypeRoot.SMALLINT);
+                    // holo not support TINYINT, SMALLINT should compatible with flink TINYINT
+                    matched =
+                            flinkType.getTypeRoot().equals(LogicalTypeRoot.SMALLINT)
+                                    || flinkType.getTypeRoot().equals(LogicalTypeRoot.TINYINT);
                     break;
                 case Types.INTEGER:
                     matched = flinkType.getTypeRoot().equals(LogicalTypeRoot.INTEGER);

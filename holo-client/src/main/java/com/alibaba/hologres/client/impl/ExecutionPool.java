@@ -215,6 +215,10 @@ public class ExecutionPool implements Closeable {
 		return closeStack;
 	}
 
+	public boolean isFixedPool() {
+		return isFixedPool;
+	}
+
 	@Override
 	public synchronized void close() {
 		if (started.compareAndSet(true, false)) {

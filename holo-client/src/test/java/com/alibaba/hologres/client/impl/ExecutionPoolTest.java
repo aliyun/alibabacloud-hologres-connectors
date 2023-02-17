@@ -8,12 +8,15 @@ import com.alibaba.hologres.client.HoloClient;
 import com.alibaba.hologres.client.HoloClientTestBase;
 import com.alibaba.hologres.client.HoloConfig;
 import com.alibaba.hologres.client.Put;
+import com.alibaba.hologres.client.impl.collector.ActionCollector;
 import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.model.WriteMode;
 import com.alibaba.hologres.client.utils.Metrics;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
@@ -188,6 +191,182 @@ public class ExecutionPoolTest extends HoloClientTestBase {
 				execute(conn, new String[]{dropSql0, dropSql1});
 			}
 		}
+		synchronized (this) {
+			this.wait(5000L);
+		}
+	}
+
+	/**
+	 * ExecutionPool
+	 * Method: put(Put put).
+	 */
+	@Test
+	public void testExecutionPool003() throws Exception {
+		if (properties == null) {
+			return;
+		}
+		HoloConfig config = buildConfig();
+		HoloConfig fixedConfig = buildConfig();
+		fixedConfig.setWriteMode(WriteMode.INSERT_OR_UPDATE);
+		fixedConfig.setDynamicPartition(true);
+		fixedConfig.setConnectionMaxIdleMs(10000L);
+		fixedConfig.setAppName("executionPool001");
+		fixedConfig.setUseFixedFe(true);
+		try (Connection conn = buildConnection(); ExecutionPool pool = ExecutionPool.buildOrGet("executionPool003", config, false, config.isUseFixedFe()); ExecutionPool fixedPool = ExecutionPool.buildOrGet("fixedExecutionPool003", fixedConfig, false, fixedConfig.isUseFixedFe())) {
+			String tableName = "test_schema.holo_execution_pool_001";
+			String createSchema = "create schema if not exists test_schema";
+			String dropSql = "drop table if exists " + tableName;
+			String createSql = "create table " + tableName + "(id int not null,c int not null,d text,e text, primary key(id))";
+
+			execute(conn, new String[]{createSchema, dropSql, createSql});
+
+			try {
+				HoloClient client0 = new HoloClient(fixedConfig);
+				client0.setPool(pool);
+				client0.setFixedPool(fixedPool);
+				HoloClient client1 = new HoloClient(fixedConfig);
+				TableSchema schema = client0.getTableSchema(tableName, true);
+				client1.setPool(pool);
+				client1.setFixedPool(fixedPool);
+				{
+					Put put2 = new Put(schema);
+					put2.setObject("id", 0L);
+					put2.setObject("c", 12);
+					put2.setObject("d", "aaa");
+					put2.setObject("e", "123");
+					client0.put(put2);
+				}
+				{
+					Put put2 = new Put(schema);
+					put2.setObject("id", 1L);
+					put2.setObject("c", 12);
+					put2.setObject("d", "aaa");
+					put2.setObject("e", "123");
+					client1.put(put2);
+				}
+				client0.close();
+				{
+					Put put2 = new Put(schema);
+					put2.setObject("id", 2L);
+					put2.setObject("c", 12);
+					put2.setObject("d", "aaa");
+					put2.setObject("e", "123");
+					client1.put(put2);
+				}
+				client1.close();
+				client0 = new HoloClient(fixedConfig);
+				client0.setPool(pool);
+				client0.setFixedPool(fixedPool);
+				{
+					Put put2 = new Put(schema);
+					put2.setObject("id", 3L);
+					put2.setObject("c", 12);
+					put2.setObject("d", "aaa");
+					put2.setObject("e", "123");
+					client0.put(put2);
+				}
+				client0.flush();
+
+				int count = 0;
+				try (Statement stat = conn.createStatement()) {
+					try (ResultSet rs = stat.executeQuery("select count(*) from " + tableName)) {
+						if (rs.next()) {
+							Assert.assertEquals(4, rs.getInt(1));
+							count = 1;
+						}
+					}
+				}
+				Assert.assertEquals(1, count);
+				Metrics.reporter().report();
+			} finally {
+				execute(conn, new String[]{dropSql});
+			}
+		}
+		synchronized (this) {
+			this.wait(5000L);
+		}
+	}
+
+	/**
+	 * ExecutionPool
+	 * Method: setFixedPool.
+	 */
+	@Test
+	public void testExecutionPool004() throws Exception {
+		if (properties == null) {
+			return;
+		}
+		HoloConfig config = buildConfig();
+		HoloConfig fixedConfig = buildConfig();
+		fixedConfig.setUseFixedFe(true);
+
+		//set FixedPool only
+		try (ExecutionPool fixedPool = ExecutionPool.buildOrGet("fixedExecutionPool004", fixedConfig, false, fixedConfig.isUseFixedFe())) {
+			Class<HoloClient> clientClass = HoloClient.class;
+			Class<ActionCollector> collectorClass = ActionCollector.class;
+			HoloClient client0 = new HoloClient(fixedConfig);
+			client0.setFixedPool(fixedPool);
+
+			Method ensurePoolOpen = clientClass.getDeclaredMethod("ensurePoolOpen");
+			ensurePoolOpen.setAccessible(true);
+			ensurePoolOpen.invoke(client0);
+
+			Field collectorField = clientClass.getDeclaredField("collector");
+			collectorField.setAccessible(true);
+			ActionCollector collector = (ActionCollector) (collectorField.get(client0));
+
+			Field poolField = collectorClass.getDeclaredField("pool");
+			poolField.setAccessible(true);
+			ExecutionPool curPool = (ExecutionPool) poolField.get(collector);
+
+			Assert.assertEquals(curPool.isFixedPool(), true);
+		}
+
+		//set Pool only
+		try (ExecutionPool pool = ExecutionPool.buildOrGet("ExecutionPool004", config, false, config.isUseFixedFe())) {
+			Class<HoloClient> clientClass = HoloClient.class;
+			Class<ActionCollector> collectorClass = ActionCollector.class;
+			HoloClient client0 = new HoloClient(config);
+			client0.setPool(pool);
+
+			Method ensurePoolOpen = clientClass.getDeclaredMethod("ensurePoolOpen");
+			ensurePoolOpen.setAccessible(true);
+			ensurePoolOpen.invoke(client0);
+
+			Field collectorField = clientClass.getDeclaredField("collector");
+			collectorField.setAccessible(true);
+			ActionCollector collector = (ActionCollector) (collectorField.get(client0));
+
+			Field poolField = collectorClass.getDeclaredField("pool");
+			poolField.setAccessible(true);
+			ExecutionPool curPool = (ExecutionPool) poolField.get(collector);
+
+			Assert.assertEquals(curPool.isFixedPool(), false);
+		}
+
+		//set Pool And FixedPool
+		try (ExecutionPool pool = ExecutionPool.buildOrGet("ExecutionPool004", config, false, config.isUseFixedFe()); ExecutionPool fixedPool = ExecutionPool.buildOrGet("fixedExecutionPool004", fixedConfig, false, fixedConfig.isUseFixedFe())) {
+			Class<HoloClient> clientClass = HoloClient.class;
+			Class<ActionCollector> collectorClass = ActionCollector.class;
+			HoloClient client0 = new HoloClient(fixedConfig);
+			client0.setPool(pool);
+			client0.setFixedPool(fixedPool);
+
+			Method ensurePoolOpen = clientClass.getDeclaredMethod("ensurePoolOpen");
+			ensurePoolOpen.setAccessible(true);
+			ensurePoolOpen.invoke(client0);
+
+			Field collectorField = clientClass.getDeclaredField("collector");
+			collectorField.setAccessible(true);
+			ActionCollector collector = (ActionCollector) (collectorField.get(client0));
+
+			Field poolField = collectorClass.getDeclaredField("pool");
+			poolField.setAccessible(true);
+			ExecutionPool curPool = (ExecutionPool) poolField.get(collector);
+
+			Assert.assertEquals(curPool.isFixedPool(), true);
+		}
+
 		synchronized (this) {
 			this.wait(5000L);
 		}

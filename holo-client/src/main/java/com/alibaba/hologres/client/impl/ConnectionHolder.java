@@ -44,6 +44,7 @@ public class ConnectionHolder implements Closeable {
 	final int refreshMetaTimeout;
 	final boolean refreshMetaAfterConnectionCreated;
 	final boolean isEnableDirectConnection;
+	final boolean isEnableAffectedRows;
 
 	long lastActiveTs;
 	private static List<String> preSqlList;
@@ -137,6 +138,7 @@ public class ConnectionHolder implements Closeable {
 		this.refreshMetaTimeout = config.getRefreshMetaTimeout();
 		this.refreshMetaAfterConnectionCreated = config.isRefreshMetaAfterConnectionCreated();
 		this.isEnableDirectConnection = config.isEnableDirectConnection();
+		this.isEnableAffectedRows = config.isEnableAffectedRows();
 		lastActiveTs = System.currentTimeMillis();
 		this.owner = owner;
 		this.connWithVersion = new ConnectionWithVersion();
@@ -154,7 +156,10 @@ public class ConnectionHolder implements Closeable {
 			conn = DriverManager.getConnection(this.connWithVersion.jdbcUrl, info).unwrap(PgConnection.class);
 			conn.setAutoCommit(true);
 			if (!isFixed) {
-				List<String> pre = preSqlList;
+				List<String> pre = new ArrayList<>(preSqlList);
+				if (!this.isEnableAffectedRows) {
+					pre.add("set hg_experimental_enable_fixed_dispatcher_affected_rows = off");
+				}
 				for (String sql : pre) {
 					try (Statement stat = conn.createStatement()) {
 						stat.execute(sql);

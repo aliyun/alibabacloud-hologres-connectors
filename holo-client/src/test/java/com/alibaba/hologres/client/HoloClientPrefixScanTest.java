@@ -34,10 +34,12 @@ public class HoloClientPrefixScanTest extends HoloClientTestBase {
 			String tableName = "test_schema.holo_client_prefix_scan_001";
 			String createSchema = "create schema if not exists test_schema";
 			String dropSql = "drop table if exists " + tableName;
+			// now prefix scan just support "row" or "row,column" table
 			String createSql = "create table " + tableName
 					+ "(pk1 int, pk2 int, pk3 int, pk4 int, name text not null, address text, primary key(pk1, pk2, pk3, "
 					+ "pk4)); "
-					+ "call set_table_property('" + tableName + "', 'distribution_key', 'pk1,pk3');";
+					+ "call set_table_property('" + tableName + "', 'distribution_key', 'pk1,pk3');"
+					+ "call set_table_property('" + tableName + "', 'orientation', 'row,column');";
 
 			execute(conn, new String[]{createSchema, dropSql, createSql});
 
@@ -100,7 +102,8 @@ public class HoloClientPrefixScanTest extends HoloClientTestBase {
 			String createSql = "create table " + tableName
 					+ "(pk1 int, pk2 int, pk3 int, pk4 int, name text not null, address text, primary key(pk1, pk2, pk3, "
 					+ "pk4)); "
-					+ "call set_table_property('" + tableName + "', 'distribution_key', 'pk1,pk3');";
+					+ "call set_table_property('" + tableName + "', 'distribution_key', 'pk1,pk3');"
+					+ "call set_table_property('" + tableName + "', 'orientation', 'row,column');";
 
 			execute(conn, new String[]{createSchema, dropSql, createSql});
 
@@ -186,7 +189,8 @@ public class HoloClientPrefixScanTest extends HoloClientTestBase {
 			String createSql = "create table " + tableName
 					+ "(pk1 int, pk2 int, pk3 int, pk4 int, name text not null, address text, primary key(pk1, pk2, pk3, "
 					+ "pk4)); "
-					+ "call set_table_property('" + tableName + "', 'distribution_key', 'pk1,pk3');";
+					+ "call set_table_property('" + tableName + "', 'distribution_key', 'pk1,pk3');"
+					+ "call set_table_property('" + tableName + "', 'orientation', 'row,column');";
 
 			execute(conn, new String[]{createSchema, dropSql, createSql});
 
@@ -265,7 +269,8 @@ public class HoloClientPrefixScanTest extends HoloClientTestBase {
 			String createSql = "create table " + tableName
 					+ "(pk1 int, pk2 int, pk3 int, pk4 int, name text not null, address text, primary key(pk1, pk2, pk3, "
 					+ "pk4)); "
-					+ "call set_table_property('" + tableName + "', 'distribution_key', 'pk1,pk3');";
+					+ "call set_table_property('" + tableName + "', 'distribution_key', 'pk1,pk3');"
+					+ "call set_table_property('" + tableName + "', 'orientation', 'row,column');";
 
 			execute(conn, new String[]{createSchema, dropSql, createSql});
 

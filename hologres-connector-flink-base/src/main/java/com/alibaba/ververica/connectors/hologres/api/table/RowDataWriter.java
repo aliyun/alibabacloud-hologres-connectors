@@ -67,7 +67,13 @@ public interface RowDataWriter<T> extends Serializable {
             case Types.SMALLINT:
                 fieldWriter =
                         (obj) -> {
-                            rowDataWriter.writeShort((Short) obj, columnIndexInHologresTable);
+                            // SMALLINT should compatible with TINYINT
+                            if (obj instanceof Byte) {
+                                rowDataWriter.writeShort(
+                                        ((Byte) obj).shortValue(), columnIndexInHologresTable);
+                            } else {
+                                rowDataWriter.writeShort((short) obj, columnIndexInHologresTable);
+                            }
                         };
                 break;
             case Types.INTEGER:

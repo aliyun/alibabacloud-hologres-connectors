@@ -27,47 +27,18 @@ import org.testng.annotations.Test;
 import java.io.OutputStream;
 import java.math.BigDecimal;
 import java.sql.Connection;
-import java.sql.Date;
 import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.sql.Statement;
-import java.sql.Timestamp;
-import java.time.LocalDate;
-import java.util.function.BiFunction;
+
+import static com.alibaba.hologres.client.utils.DataTypeTestUtil.FIXED_PLAN_TYPE_DATA;
+import static com.alibaba.hologres.client.utils.DataTypeTestUtil.TypeCaseData;
 
 /**
  * Fixed Copy测试用例.
  */
 public class CopyTest extends HoloClientTestBase {
 
-	private static final TypeCaseData[] ALL_TYPE_DATA = new TypeCaseData[]{
-			new TypeCaseData("bigint", (i, conn) -> (long) i, (i, rs) -> Assert.assertEquals(rs.getLong(1), i.longValue())),
-			new TypeCaseData("smallint", (i, conn) -> i.shortValue(), (i, rs) -> Assert.assertEquals(rs.getShort(1), i.shortValue())),
-			new TypeCaseData("decimal", "numeric(6,5)", (i, conn) -> new BigDecimal(String.valueOf(i)), (i, rs) -> Assert.assertEquals(rs.getString(1), i + ".00000")),
-			new TypeCaseData("bool", (i, conn) -> i % 2 == 0, (i, rs) -> Assert.assertEquals(rs.getBoolean(1), i % 2 == 0)),
-			new TypeCaseData("float4", (i, conn) -> i.floatValue(), (i, rs) -> Assert.assertEquals(rs.getFloat(1), i.floatValue())),
-			new TypeCaseData("float8", (i, conn) -> i.doubleValue(), (i, rs) -> Assert.assertEquals(rs.getDouble(1), i.doubleValue())),
-			new TypeCaseData("timestamp", (i, conn) -> new Timestamp(i * 1000L + 123L), (i, rs) -> Assert.assertEquals(rs.getTimestamp(1), new Timestamp(i * 1000L + 123L))),
-			new TypeCaseData("timestamptz", (i, conn) -> new Timestamp(i * 1000L + 123L), (i, rs) -> Assert.assertEquals(rs.getTimestamp(1), new Timestamp(i * 1000L + 123L))),
-			new TypeCaseData("date", (i, conn) -> Date.valueOf(LocalDate.ofEpochDay(2)), (i, rs) -> Assert.assertEquals(rs.getString(1), Date.valueOf(LocalDate.ofEpochDay(2)).toString())),
-			new TypeCaseData("json", (i, conn) -> "{\"a\":\"" + i + "\"}", (i, rs) -> Assert.assertEquals(rs.getString(1), "{\"a\":\"" + i + "\"}")),
-			new TypeCaseData("jsonb", (i, conn) -> "{\"a\":\"" + i + "\"}", (i, rs) -> Assert.assertEquals(rs.getString(1), "{\"a\": \"" + i + "\"}")),
-			new TypeCaseData("bytea", (i, conn) -> new byte[]{i.byteValue(), (byte) (i.byteValue() + 1), (byte) (i + 2)}, (i, rs) -> Assert.assertEquals(rs.getBytes(1), new byte[]{i.byteValue(), (byte) (i.byteValue() + 1), (byte) (i + 2)})),
-			new TypeCaseData("char", "char(5)", (i, conn) -> i.toString(), (i, rs) -> Assert.assertEquals(rs.getString(1), (i + "         ").substring(0, 5))),
-			new TypeCaseData("varchar", "varchar(20)", (i, conn) -> i.toString(), (i, rs) -> Assert.assertEquals(rs.getString(1), i.toString())),
-			new TypeCaseData("text", (i, conn) -> i.toString(), (i, rs) -> Assert.assertEquals(rs.getString(1), i.toString())),
-			new TypeCaseData("_int", "int[]", (i, conn) -> new int[]{i, i + 1}, (i, rs) -> Assert.assertEquals(rs.getString(1), "{" + i + "," + (i + 1) + "}")),
-			new TypeCaseData("_int8", "int8[]", (i, conn) -> new long[]{i, i + 1}, (i, rs) -> Assert.assertEquals(rs.getString(1), "{" + i + "," + (i + 1) + "}")),
-			new TypeCaseData("_float4", "float4[]", (i, conn) -> new float[]{i, i + 1}, (i, rs) -> Assert.assertEquals(rs.getString(1), "{" + i + "," + (i + 1) + "}")),
-			new TypeCaseData("_float8", "float8[]", (i, conn) -> new double[]{i, i + 1}, (i, rs) -> Assert.assertEquals(rs.getString(1), "{" + i + "," + (i + 1) + "}")),
-			new TypeCaseData("_bool", "bool[]", (i, conn) -> new boolean[]{i % 2 == 0, i % 2 != 0}, (i, rs) -> Assert.assertEquals(rs.getString(1), "{" + (i % 2 == 0 ? "t" : "f") + "," + (i % 2 != 0 ? "t" : "f") + "}")),
-			new TypeCaseData("_text", "text[]", (i, conn) -> new String[]{i.toString(), String.valueOf(i + 1)}, (i, rs) -> Assert.assertEquals(rs.getString(1), "{" + i + "," + (i + 1) + "}")),
-			new TypeCaseData("_varchar", "varchar[]", (i, conn) -> new String[]{String.valueOf(i), String.valueOf(i + 1)}, (i, rs) -> Assert.assertEquals(rs.getString(1), "{" + i + "," + (i + 1) + "}")),
-			new TypeCaseData("roaringbitmap", (i, conn) -> new byte[]{58, 48, 0, 0, 1, 0, 0, 0, 0, 0, 2, 0, 16, 0, 0, 0, 1, 0, 4, 0, 5, 0} /*{1,4,5}*/, (i, rs) -> Assert.assertEquals(rs.getLong(1), 3L))
-	};
-
-
-	private static final TypeCaseData[] EXCEPTION_ALL_TYPE_DATA = new TypeCaseData[]{
+	public static final TypeCaseData[] EXCEPTION_ALL_TYPE_DATA = new TypeCaseData[]{
 			new TypeCaseData("bigint", (i, conn) -> "abc", null),
 			new TypeCaseData("smallint", (i, conn) -> "abc", null),
 			new TypeCaseData("decimal_overflow", "numeric(6,5)", (i, conn) -> new BigDecimal("12.5"), null),
@@ -97,72 +68,13 @@ public class CopyTest extends HoloClientTestBase {
 			new TypeCaseData("_varchar", "varchar(5)[]", (i, conn) -> new String[]{"1234567"}, null),
 			new TypeCaseData("_varchar_u0000", "varchar[]", (i, conn) -> new String[]{"\u00001"}, null)
 	};
-	//不支持的类型
-	// , "INTERVAL"
-	// , "TIMETZ"
-	// , "TIME"
-	//, "INET"
-	// , "MONEY" // 难搞，不支持了
-	//, "OID"
-	//, "UUID"
-	//, "BIT"
-	//, "VARBIT"
-
-	interface PredicateWithException<T, U, E extends Exception> {
-		void run(T t, U u) throws E;
-
-	}
-
-	static class TypeCaseData {
-		String name;
-		String columnType;
-		PredicateWithException<Integer, ResultSet, SQLException> predicate;
-		BiFunction<Integer, BaseConnection, Object> supplier;
-
-		public TypeCaseData(String name, BiFunction<Integer, BaseConnection, Object> supplier, PredicateWithException<Integer, ResultSet, SQLException> predicate) {
-			this.name = name;
-			this.columnType = name;
-			this.predicate = predicate;
-			this.supplier = supplier;
-		}
-
-		public TypeCaseData(String name, String columnType, BiFunction<Integer, BaseConnection, Object> supplier, PredicateWithException<Integer, ResultSet, SQLException> predicate) {
-			this.name = name;
-			this.columnType = columnType;
-			this.predicate = predicate;
-			this.supplier = supplier;
-		}
-
-		public String getName() {
-			return name;
-		}
-
-		public String getColumnType() {
-			return columnType;
-		}
-
-		public PredicateWithException<Integer, ResultSet, SQLException> getPredicate() {
-			return predicate;
-		}
-
-		public BiFunction<Integer, BaseConnection, Object> getSupplier() {
-			return supplier;
-		}
-
-		@Override
-		public String toString() {
-			return "TypeCaseData{" +
-					"name='" + name + '\'' +
-					'}';
-		}
-	}
 
 	@DataProvider(name = "typeCaseData")
 	public Object[][] createData() {
-		Object[][] ret = new Object[ALL_TYPE_DATA.length * 2][];
-		for (int i = 0; i < ALL_TYPE_DATA.length; ++i) {
-			ret[2 * i] = new Object[]{ALL_TYPE_DATA[i], true};
-			ret[2 * i + 1] = new Object[]{ALL_TYPE_DATA[i], false};
+		Object[][] ret = new Object[FIXED_PLAN_TYPE_DATA.length * 2][];
+		for (int i = 0; i < FIXED_PLAN_TYPE_DATA.length; ++i) {
+			ret[2 * i] = new Object[]{FIXED_PLAN_TYPE_DATA[i], true};
+			ret[2 * i + 1] = new Object[]{FIXED_PLAN_TYPE_DATA[i], false};
 		}
 		return ret;
 	}

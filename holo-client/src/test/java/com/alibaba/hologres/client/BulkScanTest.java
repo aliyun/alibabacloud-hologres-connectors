@@ -62,6 +62,7 @@ public class BulkScanTest extends HoloClientTestBase {
 		HoloConfig config = buildConfig();
 		config.setWriteMode(WriteMode.INSERT_OR_REPLACE);
 		config.setWriteThreadSize(5);
+		config.setUseFixedFe(false);
 		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
 			String tableName = "test_schema.\"holO_client_bulkscan_002\"";
 			String tableName2 = "test_schema.\"holO_client_bulkscan_002_002\"";
@@ -151,6 +152,7 @@ public class BulkScanTest extends HoloClientTestBase {
 		HoloConfig config = buildConfig();
 		config.setWriteMode(WriteMode.INSERT_OR_REPLACE);
 		config.setWriteThreadSize(5);
+		config.setUseFixedFe(false);
 		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
 			String tableName = "test_schema.\"holO_client_bulkscan_003\"";
 			String tableName2 = "test_schema.\"holO_client_bulkscan_003_002\"";
@@ -244,6 +246,7 @@ public class BulkScanTest extends HoloClientTestBase {
 		HoloConfig config = buildConfig();
 		config.setWriteMode(WriteMode.INSERT_OR_REPLACE);
 		config.setWriteThreadSize(5);
+		config.setUseFixedFe(false);
 		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
 			String tableName = "test_schema.\"holO_client_bulkscan_004\"";
 			String tableName2 = "test_schema.\"holO_client_bulkscan_004_002\"";
@@ -337,6 +340,7 @@ public class BulkScanTest extends HoloClientTestBase {
 		HoloConfig config = buildConfig();
 		config.setWriteMode(WriteMode.INSERT_OR_REPLACE);
 		config.setWriteThreadSize(5);
+		config.setUseFixedFe(false);
 		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
 			String tableName = "test_schema.\"holO_client_bulkscan_005\"";
 			String tableName2 = "test_schema.\"holO_client_bulkscan_005_002\"";
@@ -433,6 +437,7 @@ public class BulkScanTest extends HoloClientTestBase {
 		HoloConfig config = buildConfig();
 		config.setWriteMode(WriteMode.INSERT_OR_REPLACE);
 		config.setWriteThreadSize(5);
+		config.setUseFixedFe(false);
 		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
 			String tableName = "test_schema.\"holO_client_bulkscan_003\"";
 			String tableName2 = "test_schema.\"holO_client_bulkscan_003_002\"";
@@ -545,6 +550,7 @@ public class BulkScanTest extends HoloClientTestBase {
 		HoloConfig config = buildConfig();
 		config.setWriteMode(WriteMode.INSERT_OR_REPLACE);
 		config.setWriteThreadSize(5);
+		config.setUseFixedFe(false);
 		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
 			String tableName = "test_schema.\"holO_client_bulkscan_008\"";
 			String createSchema = "create schema if not exists test_schema";
@@ -623,6 +629,7 @@ public class BulkScanTest extends HoloClientTestBase {
 		HoloConfig config = buildConfig();
 		config.setWriteMode(WriteMode.INSERT_OR_REPLACE);
 		config.setWriteThreadSize(5);
+		config.setUseFixedFe(false);
 		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
 			String tableName = "test_schema.\"holO_client_bulkscan_200\"";
 			String tableName2 = "test_schema.\"holO_client_bulkscan_200_002\"";

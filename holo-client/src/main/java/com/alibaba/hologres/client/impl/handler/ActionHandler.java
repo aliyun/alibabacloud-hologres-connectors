@@ -33,7 +33,12 @@ public abstract class ActionHandler<T> {
 	public static void fillRecord(Record record, int recordIndex, ResultSet rs, int resultSetIndex, Column column) throws SQLException {
 		switch (column.getType()) {
 			case Types.SMALLINT:
-				record.setObject(recordIndex, rs.getShort(resultSetIndex));
+				// ResultSet getShort will make null to 0.
+				if (null != rs.getObject(resultSetIndex)) {
+					record.setObject(recordIndex, rs.getShort(resultSetIndex));
+					break;
+				}
+				record.setObject(recordIndex, rs.getObject(resultSetIndex));
 				break;
 			case Types.OTHER:
 				if ("roaringbitmap".equals(column.getTypeName())) {
