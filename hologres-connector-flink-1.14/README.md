@@ -78,6 +78,7 @@
 | mutatetype | 流式写入语义，见下面“流式语义”一节<br /> | 否 | 默认值：insertorignore |
 | ignoredelete | 是否忽略撤回消息 | 否 | 默认值：true，只在流式语义下有效 |
 | createparttable| 当写入分区表时，是否自动根据分区值自动创建分区表 | 否|默认值为false。建议慎用该功能，确保分区值不会出现脏数据导致创建错误的分区表。|
+| ignoreNullWhenUpdate | 当mutatetype='insertOrUpdate'时，是否忽略更新写入数据中的Null值。| 否 | 默认值：false。|
 | jdbcWriteBatchSize| Hologres Sink节点数据攒批的最大批大小 | 否 |默认值为256|
 | jdbcWriteBatchByteSize|    Hologres Sink节点单个线程数据攒批的最大字节大小    | 否 | 默认值：20971520（2 * 1024 * 1024），2MB|
 | jdbcWriteBatchTotalByteSize|    Hologres Sink节点所有数据攒批的最大字节大小    | 否 | 默认值：20971520（20 * 1024 * 1024），20MB|
