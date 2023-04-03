@@ -52,7 +52,7 @@ hologres spark connector在进行读写时，会使用一定的jdbc连接数。�
 
 > spark task并发可能受到用户设置的参数影响，也可能受到hadoop对文件分块策略的影响，详情可以参考spark相关文档。
 
-## 使用示例
+## 使用示例-批量导入
 
 ### 1.手动创建Hologres表并组织数据进行写入
 
@@ -89,7 +89,6 @@ CREATE TABLE tb008 (
 import java.sql.{Timestamp, Date}
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.{Row, SaveMode}
-import com.alibaba.hologres.spark3.sink.SourceProvider
 
 val byteArray = Array(1.toByte, 2.toByte, 3.toByte, 'b'.toByte, 'a'.toByte)
 val intArray = Array(1, 2, 3)
@@ -134,28 +133,28 @@ df.show()
 
 //配置导入数据至Hologres的信息。
 df.write.format("hologres") //必须配置为hologres
-  .option(SourceProvider.USERNAME, "your_username") //阿里云账号的AccessKey ID。
-  .option(SourceProvider.PASSWORD, "your_password") //阿里云账号的Accesskey SECRET。
-  .option(SourceProvider.ENDPOINT, "Ip:Port") //Hologres实时数据API的Ip和Port。
-  .option(SourceProvider.DATABASE, "test_database") //Hologres的数据库名称,示例为test_database。
-  .option(SourceProvider.TABLE, "tb008") //Hologres用于接收数据的表名称，示例为tb008。
-  .option(SourceProvider.WRITE_MODE, "insert_or_update") //写入Holo的类型，具体见下方参数介绍
-  .option(SourceProvider.INPUT_DATA_SCHEMA_DDL, df.schema.toDDL) //输入DataFrame对应的DDL信息
-  .mode(SaveMode.Append) // spark DataFrameWriter接口的SaveMode, 必须为Append；注意与WRITE_MODE不是同一个参数
-  .save()
+.option("username", "your_username") //阿里云账号的AccessKey ID。
+.option("password", "your_password") //阿里云账号的Accesskey SECRET。
+.option("endpoint", "hologres_endpoint") //Hologres实时数据API的endpoint。
+.option("database", "test_database") //Hologres的数据库名称,示例为test_database。
+.option("table", "tb008") //Hologres用于接收数据的表名称，示例为tb008。
+.option("write_mode", "insert_or_update") //写入Holo的类型，具体见下方参数介绍
+.option("input_data_schema_ddl", df.schema.toDDL) //输入DataFrame对应的DDL信息
+.mode(SaveMode.Append) // spark DataFrameWriter接口的SaveMode, 必须为Append；注意与WRITE_MODE不是同一个参数
+.save()
 ```
 
 其中
 
 ```scala
-.option(SourceProvider.endpoint, "Ip:Port") //Hologres实时数据API的Ip和Port。
-.option(SourceProvider.database, "test_database") //Hologres的数据库名称,示例为test_database。
+.option("endpoint", "hologres_endpoint") //Hologres实时数据API的endpoint。
+.option("database", "test_database") //Hologres的数据库名称,示例为test_database。
 ```
 
 可以替换为（可选）
 
 ```scala
-.option(SourceProvider.jdbcUrl, "jdbc:postgresql://Ip:Port/test_database") //Hologres实时数据API的jdbcUrl,与endpoint+database的设置二选一
+.option("jdbcurl", "jdbc:postgresql://hologres_endpoint/test_database") //Hologres实时数据API的jdbcUrl,与endpoint+database的设置二选一
 ```
 
 ### 2. 使用Spark sql从其他数据源读取数据并存入Holo
@@ -181,19 +180,18 @@ val readDf = hiveContext.sql("select * from hive_database.phone")
 ```scala
 // Read from some table, for example: tb008
 val readDf = spark.read
-  .format("jdbc") //
-  .option("url", "jdbc:postgresql://Ip:Por/test_database")
-  .option("dbtable", "tb008")
-  .option("user", "your_username")
-  .option("password", "your_password")
-  .load()
+.format("jdbc") //
+.option("url", "jdbc:postgresql://Ip:Por/test_database")
+.option("dbtable", "tb008")
+.option("user", "your_username")
+.option("password", "your_password")
+.load()
 ```
 
 将读取的数据写入hologres
 
 ```scala
 import org.apache.spark.sql.SaveMode
-import com.alibaba.hologres.spark3.sink.SourceProvider
 
 // 函数实现见测试用例,也可以手动创建数据表
 val table = createTableSql(readDf.schema, "tb009")
@@ -205,45 +203,66 @@ val df = spark.createDataFrame(
 
 // Write to hologres table, for example: tb009
 df.write
-  .format("hologres")
-  .option(SourceProvider.USERNAME, "your_username")
-  .option(SourceProvider.PASSWORD, "your_password")
-  .option(SourceProvider.ENDPOINT, "Ip:Port")
-  .option(SourceProvider.DATABASE, "test_database")
-  .option(SourceProvider.TABLE, table)
-  .option(SourceProvider.INPUT_DATA_SCHEMA_DDL, df.schema.toDDL)
-  .mode(SaveMode.Append)
-  .save()
+.format("hologres")
+.option("username", "your_username")
+.option("password", "your_password")
+.option("endpoint", "hologres_endpoint")
+.option("database", "test_database")
+.option("table", table)
+.option("input_data_schema_ddl", df.schema.toDDL) //输入DataFrame对应的DDL信息
+.mode(SaveMode.Append) // spark DataFrameWriter接口的SaveMode, 必须为Append；注意与WRITE_MODE不是同一个参数
+.save()
+```
+
+### 使用pyspark加载connector进行写入
+
+启动pyspark并加载connector
+```shell
+pyspark --jars hologres-connector-spark-3.x-1.3-SNAPSHOT-jar-with-dependencies.jar
+```
+
+与spark-shell类似，使用源数据创建DataFrame之后调用connector进行写入
+```python
+data = [[1, "Elia"], [2, "Teo"], [3, "Fang"]]
+df = spark.createDataFrame(data, schema="id LONG, name STRING")
+df.show()
+
+df2.write.format("hologres").option(
+  "username", "your_username").option(
+  "password", "your_password").option(
+  "endpoint", "hologres_endpoint").option(
+  "database", "test_database").option(
+  "table", "tb008").save()
 ```
 
 ## 参数说明
 
 | 参数名 | 默认值 | 是否必填 | 说明 |
 | :---: | :---: | :---: |:---: |
-| USERNAME | 无 | 是 | 阿里云账号的AccessKey ID |
-| PASSWORD | 无 | 是 | 阿里云账号的Accesskey SECRET |
-| TABLE | 无 | 是 | Hologres用于接收数据的表名称 |
-| ENDPOINT | 无 | 与jdbcUrl二选一| Hologres实时数据API的Ip和Port |
-| DATABASE | 无 | 与jdbcUrl二选一| Hologres接收数据的表所在数据库名称 |
-| JDBCURL | 无 | 与endpoint+database组合设置二选一| Hologres实时数据API的jdbcUrl |
-| INPUT_DATA_SCHEMA_DDL | 无 | 是 | 组成DataFrame的schema对应的DDL，<br> 使用"your_df.schema.toDDL"输入即可 |
-| COPY_WRITE_MODE | true | 否 | 是否使用fixed copy方式写入，fixed copy是hologres1.3新增的能力，相比insert方法，fixed copy方式可以更高的吞吐（因为是流模式），更低的数据延时，更低的客户端内存消耗（因为不攒批)|
-| COPY_WRITE_FORMAT | binary | 否 | 底层是否走二进制协议，二进制会更快，否则为文本模式|
-| COPY_WRITE_DIRTY_DATA_CHECK | false | 否 | 是否进行脏数据校验，打开之后如果有脏数据，可以定位到写入失败的具体行，RecordChecker会对写入性能造成一定影响，非排查环节不建议开启.|
-| COPY_WRITE_DIRECT_CONNECT | 对于可以直连的环境会默认使用直连 | 否 | copy的瓶颈往往是VIP endpoint的网络吞吐，因此我们会测试当前环境能否直连holo fe，支持的话默认使用直连。此参数设置为false则不进行直连。|
-| WRITE_MODE | INSERT_OR_REPLACE | 否 | 当INSERT目标表为有主键的表时采用不同策略:<br>INSERT_OR_IGNORE 当主键冲突时，不写入<br>INSERT_OR_UPDATE 当主键冲突时，更新相应列<br>INSERT_OR_REPLACE 当主键冲突时，更新所有列|
-| WRITE_BATCH_SIZE | 512 | 否 | 每个写入线程的最大批次大小，<br>在经过WriteMode合并后的Put数量达到writeBatchSize时进行一次批量提交 |
-| WRITE_BATCH_BYTE_SIZE | 2097152（2 * 1024 * 1024） | 否 | 每个写入线程的最大批次bytes大小，单位为Byte，默认2MB，<br>在经过WriteMode合并后的Put数据字节数达到writeBatchByteSize时进行一次批量提交 |
-| USE_LEGACY_PUT_HANDLER| false | 否 |true时，写入sql格式为insert into xxx(c0,c1,...) values (?,?,...),... on conflict; false时优先使用sql格式为insert into xxx(c0,c1,...) select unnest(?),unnest(?),... on conflict|
-| WRITE_MAX_INTERVAL_MS | 10000 | 否 | 距离上次提交超过writeMaxIntervalMs会触发一次批量提交 |
-| WRITE_FAIL_STRATEGY | TYR_ONE_BY_ONE | 否 | 当发生写失败时的重试策略:<br>TYR_ONE_BY_ONE 当某一批次提交失败时，会将批次内的记录逐条提交（保序），其中某单条提交失败的记录将会跟随异常被抛出<br> NONE 直接抛出异常 |
-| WRITE_THREAD_SIZE | 1 | 否 | 写入并发线程数（每个并发占用1个数据库连接） |
-| RETRY_COUNT | 3 | 否 | 当连接故障时，写入和查询的重试次数 |
-| RETRY_SLEEP_INIT_MS | 1000 | 否 | 每次重试的等待时间=retrySleepInitMs+retry*retrySleepStepMs |
-| RETRY_SLEEP_STEP_MS | 10000 | 否 | 每次重试的等待时间=retrySleepInitMs+retry*retrySleepStepMs|
-| CONNECTION_MAX_IDLE_MS| 60000 | 否 | 写入线程和点查线程数据库连接的最大Idle时间，超过连接将被释放|
-| DYNAMIC_PARTITION| false|    否 |若为true，写入分区表父表时，当分区不存在时自动创建分区 |
-| FIXED_CONNECTION_MODE| false|   否| 非copy write 模式（insert默认）下，写入和点查不占用连接数（beta功能，需要connector版本>=1.2.0，hologres引擎版本>=1.3）|
+| username | 无 | 是 | 阿里云账号的AccessKey ID |
+| password | 无 | 是 | 阿里云账号的Accesskey SECRET |
+| table | 无 | 是 | Hologres用于接收数据的表名称 |
+| endpoint | 无 | 与jdbcUrl二选一| Hologres实时数据API的Ip和Port |
+| database | 无 | 与jdbcUrl二选一| Hologres接收数据的表所在数据库名称 |
+| jdbcurl | 无 | 与endpoint+database组合设置二选一| Hologres实时数据API的jdbcUrl |
+| input_data_schema_ddl | 无 | 使用spark3.x版本的connector必填，值为<your_DataFrame>.schema.toDDL | 组成DataFrame的schema对应的DDL，<br> 使用"your_df.schema.toDDL"输入即可 |
+| copy_write_mode | true | 否 | 是否使用fixed copy方式写入，fixed copy是hologres1.3新增的能力，相比insert方法，fixed copy方式可以更高的吞吐（因为是流模式），更低的数据延时，更低的客户端内存消耗（因为不攒批) <br> 注：需要connector版本>=1.3.0，hologres引擎版本>=r1.3.34|
+| copy_write_format | binary | 否 | 底层是否走二进制协议，二进制会更快，否则为文本模式|
+| copy_write_dirty_data_check | false | 否 | 是否进行脏数据校验，打开之后如果有脏数据，可以定位到写入失败的具体行，RecordChecker会对写入性能造成一定影响，非排查环节不建议开启.|
+| copy_write_direct_connect | 对于可以直连的环境会默认使用直连 | 否 | copy的瓶颈往往是VIP endpoint的网络吞吐，因此我们会测试当前环境能否直连holo fe，支持的话默认使用直连。此参数设置为false则不进行直连。|
+| write_mode | INSERT_OR_REPLACE | 否 | 当INSERT目标表为有主键的表时采用不同策略:<br>INSERT_OR_IGNORE 当主键冲突时，不写入<br>INSERT_OR_UPDATE 当主键冲突时，更新相应列<br>INSERT_OR_REPLACE 当主键冲突时，更新所有列|
+| write_batch_size | 512 | 否 | 每个写入线程的最大批次大小，<br>在经过WriteMode合并后的Put数量达到writeBatchSize时进行一次批量提交 |
+| write_batch_byte_size | 2097152（2 * 1024 * 1024） | 否 | 每个写入线程的最大批次bytes大小，单位为Byte，默认2MB，<br>在经过WriteMode合并后的Put数据字节数达到writeBatchByteSize时进行一次批量提交 |
+| use_legacy_put_handler| false | 否 |true时，写入sql格式为insert into xxx(c0,c1,...) values (?,?,...),... on conflict; false时优先使用sql格式为insert into xxx(c0,c1,...) select unnest(?),unnest(?),... on conflict|
+| write_max_interval_ms | 10000 | 否 | 距离上次提交超过writeMaxIntervalMs会触发一次批量提交 |
+| write_fail_strategy | TYR_ONE_BY_ONE | 否 | 当发生写失败时的重试策略:<br>TYR_ONE_BY_ONE 当某一批次提交失败时，会将批次内的记录逐条提交（保序），其中某单条提交失败的记录将会跟随异常被抛出<br> NONE 直接抛出异常 |
+| write_thread_size | 1 | 否 | 写入并发线程数（每个并发占用1个数据库连接） |
+| retry_count | 3 | 否 | 当连接故障时，写入和查询的重试次数 |
+| retry_sleep_init_ms | 1000 | 否 | 每次重试的等待时间=retrySleepInitMs+retry*retrySleepStepMs |
+| retry_sleep_step_ms | 10000 | 否 | 每次重试的等待时间=retrySleepInitMs+retry*retrySleepStepMs|
+| connection_max_idle_ms| 60000 | 否 | 写入线程和点查线程数据库连接的最大Idle时间，超过连接将被释放|
+| dynamic_partition| false|    否 |若为true，写入分区表父表时，当分区不存在时自动创建分区 |
+| fixed_connection_mode| false|   否| 非copy write 模式（insert默认）下，写入和点查不占用连接数（beta功能，需要connector版本>=1.2.0，hologres引擎版本>=1.3）|
 
 ## 类型映射
 
