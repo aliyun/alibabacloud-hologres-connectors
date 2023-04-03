@@ -10,6 +10,7 @@
 * 3.FlinkDataStreamToHoloExample
   
     一个使用纯Flink DataStream接口实现的应用，将数据写入至Hologres
+    > 在DataStream作业中，用户使用自定义的record类型，因此默认不支持delete消息。如果需要支持消息的回撤，需要在实现RecordConverter时对convert结果设置MutationType，详见此示例代码。
 * 4.FlinkSQLSourceAndSinkExample
 
   一个使用纯Flink SQL接口实现的应用，从holo源表读取数据并写入holo结果表

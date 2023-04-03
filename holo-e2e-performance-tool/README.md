@@ -296,8 +296,8 @@ put.columnSize=20
 --测试语句格式
 java -jar <JAR_file_name> test.conf <mode> > <log_file_location>
 
---示例：使用SCAN模式进行前缀扫描测试，并将日志文件存储于jar_result文件下
-  同一份配置文件，先通过PREPARE_SCAN_DATA模式准备数据，再通过SCAN模式进行前缀扫描测试
+--示例：使用GET模式进行点查测试，并将日志文件存储于jar_result文件下
+  同一份配置文件，先通过PREPARE_GET_DATA模式准备数据，再通过GET模式进行点查测试
 java -jar holo-e2e-performance-tool-1.0-SNAPSHOT.jar test.conf PREPARE_SCAN_DATA
 java -jar holo-e2e-performance-tool-1.0-SNAPSHOT.jar test.conf SCAN > ./jar_result/select_$(date '+%Y-%m-%d-%H:%M:%S').log
 ```

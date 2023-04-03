@@ -5,6 +5,12 @@ import java.sql.Timestamp;
 
 /** SourceItem. */
 public class SourceItem {
+    /** for example: event type. */
+    public enum EventType {
+        INSERT,
+        DELETE
+    }
+    EventType eventType = EventType.INSERT;
     public long userId;
     public String userName;
     public BigDecimal price;

@@ -76,7 +76,7 @@
 | 参数 | 参数说明 | 是否必填 | 备注 |
 | :---: | :---: | :---: | :---: |
 | mutatetype | 流式写入语义，见下面“流式语义”一节<br /> | 否 | 默认值：insertorignore |
-| ignoredelete | 是否忽略撤回消息 | 否 | 默认值：true，只在流式语义下有效 |
+| ignoredelete | 是否忽略撤回消息 | 否 | 默认值：true，只在流式语义下有效。<br> 在DataStream作业中，用户使用自定义的record类型，因此默认不支持delete消息。如果需要支持消息的回撤，需要在实现RecordConverter时对convert结果设置MutationType，详见hologres-connector-examples子项目示例。 |
 | createparttable| 当写入分区表时，是否自动根据分区值自动创建分区表 | 否|默认值为false。建议慎用该功能，确保分区值不会出现脏数据导致创建错误的分区表。|
 | jdbcWriteBatchSize| Hologres Sink节点数据攒批的最大批大小 | 否 |默认值为256|
 | jdbcWriteBatchByteSize|    Hologres Sink节点单个线程数据攒批的最大字节大小    | 否 | 默认值：20971520（2 * 1024 * 1024），2MB|

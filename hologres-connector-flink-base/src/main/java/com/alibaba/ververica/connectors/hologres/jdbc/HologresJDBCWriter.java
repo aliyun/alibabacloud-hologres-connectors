@@ -72,8 +72,7 @@ public class HologresJDBCWriter<T> extends HologresWriter<T> {
 
     @Override
     public long writeAddRecord(T record) throws IOException {
-        Record jdbcRecord = (Record) recordConverter.convertFrom(record);
-        jdbcRecord.setType(MutationType.INSERT);
+        Record jdbcRecord = recordConverter.convertFrom(record);
         try {
             clientProvider.getClient().put(new Put(jdbcRecord));
         } catch (HoloClientException e) {
