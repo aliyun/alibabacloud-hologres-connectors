@@ -179,7 +179,7 @@ select * from customer_to_holo_2 where c_custkey = 1;
 
 6.脏数据校验
 
-* 目前写入默认使用copy模式，而copy模式是流式写入的，脏数据导致的写入失败异常无法定位到具体行。可以通过设置`copy_write_dirty_data_check`参数开启脏数据事前校验，从而在写入失败时拿到有问题的数据信息。
+* 目前写入默认使用copy模式，而copy模式是流式写入的，脏数据导致的写入失败异常无法定位到具体行。可以通过设置`dirty_data_check`参数开启脏数据事前校验，从而在写入失败时拿到有问题的数据信息。
 * 脏数据事前校验会对写入性能造成一定影响，非排查环节不建议开启.
 
 在holo中建表如下：
@@ -220,7 +220,7 @@ TBLPROPERTIES (
     "hive.sql.password" = "",
     "hive.sql.table" = "hive_copy_test",
     "hive.sql.write_mode" = "INSERT_OR_UPDATE",
-    "hive.sql.copy_write_dirty_data_check" = "true" --与上表的区别在于此参数
+    "hive.sql.dirty_data_check" = "true" --与上表的区别在于此参数
 );
 ```
 插入数据

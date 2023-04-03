@@ -257,4 +257,12 @@ public class HoloClientParam {
     public boolean isCopyScanMode() {
         return copyScanMode;
     }
+
+    public int getScanFetchSize() {
+        return scanFetchSize;
+    }
+
+    public int getScanTimeoutSeconds() {
+        return scanTimeoutSeconds;
+    }
 }

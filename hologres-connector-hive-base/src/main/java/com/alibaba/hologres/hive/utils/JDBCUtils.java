@@ -1,7 +1,9 @@
 package com.alibaba.hologres.hive.utils;
 
+import com.alibaba.hologres.client.model.Column;
 import com.alibaba.hologres.hive.conf.HoloClientParam;
 import com.alibaba.hologres.org.postgresql.PGProperty;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -10,9 +12,11 @@ import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.Arrays;
 import java.util.Objects;
 import java.util.Properties;
 import java.util.Random;
+import java.util.stream.Collectors;
 
 /** JDBCUtils. */
 public class JDBCUtils {
@@ -38,8 +42,7 @@ public class JDBCUtils {
         String endpoint = null;
         String url = getJdbcUrlWithRandomFrontendId(param);
         logger.info("try connect directly to holo with url {}", url);
-        try (Connection conn =
-                DriverManager.getConnection(url, param.getUsername(), param.getPassword())) {
+        try (Connection conn = createConnection(param)) {
             try (Statement stat = conn.createStatement()) {
                 try (ResultSet rs =
                         stat.executeQuery("select inet_server_addr(), inet_server_port()")) {
@@ -87,9 +90,7 @@ public class JDBCUtils {
 
     public static int getConnectionsNumberOfThisJob(HoloClientParam param, String appName) {
         int number = -1;
-        try (Connection conn =
-                DriverManager.getConnection(
-                        param.getUrl(), param.getUsername(), param.getPassword())) {
+        try (Connection conn = createConnection(param)) {
             try (Statement stat = conn.createStatement()) {
                 String sql =
                         String.format(
@@ -109,6 +110,23 @@ public class JDBCUtils {
             throw new RuntimeException(t);
         }
         return number;
+    }
+
+    public static Connection createConnection(HoloClientParam param) {
+        try {
+            Class.forName("com.alibaba.hologres.org.postgresql.Driver");
+        } catch (ClassNotFoundException e) {
+            throw new RuntimeException(e);
+        }
+        try {
+            return DriverManager.getConnection(
+                    param.getUrl(), param.getUsername(), param.getPassword());
+        } catch (SQLException e) {
+            throw new RuntimeException(
+                    String.format(
+                            "Failed getting connection to %s because %s",
+                            param.getUrl(), ExceptionUtils.getStackTrace(e)));
+        }
     }
 
     public static int getFrontendsNumber(Connection conn) {
@@ -134,5 +152,18 @@ public class JDBCUtils {
             }
             throw new RuntimeException("Failed to get hologres frontends number.", e);
         }
+    }
+
+    public static String getSimpleSelectFromStatement(String table, Column[] selectFields) {
+        String selectExpressions =
+                Arrays.stream(selectFields)
+                        .map(a -> quoteIdentifier(a.getName()))
+                        .collect(Collectors.joining(", "));
+
+        return "SELECT " + selectExpressions + " FROM " + table;
+    }
+
+    public static String quoteIdentifier(String identifier) {
+        return "\"" + identifier + "\"";
     }
 }

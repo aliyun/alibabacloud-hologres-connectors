@@ -37,6 +37,7 @@ import org.apache.hadoop.hive.serde2.typeinfo.ListTypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.PrimitiveTypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoUtils;
+import org.apache.hadoop.io.BytesWritable;
 import org.apache.hadoop.io.MapWritable;
 import org.apache.hadoop.io.NullWritable;
 import org.apache.hadoop.io.Text;
@@ -230,6 +231,9 @@ public class HoloSerDe extends AbstractSerDe {
                             case "json":
                             case "jsonb":
                                 matched = (columnType == PrimitiveCategory.STRING);
+                                break;
+                            case "roaringbitmap":
+                                matched = (columnType == PrimitiveCategory.BINARY);
                                 break;
                             default:
                                 throw new IllegalArgumentException(
@@ -492,7 +496,15 @@ public class HoloSerDe extends AbstractSerDe {
                             rowData = java.sql.Timestamp.valueOf(rowData.toString());
                             break;
                         case BINARY:
-                            rowData = rowData.toString().getBytes(StandardCharsets.UTF_8);
+                            if (rowData instanceof BytesWritable) {
+                                BytesWritable a = (BytesWritable) rowData;
+                                rowData = ((BytesWritable) rowData).getBytes();
+                            } else {
+                                throw new SerDeException(
+                                        String.format(
+                                                "hologres connector SerDe need binary field instance BytesWritable but is was %s",
+                                                rowData.getClass()));
+                            }
                             break;
                         default:
                             throw new SerDeException(

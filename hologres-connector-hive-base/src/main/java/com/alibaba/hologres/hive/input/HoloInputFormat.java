@@ -1,12 +1,12 @@
 package com.alibaba.hologres.hive.input;
 
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.Path;
+import com.alibaba.hologres.client.model.TableSchema;
+import com.alibaba.hologres.hive.HoloClientProvider;
+import com.alibaba.hologres.hive.conf.HoloClientParam;
 import org.apache.hadoop.hive.ql.io.HiveInputFormat;
 import org.apache.hadoop.hive.shims.ShimLoader;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.MapWritable;
-import org.apache.hadoop.mapred.FileInputFormat;
 import org.apache.hadoop.mapred.InputSplit;
 import org.apache.hadoop.mapred.JobConf;
 import org.apache.hadoop.mapred.RecordReader;
@@ -16,6 +16,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+
+import static com.alibaba.hologres.client.Command.getShardCount;
 
 /** HoloInputFormat. */
 public class HoloInputFormat extends HiveInputFormat<LongWritable, MapWritable> {
@@ -39,14 +41,33 @@ public class HoloInputFormat extends HiveInputFormat<LongWritable, MapWritable> 
         try {
             TaskAttemptContext taskAttemptContext =
                     ShimLoader.getHadoopShims().newTaskAttemptContext(jobConf, null);
-            Configuration conf = taskAttemptContext.getConfiguration();
+            HoloClientParam param = new HoloClientParam(jobConf);
+            HoloClientProvider clientProvider = new HoloClientProvider(param);
+            try {
+                TableSchema schema = clientProvider.getTableSchema();
+                int shardCount = getShardCount(clientProvider.createOrGetClient(), schema);
 
-            // 目前使用holo-client不需要使用hive的split功能
-            numSplits = 1;
-            InputSplit[] splits = new InputSplit[numSplits];
-            Path[] tablePaths = FileInputFormat.getInputPaths(jobConf);
-            splits[0] = new HoloInputSplit(0, 0, tablePaths[0]);
-            return splits;
+                int size = shardCount / numSplits;
+                int remain = shardCount % numSplits;
+
+                InputSplit[] splits = new InputSplit[numSplits];
+                int start = 0;
+                for (int i = 0; i < numSplits; i++) {
+                    int end;
+                    if (remain > 0) {
+                        end = start + size + 1;
+                        remain--;
+                    } else {
+                        end = start + size;
+                    }
+                    splits[i] = new HoloInputSplit(start, end, schema);
+                    start = end;
+                }
+                return splits;
+            } finally {
+                clientProvider.closeClient();
+            }
+
         } catch (Exception e) {
             LOGGER.info("Error while splitting input data.", e);
             throw new IOException(e);

@@ -34,7 +34,7 @@ TBLPROPERTIES (
     "hive.sql.write_mode" = "INSERT_OR_UPDATE",
     "hive.sql.copy_write_mode" = "true",
     "hive.sql.copy_write_max_connections_number" = "20",
-    "hive.sql.copy_write_dirty_data_check" = "true"
+    "hive.sql.dirty_data_check" = "true"
 );
 
 insert into customer_to_holo_type select 111, 222, 'false', 1.23, 2.34,'ccc','{\"a\":\"b\"}','{\"a\":\"b\"}', '2021-05-21 16:00:45.123', '2021-05-21','85.23', '\x030405', array(1,2,3), array(1L,2L,3L), null, null, array(true,flase), array('a','b','c');

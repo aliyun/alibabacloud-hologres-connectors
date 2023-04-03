@@ -1,20 +1,11 @@
 package com.alibaba.hologres.hive.input;
 
-import com.alibaba.hologres.client.Exporter;
-import com.alibaba.hologres.client.RecordInputFormat;
-import com.alibaba.hologres.client.Scan;
-import com.alibaba.hologres.client.SortKeys;
-import com.alibaba.hologres.client.exception.HoloClientException;
 import com.alibaba.hologres.client.model.Column;
-import com.alibaba.hologres.client.model.ExportContext;
-import com.alibaba.hologres.client.model.Record;
-import com.alibaba.hologres.client.model.RecordScanner;
 import com.alibaba.hologres.client.model.TableSchema;
-import com.alibaba.hologres.hive.HoloClientProvider;
 import com.alibaba.hologres.hive.conf.HoloClientParam;
+import com.alibaba.hologres.hive.utils.JDBCUtils;
+import com.alibaba.hologres.org.postgresql.jdbc.PgConnection;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hive.ql.exec.SerializationUtilities;
-import org.apache.hadoop.hive.ql.plan.ExprNodeDesc;
 import org.apache.hadoop.hive.ql.plan.TableScanDesc;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.MapWritable;
@@ -27,20 +18,20 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Stack;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 
 /** HoloRecordReader. */
 public class HoloRecordReader implements RecordReader<LongWritable, MapWritable> {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(HoloRecordReader.class);
 
-    HoloClientProvider clientProvider;
-    RecordScanner scanner;
     TableSchema schema;
-    RecordInputFormat recordFormat;
-    boolean isScan = false;
+
+    private transient PgConnection conn;
+    private transient PreparedStatement statement;
+    private transient ResultSet resultSet;
 
     private int pos = 0;
     private HoloInputSplit inputSplit;
@@ -48,40 +39,34 @@ public class HoloRecordReader implements RecordReader<LongWritable, MapWritable>
     public HoloRecordReader(TaskAttemptContext context, HoloInputSplit inputSplit)
             throws IOException {
         this.inputSplit = inputSplit;
+        this.schema = inputSplit.getSchema();
 
         Configuration conf = context.getConfiguration();
         try {
             HoloClientParam param = new HoloClientParam(conf);
-            clientProvider = new HoloClientProvider(param);
-            schema = clientProvider.getTableSchema();
 
-            String filterXml = conf.get(TableScanDesc.FILTER_EXPR_CONF_STR);
-            // Use copy only when copyMode is true and there is no filter EXPR
-            if (filterXml == null && param.isCopyScanMode()) {
-                LOGGER.info("Use copy mode");
-
-                ExportContext er =
-                        clientProvider
-                                .createOrGetClient()
-                                .exportData(Exporter.newBuilder(schema).build());
-                recordFormat = new RecordInputFormat(er, schema);
-            } else {
-                // Use scan default, or have filter conditions
-                LOGGER.info("Use scan mode");
-
-                Scan.Builder scanBuilder = Scan.newBuilder(schema);
-                scanner =
-                        clientProvider
-                                .createOrGetClient()
-                                .scan(scanBuilder.setSortKeys(SortKeys.NONE).build());
-                if (filterXml != null) {
-                    ExprNodeDesc conditionNode =
-                            SerializationUtilities.deserializeExpression(filterXml);
-                    walk(conditionNode, scanBuilder);
-                }
-                isScan = true;
+            String queryTemplate =
+                    JDBCUtils.getSimpleSelectFromStatement(
+                            schema.getTableName(), schema.getColumnSchema());
+            String query =
+                    String.format(
+                            "%s WHERE hg_shard_id >= %s and hg_shard_id < %s",
+                            queryTemplate, inputSplit.getStartShard(), inputSplit.getEndShard());
+            String filterStr = conf.get(TableScanDesc.FILTER_TEXT_CONF_STR);
+            if (filterStr != null && !filterStr.isEmpty()) {
+                query = query + " and " + filterStr;
             }
-        } catch (HoloClientException e) {
+            LOGGER.info("the bulk read query: {}", query);
+
+            conn = JDBCUtils.createConnection(param).unwrap(PgConnection.class);
+            conn.setAutoCommit(false);
+            statement =
+                    conn.prepareStatement(
+                            query, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
+            statement.setFetchSize(param.getScanFetchSize());
+            statement.setQueryTimeout(param.getScanTimeoutSeconds());
+            resultSet = statement.executeQuery();
+        } catch (SQLException e) {
             close();
             throw new IOException(e);
         }
@@ -89,50 +74,14 @@ public class HoloRecordReader implements RecordReader<LongWritable, MapWritable>
 
     @Override
     public boolean next(LongWritable key, MapWritable value) throws IOException {
-        if (isScan) {
-            return scanNext(key, value);
-        } else {
-            return copyNext(key, value);
-        }
-    }
-
-    private boolean scanNext(LongWritable key, MapWritable value) {
         try {
-            if (scanner.next()) {
-                Record record = scanner.getRecord();
-                Column[] keys = record.getSchema().getColumnSchema();
-                Object[] values = record.getValues();
+            if (resultSet.next()) {
+                Column[] keys = schema.getColumnSchema();
 
-                for (int i = 0; i < values.length; i++) {
-                    value.put(new Text(keys[i].getName()), processValue(values[i]));
+                for (int i = 0; i < keys.length; i++) {
+                    value.put(
+                            new Text(keys[i].getName()), processValue(resultSet.getObject(i + 1)));
                 }
-
-                LOGGER.info("HoloRecordReader has more records to read.");
-                key.set(pos);
-                pos++;
-
-                return true;
-            } else {
-                LOGGER.info("HoloRecordReader has no more records to read.");
-                return false;
-            }
-        } catch (Exception e) {
-            LOGGER.error("An error occurred while reading the next record from Hologres.", e);
-            return false;
-        }
-    }
-
-    private boolean copyNext(LongWritable key, MapWritable value) {
-        Record record;
-        try {
-            if ((record = recordFormat.getRecord()) != null) {
-                Column[] keys = record.getSchema().getColumnSchema();
-                Object[] values = record.getValues();
-
-                for (int i = 0; i < values.length; i++) {
-                    value.put(new Text(keys[i].getName()), processValue(values[i]));
-                }
-
                 LOGGER.info("HoloRecordReader has more records to read.");
                 key.set(pos);
                 pos++;
@@ -172,20 +121,13 @@ public class HoloRecordReader implements RecordReader<LongWritable, MapWritable>
 
     @Override
     public void close() throws IOException {
-        if (scanner != null) {
-            scanner.close();
-        }
-        if (recordFormat != null) {
+        if (conn != null) {
             try {
-                recordFormat.cancel();
-            } catch (HoloClientException e) {
-                e.printStackTrace();
-            } finally {
-                recordFormat = null;
+                conn.close();
+                conn = null;
+            } catch (SQLException e) {
+                throw new RuntimeException(e);
             }
-        }
-        if (clientProvider != null) {
-            clientProvider.closeClient();
         }
     }
 
@@ -195,64 +137,6 @@ public class HoloRecordReader implements RecordReader<LongWritable, MapWritable>
             return 0;
         } else {
             return inputSplit.getLength() > 0 ? pos / (float) inputSplit.getLength() : 1.0f;
-        }
-    }
-
-    Stack<ExprNodeDesc> opStack = new Stack<>();
-    List<ExprNodeDesc> walkList = new ArrayList();
-
-    /** 将filter条件传递给holo，提高scan效率（hive在本地也会进行filter）. */
-    public void walk(ExprNodeDesc conditionNode, Scan.Builder scanBuilder) {
-
-        opStack.push(conditionNode);
-        walkList.add(conditionNode);
-
-        while (!opStack.empty()) {
-            ExprNodeDesc node = opStack.pop();
-
-            if (node.toString().startsWith("GenericUDFOPOr")) {
-                LOGGER.warn("Not Support OR Filter Currently : " + node.getExprString());
-                continue;
-            }
-            if (node.getChildren() == null) {
-                continue;
-            }
-            if (node.getChildren().get(0) == null) {
-                continue;
-            }
-            if (node.getChildren().get(0).getChildren() == null) {
-                LOGGER.info("Add Filter: " + node.getExprString());
-
-                if (node.toString().startsWith("GenericUDFOPEqual")) {
-                    scanBuilder.addEqualFilter(
-                            node.getChildren().get(0).getExprString(),
-                            node.getChildren().get(1).getExprString());
-                } else if (node.toString().startsWith("GenericUDFOPGreaterThan")) {
-                    scanBuilder.addRangeFilter(
-                            node.getChildren().get(0).getExprString(),
-                            node.getChildren().get(1).getExprString(),
-                            null);
-                } else if (node.toString().startsWith("GenericUDFOPLessThan")) {
-                    scanBuilder.addRangeFilter(
-                            node.getChildren().get(0).getExprString(),
-                            null,
-                            node.getChildren().get(1).getExprString());
-                } else if (node.toString().startsWith("GenericUDFBetween")) {
-                    scanBuilder.addRangeFilter(
-                            node.getChildren().get(1).getExprString(),
-                            node.getChildren().get(2).getExprString(),
-                            node.getChildren().get(3).getExprString());
-                } else {
-                    continue;
-                }
-                walkList.add(node);
-            } else {
-                for (ExprNodeDesc childNode : node.getChildren()) {
-                    if (!walkList.contains(childNode)) {
-                        opStack.push(childNode);
-                    }
-                }
-            }
         }
     }
 }

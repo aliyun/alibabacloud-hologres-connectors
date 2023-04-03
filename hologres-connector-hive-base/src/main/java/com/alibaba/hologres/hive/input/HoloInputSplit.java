@@ -1,7 +1,6 @@
 package com.alibaba.hologres.hive.input;
 
-import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.mapred.FileSplit;
+import com.alibaba.hologres.client.model.TableSchema;
 import org.apache.hadoop.mapred.InputSplit;
 
 import java.io.DataInput;
@@ -9,46 +8,29 @@ import java.io.DataOutput;
 import java.io.IOException;
 
 /** HoloInputSplit. */
-public class HoloInputSplit extends FileSplit implements InputSplit {
+public class HoloInputSplit implements InputSplit {
 
     private static final String[] EMPTY_ARRAY = new String[] {};
 
-    private int limit = 0;
-    private int offset = 0;
+    private final int startShard;
+    private final int endShard;
+    private final TableSchema schema;
 
-    public HoloInputSplit() {
-        super((Path) null, 0, 0, EMPTY_ARRAY);
-    }
-
-    public HoloInputSplit(long start, long end, Path dummyPath) {
-        super(dummyPath, 0, 0, EMPTY_ARRAY);
-        this.setLimit((int) start);
-        this.setOffset((int) end);
-    }
-
-    public HoloInputSplit(int limit, int offset) {
-        super((Path) null, 0, 0, EMPTY_ARRAY);
-        this.limit = limit;
-        this.offset = offset;
+    public HoloInputSplit(int startShard, int endShard, TableSchema schema) {
+        this.startShard = startShard;
+        this.endShard = endShard;
+        this.schema = schema;
     }
 
     @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        out.writeInt(limit);
-        out.writeInt(offset);
-    }
+    public void write(DataOutput out) throws IOException {}
 
     @Override
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        limit = in.readInt();
-        offset = in.readInt();
-    }
+    public void readFields(DataInput in) throws IOException {}
 
     @Override
     public long getLength() {
-        return limit;
+        return 0;
     }
 
     @Override
@@ -56,19 +38,15 @@ public class HoloInputSplit extends FileSplit implements InputSplit {
         return EMPTY_ARRAY;
     }
 
-    public int getLimit() {
-        return limit;
+    public int getStartShard() {
+        return startShard;
     }
 
-    public void setLimit(int limit) {
-        this.limit = limit;
+    public int getEndShard() {
+        return endShard;
     }
 
-    public int getOffset() {
-        return offset;
-    }
-
-    public void setOffset(int offset) {
-        this.offset = offset;
+    public TableSchema getSchema() {
+        return schema;
     }
 }
