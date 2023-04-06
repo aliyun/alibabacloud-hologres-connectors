@@ -2,23 +2,23 @@
 #include "sys/time.h"
 #include "logger.h"
 #include "time.h"
+#include "inttypes.h"
 
 char* deep_copy_string(const char* s) {
     int length;
     if (s == NULL) return NULL;
     length = strlen(s) + 1;
-    char* copied = (char*) malloc (length);
+    char* copied = (char*)malloc(length);
     strncpy(copied, s, length);
     return copied;
 }
 
-void deep_copy_string_to(const char* s, char* dst){
+void deep_copy_string_to(const char* s, char* dst, int len){
     if (dst == NULL) return;
     if (s == NULL) {
-        dst[0] = '\0';
         return;
     }
-    strncpy(dst, s, strlen(s) + 1);
+    strncpy(dst, s, len);
 }
 
 long long get_time_usec(){
@@ -68,21 +68,21 @@ int len_of_int(int x){
 }
 
 long current_time_ms() {
-    struct timespec now;
-    timespec_get(&now, TIME_UTC);
-    return ((long) now.tv_sec) * 1000 + ((long) now.tv_nsec) / 1000000;
+    struct timeval now;
+    gettimeofday(&now, NULL);
+    return ((long) now.tv_sec) * 1000 + ((long) now.tv_usec) / 1000;
 }
 
 void endian_swap(void* src, int length){
     for (int i = 0;i < length/2; i++){
-        u_int8_t t = *((u_int8_t*)(src + i));
-        *((u_int8_t*)(src + i)) = *((u_int8_t*)(src + length - 1 - i));
-        *((u_int8_t*)(src + length - 1 - i)) = t;
+        uint8_t t = *((uint8_t*)(src + i));
+        *((uint8_t*)(src + i)) = *((uint8_t*)(src + length - 1 - i));
+        *((uint8_t*)(src + length - 1 - i)) = t;
     }
 }
 
-void to_lower_case(char* str){
-    while (*str){
+void to_lower_case(char* str, int len){
+    while (len--){
         if (*str >= 'A' && *str <= 'Z') *str -= 'A' - 'a';
         ++str;
     }
@@ -99,46 +99,120 @@ int get_max_pow(int num) {
     return res;
 }
 
-char* quote_identifier(char* name) {
-    char* ret;
-    int length = strlen(name), pos = 0, i;
-    bool safe = true;
-    int nquotes = 0;
-    char c;
-    for (i = 0; i < length; i++) {
-        c = name[i];
-        if ((c >= 'a' && c <= 'z') || c == '_') {
-            continue;
-        } else if (c >= 'A' && c <= 'Z') {
-            safe = false;
-        } else if (c >= '0' && c <= '9') {
-            if (i == 0) {
-                safe = false;
-            }
-        } else if (c == '"') {
-            nquotes++;
-            safe = false;
-        } else {
-            safe = false;
-        }
+char* quote_table_name(const char* schema_name, const char* table_name) {
+    const char* s1 = quote_identifier(schema_name);
+    const char* s2 = quote_identifier(table_name);
+    size_t l1 = strlen(s1);
+    size_t l2 = strlen(s2);
+    size_t len = l1 + l2 + 1 + 1;
+    char* s = MALLOC(len, char);
+    char* p = s;
+    memcpy(p, s1, l1);
+    p += l1;
+    *p++ = '.';
+    memcpy(p, s2, l2);
+    p += l2;
+    *p = '\0';
+    if (s1 != schema_name) {
+        FREE((void*)s1);
     }
-    if(safe) {
-        return deep_copy_string(name);
+    if (s2 != table_name) {
+        FREE((void*)s2);
     }
-    ret = MALLOC(length + nquotes + 3, char);
-    ret[pos] = '"'; pos++;
-    for (i = 0; i < length; i++)  {
-        ret[pos] = name[i];
-        pos++;
-        if (name[i] == '"') {
-            ret[pos] = '"';
-            pos++;
-        }
-    }
-    ret[pos] = '"';
-    pos++;
-    ret[pos] = '\0';
-    return ret;
+    return s;
+}
+
+/*
+ * Copy from ruleutils.c, remove ScanKeyWords
+ */
+char* quote_identifier(const char *ident)
+{
+	/*
+	 * Can avoid quoting if ident starts with a lowercase letter or underscore
+	 * and contains only lowercase letters, digits, and underscores, *and* is
+	 * not any SQL keyword.  Otherwise, supply quotes.
+	 */
+	int			nquotes = 0;
+	bool		safe;
+	const char *ptr;
+	char	   *result;
+	char	   *optr;
+	safe = ((ident[0] >= 'a' && ident[0] <= 'z') || ident[0] == '_');
+	for (ptr = ident; *ptr; ptr++)
+	{
+		char		ch = *ptr;
+		if ((ch >= 'a' && ch <= 'z') ||
+			(ch >= '0' && ch <= '9') ||
+			(ch == '_'))
+		{
+			/* okay */
+		}
+		else
+		{
+			safe = false;
+			if (ch == '"')
+				nquotes++;
+		}
+	}
+	if (safe)
+		return deep_copy_string(ident);			/* no change needed */
+	result = MALLOC(strlen(ident) + nquotes + 2 + 1, char);
+	optr = result;
+	*optr++ = '"';
+	for (ptr = ident; *ptr; ptr++)
+	{
+		char		ch = *ptr;
+
+		if (ch == '"')
+			*optr++ = '"';
+		*optr++ = ch;
+	}
+	*optr++ = '"';
+	*optr = '\0';
+	return result;
+}
+
+/*
+ * Copy from quote.c
+ */
+size_t quote_literal_internal(char *dst, const char *src, size_t len)
+{
+	const char *s;
+	char	   *savedst = dst;
+	for (s = src; s < src + len; s++)
+	{
+		if (*s == '\\')
+		{
+			*dst++ = ESCAPE_STRING_SYNTAX;
+			break;
+		}
+	}
+	*dst++ = '\'';
+	while (len-- > 0)
+	{
+		if (SQL_STR_DOUBLE(*src, true))
+			*dst++ = *src;
+		*dst++ = *src++;
+	}
+	*dst++ = '\'';
+	return dst - savedst;
+}
+
+/*
+ * Copy from quote.c
+ */
+char* quote_literal_cstr(const char *rawstr)
+{
+	char	   *result;
+	int			len;
+	int			newlen;
+
+	len = strlen(rawstr);
+	/* We make a worst-case result area; wasting a little space is OK */
+	result = MALLOC(len * 2 + 3 + 1, char);
+	newlen = quote_literal_internal(result, rawstr, len);
+	result[newlen] = '\0';
+	return result;
 }
 
 char* int16toa(int16_t i) {
@@ -154,9 +228,9 @@ char* int32toa(int32_t i) {
     return result;
 }
 char* int64toa(int64_t i) {
-    int len = snprintf(NULL, 0, "%lld", i);
+    int len = snprintf(NULL, 0, "%" PRId64"", i);
     char *result = MALLOC(len + 1, char);
-    snprintf(result, len + 1, "%lld", i);
+    snprintf(result, len + 1, "%" PRId64"", i);
     return result;
 }
 char* btoa(bool b) {
@@ -197,13 +271,13 @@ char* int64_array_toa(int64_t* array, int n) {
     int len = 0, cur = 0;
     char* result;
     for (int i = 0; i < n; i++) {
-        len += snprintf(NULL, 0, "%lld", array[i]);
+        len += snprintf(NULL, 0, "%" PRId64"", array[i]);
     }
     len = len + 2 + n;
     result = MALLOC(len, char);
     for (int i = 0; i < n; i++) {
-        if (i == 0) cur += snprintf(result, len, "{%lld", array[i]);
-        else cur += snprintf(result+cur, len-cur, ",%lld", array[i]);
+        if (i == 0) cur += snprintf(result, len, "{%" PRId64"", array[i]);
+        else cur += snprintf(result+cur, len-cur, ",%" PRId64"", array[i]);
     }
     cur += snprintf(result+cur, len-cur, "%s", "}");
     return result;

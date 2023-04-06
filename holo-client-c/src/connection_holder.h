@@ -27,6 +27,7 @@ typedef struct _HoloVersion
 typedef struct _ConnectionHolder {
     PGconn* conn;
     char* connInfo;
+    bool useFixedFe;
     HoloVersion* holoVersion;
 
     int retryCount;
@@ -43,13 +44,14 @@ typedef struct _ConnectionHolder {
     dlist_head getSqlCache;
     int getSqlCount;
 
-    ExceptionHandler handleExceptionByUser;
+    HoloExceptionHandler handleExceptionByUser;
+    void* exceptionHandlerParam;
 
     MetricsInWorker* metrics;
     LPMap* map;
 } ConnectionHolder;
 
-ConnectionHolder* holo_client_new_connection_holder(HoloConfig);
+ConnectionHolder* holo_client_new_connection_holder(HoloConfig, bool);
 ActionStatus connection_holder_do_action(ConnectionHolder*, Action*, ActionHandler);
 extern PGresult* connection_holder_exec_params(ConnectionHolder*, const char*, int, const Oid*, const char* const*, const int*, const int*, int);
 extern PGresult* connection_holder_exec_params_with_retry(ConnectionHolder*, const char*, int, const Oid*, const char* const*, const int*, const int*, int);
@@ -57,6 +59,7 @@ extern void connection_holder_exec_func_with_retry(ConnectionHolder*, SqlFunctio
 void connection_holder_close_conn(ConnectionHolder*);
 
 bool is_batch_support_unnest(ConnectionHolder*, Batch*);
+char* generate_fixed_fe_conn_info(const char*);
 SqlCache* connection_holder_get_or_create_sql_cache_with_batch(ConnectionHolder*, Batch*, int);
-SqlCache* connection_holder_get_or_create_get_sql_cache(ConnectionHolder*, TableSchema*, int);
+SqlCache* connection_holder_get_or_create_get_sql_cache(ConnectionHolder*, HoloTableSchema*, int);
 #endif

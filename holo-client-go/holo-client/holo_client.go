@@ -13,14 +13,13 @@ import "C"
 
 import "unsafe"
 
-
 type HoloClient struct {
 	cclient *C.HoloClient
 }
 
 func NewHoloClient(config *holoConfig) *HoloClient {
 	client := new(HoloClient)
-	client.cclient = C.holo_client_new_client(config.cconfig);
+	client.cclient = C.holo_client_new_client(config.cconfig)
 	return client
 }
 
@@ -33,7 +32,7 @@ func (client *HoloClient) Close() {
 }
 
 //当schemaName为空字符串时认为schema是public
-func (client *HoloClient) GetTableschema(schemaName string, tableName string, withCache bool) *TableSchema{
+func (client *HoloClient) GetTableschema(schemaName string, tableName string, withCache bool) *HoloTableSchema {
 	var cschemaName *C.char
 	if schemaName == "" {
 		cschemaName = nil
@@ -41,7 +40,7 @@ func (client *HoloClient) GetTableschema(schemaName string, tableName string, wi
 		cschemaName = C.CString(schemaName)
 	}
 	ctableName := C.CString(tableName)
-	schema := new(TableSchema)
+	schema := new(HoloTableSchema)
 	schema.ctableSchema = C.holo_client_get_tableschema(client.cclient, cschemaName, ctableName, C.bool(withCache))
 	C.free(unsafe.Pointer(cschemaName))
 	C.free(unsafe.Pointer(ctableName))
@@ -54,7 +53,7 @@ func (client *HoloClient) Submit(mutation *mutationRequest) int {
 }
 
 type record struct {
-	crecord *C.Record
+	crecord *C.HoloRecord
 }
 
 func (client *HoloClient) Get(get *GetRequest) *record {
@@ -88,10 +87,9 @@ func (r *record) GetVal(colIndex int) string {
 }
 
 func HoloClientLoggerOpen() {
-	C.holo_client_logger_open();
+	C.holo_client_logger_open()
 }
 
 func HoloClientLoggerClose() {
-	C.holo_client_logger_close();
+	C.holo_client_logger_close()
 }
-

@@ -10,7 +10,7 @@ BatchItem* create_batch_item(Batch* batch){
     return item;
 }
 
-Batch* holo_client_new_batch_with_record(Record* record){
+Batch* holo_client_new_batch_with_record(HoloRecord* record){
     Batch* ret = MALLOC(1, Batch);
     ret->schema = record->schema;
     void* mPool = MALLOC(ret->schema->nColumns * (sizeof(bool) + 2 * sizeof(int)), char);
@@ -29,7 +29,7 @@ Batch* holo_client_new_batch_with_record(Record* record){
     return ret;
 }
 
-Batch* holo_client_new_batch_with_mutation_request(Mutation mutation){
+Batch* holo_client_new_batch_with_mutation_request(HoloMutation mutation){
     Batch* ret = holo_client_new_batch_with_record(mutation->record);
     ret->mode = mutation->mode;
     ret->writeMode = mutation->writeMode;
@@ -71,7 +71,7 @@ void holo_client_destroy_batch(Batch* batch){
     FREE(batch);
 }
 
-bool batch_can_apply_normalized_record(Batch* batch, Record* record){
+bool batch_can_apply_normalized_record(Batch* batch, HoloRecord* record){
     if (record->schema != batch->schema) return false;
     for (int i = 0;i < record->schema->nColumns;i++){
         if (record->valueFormats[i] != batch->valueFormats[i]) return false;
@@ -79,14 +79,14 @@ bool batch_can_apply_normalized_record(Batch* batch, Record* record){
     return true;
 }
 
-bool batch_try_apply_normalized_record(Batch* batch, Record* record){
+bool batch_try_apply_normalized_record(Batch* batch, HoloRecord* record){
     if (!batch_can_apply_normalized_record(batch, record)) return false;
     dlist_push_tail(&(batch->recordList), &(create_record_item(record)->list_node));
     batch->nRecords += 1;
     return true;
 }
 
-bool batch_can_apply_update_record(Batch* batch, Record* record){
+bool batch_can_apply_update_record(Batch* batch, HoloRecord* record){
     if (record->schema != batch->schema) return false;
     if (record->nValues != batch->nValues) return false;
     for (int i = 0;i < batch->schema->nColumns;i++) {
@@ -97,20 +97,20 @@ bool batch_can_apply_update_record(Batch* batch, Record* record){
     return true;
 }
 
-bool batch_try_apply_update_record(Batch* batch, Record* record){
+bool batch_try_apply_update_record(Batch* batch, HoloRecord* record){
     if (!batch_can_apply_update_record(batch, record)) return false;
     dlist_push_tail(&(batch->recordList), &(create_record_item(record)->list_node));
     batch->nRecords += 1;
     return true;
 }
 
-bool batch_can_apply_mutation_request(Batch* batch, Mutation mutation){
+bool batch_can_apply_mutation_request(Batch* batch, HoloMutation mutation){
     if (mutation->mode != batch->mode) return false;
     if (mutation->writeMode != batch->writeMode) return false;
     return true;
 }
 
-bool batch_try_apply_mutation_request(Batch* batch, Mutation mutation){
+bool batch_try_apply_mutation_request(Batch* batch, HoloMutation mutation){
     if (!batch_can_apply_mutation_request(batch, mutation)) return false;
     if (batch->mode == PUT && batch->writeMode == INSERT_OR_UPDATE){
         if (!batch_try_apply_update_record(batch, mutation->record)) return false;
@@ -122,6 +122,7 @@ bool batch_try_apply_mutation_request(Batch* batch, Mutation mutation){
 bool batch_matches(Batch* a, Batch* b, int nRecords){
     if (a->mode != b->mode) return false;
     if (a->writeMode != b->writeMode) return false;
+    if (a->isSupportUnnest != b->isSupportUnnest) return false;
     if (a->schema != b->schema) return false;
     if (a->nValues != b->nValues) return false;
     if (a->nRecords != (nRecords == 0 ? b->nRecords : nRecords)) return false;

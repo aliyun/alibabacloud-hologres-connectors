@@ -12,11 +12,12 @@ func simpleGetTest() {
 	connInfo := "host=xxxxx port=xxx dbname=xxxx user=xxxxx password=xxxxx"
 	config := holoclient.NewHoloConfig(connInfo)
 	client := holoclient.NewHoloClient(config)
+	//create table test_get(id int, name text, address text, primary key(id));
 	schema := client.GetTableschema("", "test_get", false)
 
 	for i := 0; i < 100; i++ {
 		get := holoclient.NewGetRequest(schema)
-		get.SetGetValByColIndex(0, strconv.Itoa(i))
+		get.SetGetValByColIndex(0, strconv.Itoa(i), len(strconv.Itoa(i)))
 		res := client.Get(get)
 		fmt.Printf("Record %d:\n", i)
 		if res == nil {
@@ -43,7 +44,7 @@ func getListTest() {
 	getList := make([]*holoclient.GetRequest, 100)
 	for i := 0; i < 100; i++ {
 		getList[i] = holoclient.NewGetRequest(schema)
-		getList[i].SetGetValByColIndex(0, strconv.Itoa(i))
+		getList[i].SetGetValByColIndex(0, strconv.Itoa(i), len(strconv.Itoa(i)))
 	}
 	recordList := client.GetList(getList)
 	for i := 0; i < 100; i++ {
@@ -68,6 +69,7 @@ func simplePutTest() {
 	config := holoclient.NewHoloConfig(connInfo)
 	config.SetWriteMode(holoclient.INSERT_OR_REPLACE)
 	client := holoclient.NewHoloClient(config)
+	//create table test_go_put (id int, f1 real, f2 boolean, f3 text, f4 int[], f5 boolean[], f6 real[], f7 float[], primary key(id));
 	schema := client.GetTableschema("", "test_go_put", false)
 
 	intArray := []int32{3, 4, 5, 6}
@@ -79,7 +81,7 @@ func simplePutTest() {
 		put.SetInt32ValByColIndex(0, int32(i))
 		put.SetFloat32ValByColIndex(1, 123.234)
 		put.SetBoolValByColIndex(2, true)
-		put.SetTextValByColIndex(3, "hello")
+		put.SetTextValByColIndex(3, "hello", 5)
 		put.SetInt32ArrayValByColIndex(4, intArray)
 		put.SetBoolArrayValByColIndex(5, boolArray)
 		put.SetFloat32ArrayValByColIndex(6, floatArray)
@@ -105,7 +107,7 @@ func getInMultiThread() {
 		for running {
 			pk := rand.Intn(100000000)
 			get := holoclient.NewGetRequest(schema)
-			get.SetGetValByColIndex(0, strconv.Itoa(pk))
+			get.SetGetValByColIndex(0, strconv.Itoa(pk), len(strconv.Itoa(pk)))
 			res := client.Get(get)
 			if res == nil {
 				fmt.Println("No record")

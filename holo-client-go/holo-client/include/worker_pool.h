@@ -1,15 +1,20 @@
 #ifndef _WORKER_POOL_H_
 #define _WORKER_POOL_H_
 
+#include "defs.h"
 #include "holo_config.h"
 
-struct _WorkerPool;
-typedef struct _WorkerPool WorkerPool;
+__HOLO_CLIENT_BEGIN_DECLS
 
-WorkerPool* holo_client_new_worker_pool(HoloConfig);
-int holo_client_start_worker_pool(WorkerPool*);
-int holo_client_worker_pool_status(WorkerPool*);
-int holo_client_stop_worker_pool(WorkerPool*);
-int holo_client_close_worker_pool(WorkerPool*);
+struct _HoloWorkerPool;
+typedef struct _HoloWorkerPool HoloWorkerPool;
+
+HoloWorkerPool* holo_client_new_worker_pool(HoloConfig, bool, int);
+int holo_client_start_worker_pool(HoloWorkerPool*);
+int holo_client_worker_pool_status(const HoloWorkerPool*);
+int holo_client_stop_worker_pool(HoloWorkerPool*);
+int holo_client_close_worker_pool(HoloWorkerPool*);
+
+__HOLO_CLIENT_END_DECLS
 
 #endif

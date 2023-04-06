@@ -51,8 +51,9 @@ connInfo := "host=xxxx port=xx dbname=xxxxx user=xxxxx password=xxxxx"
 config := holoclient.NewHoloConfig(connInfo)
 config.SetWriteMode(holoclient.INSERT_OR_REPLACE)
 client := holoclient.NewHoloClient(config)
+
 //create table test_go_put (id int, f1 real, f2 boolean, f3 text, f4 int[], f5 boolean[], f6 real[], f7 float[], primary key(id))
-schema := client.GetTableschema("", "test_go_put", false)
+schema := client.GetTableschema("", "test_go_put", true)
 
 intArray := [] int32{3,4,5,6}
 boolArray := [] bool{true, false, true}
@@ -63,7 +64,7 @@ for i := 0; i < 100; i++ {
 	put.SetInt32ValByColIndex(0, int32(i)) //含主键表的主键必须要设置
 	put.SetFloat32ValByColIndex(1, 123.234)
 	put.SetBoolValByColIndex(2, true)
-	put.SetTextValByColIndex(3, "hello")
+	put.SetTextValByColIndex(3, "hello", 5)
 	put.SetInt32ArrayValByColIndex(4, intArray)
 	put.SetBoolArrayValByColIndex(5, boolArray)
 	put.SetFloat32ArrayValByColIndex(6, floatArray)
@@ -91,14 +92,14 @@ schema := client.GetTableschema("schema_name", "table_name", true)
 
 put := holoclient.NewMutationRequest(schema)
 put.SetInt32ValByColIndex(0, 0)
-put.SetTextValByColIndex(1, "name0")
-put.SetTextValByColIndex(2, "address0")
+put.SetTextValByColIndex(1, "name0", 5)
+put.SetTextValByColIndex(2, "address0", 8)
 client.Submit(put)
 
 put = holoclient.NewMutationRequest(schema)
 put.SetInt32ValByColIndex(0, 1)
-put.SetTextValByColIndex(1, "name1")
-put.SetTextValByColIndex(2, "address1")
+put.SetTextValByColIndex(1, "name1", 5)
+put.SetTextValByColIndex(2, "address1", 8)
 client.Submit(put)
 
 client.Flush()
@@ -146,7 +147,7 @@ schema := client.GetTableschema("schema_name", "table_name", true)
 
 for i := 0; i < 100; i++ {
 	get := holoclient.NewGetRequest(schema)
-	get.SetGetValByColIndex(0, strconv.Itoa(i)) //点查必须设置所有的主键
+	get.SetGetValByColIndex(0, strconv.Itoa(i), len(strconv.Itoa(i))) //点查必须设置所有的主键
 	res := client.Get(get) //可以多线程调用client点查提高效率
 	fmt.Printf("Record %d:\n", i)
 	if res == nil { //查不到记录或者发生异常
@@ -173,15 +174,15 @@ holoclient.HoloClientLoggerClose()
 | dynamicPartition | false | 若为true，当分区不存在时自动创建分区 |
 | writeMode | INSERT_OR_REPLACE | 当INSERT目标表为有主键的表时采用不同策略<br>INSERT_OR_IGNORE 当主键冲突时，不写入<br>INSERT_OR_UPDATE 当主键冲突时，更新相应列<br>INSERT_OR_REPLACE当主键冲突时，更新所有列|
 | batchSize | 512 | 每个写入线程的最大批次大小，在经过WriteMode合并后的插入数量达到batchSize时进行一次批量提交 |
-| threadSize | 3 | 写入并发线程数（每个并发占用1个数据库连接） |
-| shardCollectorSize | 6 | 每个表的缓冲区个数，建议shardCollectorSize大于threadSize |
+| threadSize | 1 | 写入并发线程数（每个并发占用1个数据库连接） |
+| shardCollectorSize | 2 * threadSize | 每个表的缓冲区个数，建议shardCollectorSize大于threadSize |
 | writeBatchByteSize | 2MB | 每个写入线程的最大批次bytes大小，在经过WriteMode合并后的插入数据字节数达到writeBatchByteSize时进行一次批量提交 |
 | writeBatchTotalByteSize | writeBatchByteSize * shardCollectorSize | 所有表所有缓冲区所有数据总和最大bytes大小，达到writeBatchTotalByteSize时全部提交 |
 | writeMaxIntervalMs | 10000 ms | 距离上次提交超过writeMaxIntervalMs会触发一次批量提交 |
 | exceptionHandler | handle_exception_by_doing_nothing | 对于写入失败的数据的处理函数 |
 | retryCount | 3 | 当连接故障时的重试次数 |
-| retrySleepInitMs | 1000 ms | 每次重试的等待时间=retrySleepInitMs+retry*retrySleepStepMs |
-| retrySleepStepMs | 10*1000 ms | 每次重试的等待时间=retrySleepInitMs+retry*retrySleepStepMs |
+| retrySleepInitMs | 1000 ms | 每次重试的等待时间 = retrySleepInitMs + retry * retrySleepStepMs |
+| retrySleepStepMs | 10 * 1000 ms | 每次重试的等待时间 = retrySleepInitMs + retry * retrySleepStepMs |
 | connectionMaxIdleMs| 60000 ms | 写入线程数据库连接的最大Idle时间，超过连接将被释放|
 
 
@@ -318,13 +319,13 @@ func main() {
 	C.holo_client_set_req_int32_val_by_colindex(mutation, 0, 123)
 	C.holo_client_set_req_bool_val_by_colindex(mutation, 1, true)
 	content := C.CString("text")
-	C.holo_client_set_req_text_val_by_colindex(mutation, 2, content)
+	C.holo_client_set_req_text_val_by_colindex(mutation, 2, content, 4)
 	C.holo_client_set_req_float_val_by_colindex(mutation, 3, 10.211)
 	C.holo_client_set_req_double_val_by_colindex(mutation, 4, 10.211)
 	intArray := [5] int32{1,2,3,4,5}
 	C.holo_client_set_req_int32_array_val_by_colindex(mutation, 1, (*C.int)(unsafe.Pointer(&intArray)) , 5)
 	decimal := C.CString("10.211")
-	C.holo_client_set_req_val_with_text_by_colindex(mutation, 3, decimal)
+	C.holo_client_set_req_val_with_text_by_colindex(mutation, 3, decimal, 6)
 	C.holo_client_submit(client, mutation)
 	C.free(unsafe.Pointer(content))
 	C.free(unsafe.Pointer(decimal))
@@ -370,7 +371,7 @@ func main() {
 	for i := 0; i < 100; i++ {
 		get := C.holo_client_new_get_request(schema)
 		val := C.CString(strconv.Itoa(i)) //以string的方式设置pk
-		C.holo_client_set_get_val_with_text_by_colindex(get, 0, val)
+		C.holo_client_set_get_val_with_text_by_colindex(get, 0, val, len(val))
 		C.holo_client_get(client, get);
 	    res := C.holo_client_get_record(get)
 		fmt.Printf("Record %d:\n", i)

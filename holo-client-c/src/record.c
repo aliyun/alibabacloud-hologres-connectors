@@ -4,10 +4,10 @@
 #include "utils.h"
 #include "murmur3.h"
 
-Record* holo_client_new_record(TableSchema* schema){
+HoloRecord* holo_client_new_record(HoloTableSchema* schema){
     if (schema == NULL) return NULL;
-    Record* record = MALLOC(1, Record);
-    record->byteSize = sizeof(Record);
+    HoloRecord* record = MALLOC(1, HoloRecord);
+    record->byteSize = sizeof(HoloRecord);
     record->schema = schema;
     int mSize = schema->nColumns * (sizeof(char*) + sizeof(bool) + 2 * sizeof(int));
     void* mPool = MALLOC(mSize, char);
@@ -26,7 +26,7 @@ Record* holo_client_new_record(TableSchema* schema){
     return record;
 }
 
-void holo_client_destroy_record(Record* record){
+void holo_client_destroy_record(HoloRecord* record){
     if (record == NULL) return;
     for (int i = 0;i < record->schema->nColumns;i++) {
         destroy_record_val(record, i);
@@ -38,27 +38,26 @@ void holo_client_destroy_record(Record* record){
     FREE(record);
 }
 
-void* new_record_val(Record* record, int length){
+void* new_record_val(HoloRecord* record, int length){
     return MALLOC(length, char);
 }
 
-void revoke_record_val(void* addr, Record* record, int length){
+void revoke_record_val(void* addr, HoloRecord* record, int length){
     FREE(addr);
 }
 
-void destroy_record_val(Record* record, int colIndex){
-    void* addr = record->values[colIndex];
+void destroy_record_val(HoloRecord* record, int colIndex){
     FREE(record->values[colIndex]);
 }
 
-RecordItem* create_record_item(Record* record) {
+RecordItem* create_record_item(HoloRecord* record) {
     RecordItem* item = MALLOC(1, RecordItem);
     item->record = record;
     return item;
 }
 
-bool has_same_pk(Record* record1, Record* record2) {
-    TableSchema* schema;
+bool has_same_pk(HoloRecord* record1, HoloRecord* record2) {
+    HoloTableSchema* schema = NULL;
     if (record1->schema != record2->schema) return false;
     schema = record1->schema;
     for (int i = 0; i < schema->nPrimaryKeys; i++) {
@@ -73,31 +72,47 @@ bool has_same_pk(Record* record1, Record* record2) {
     return true;
 }
 
-char* holo_client_record_table_name(Record* record) {
+char* holo_client_record_table_name(const HoloRecord* record) {
+    if (record == NULL) {
+        LOG_ERROR("HoloRecord is NULL.");
+        return NULL;
+    }
+    if (record->schema == NULL) {
+        LOG_ERROR("HoloRecord has no schema.");
+        return NULL;
+    }
     return record->schema->tableName->fullName;
 }
 
-int holo_client_record_num_column(Record* record) {
+int holo_client_record_num_column(const HoloRecord* record) {
+    if (record == NULL) {
+        LOG_ERROR("HoloRecord is NULL.");
+        return -1;
+    }
+    if (record->schema == NULL) {
+        LOG_ERROR("HoloRecord has no schema.");
+        return -1;
+    }
     return record->schema->nColumns;
 }
 
-int16_t holo_client_get_record_int16_val_by_colindex(Record* record, int colIndex) {
+int16_t holo_client_get_record_int16_val_by_colindex(const HoloRecord* record, int colIndex) {
     int16_t val;
-    if (record->schema->columns[colIndex].type != 21 || !record->valuesSet[colIndex]) return 0;
+    if (record->schema->columns[colIndex].type != HOLO_TYPE_INT2 || !record->valuesSet[colIndex]) return 0;
     memcpy(&val, record->values[colIndex], 2);
     endian_swap(&val, 2);
     return val;
 }
 
-int32_t holo_client_get_record_int32_val_by_colindex(Record* record, int colIndex) {
+int32_t holo_client_get_record_int32_val_by_colindex(const HoloRecord* record, int colIndex) {
     int32_t val;
-    if (record->schema->columns[colIndex].type != 23 || !record->valuesSet[colIndex]) return 0;
+    if (record->schema->columns[colIndex].type != HOLO_TYPE_INT4 || !record->valuesSet[colIndex]) return 0;
     memcpy(&val, record->values[colIndex], 4);
     endian_swap(&val, 4);
     return val;
 }
 
-int64_t holo_client_get_record_int64_val_by_colindex(Record* record, int colIndex) {
+int64_t holo_client_get_record_int64_val_by_colindex(const HoloRecord* record, int colIndex) {
     int64_t val;
     if (!record->valuesSet[colIndex] || !(record->valueFormats[colIndex] == 1) || !(record->valueLengths[colIndex] == 8)) return 0;
     memcpy(&val, record->values[colIndex], 8);
@@ -105,38 +120,38 @@ int64_t holo_client_get_record_int64_val_by_colindex(Record* record, int colInde
     return val;
 }
 
-bool holo_client_get_record_bool_val_by_colindex(Record* record, int colIndex) {
-    if (record->schema->columns[colIndex].type != 16 || !record->valuesSet[colIndex]) return false;
+bool holo_client_get_record_bool_val_by_colindex(const HoloRecord* record, int colIndex) {
+    if (record->schema->columns[colIndex].type != HOLO_TYPE_BOOL || !record->valuesSet[colIndex]) return false;
     if (*(bool*)record->values[colIndex] == 1) return true;
     return false;
 }
 
-float holo_client_get_record_float_val_by_colindex(Record* record, int colIndex) {
+float holo_client_get_record_float_val_by_colindex(const HoloRecord* record, int colIndex) {
     float val;
-    if (record->schema->columns[colIndex].type != 700 || !record->valuesSet[colIndex]) return 0;
+    if (record->schema->columns[colIndex].type != HOLO_TYPE_FLOAT4 || !record->valuesSet[colIndex]) return 0;
     memcpy(&val, record->values[colIndex], 4);
     endian_swap(&val, 4);
     return val;
 }
 
-double holo_client_get_record_double_val_by_colindex(Record* record, int colIndex) {
+double holo_client_get_record_double_val_by_colindex(const HoloRecord* record, int colIndex) {
     double val;
-    if (record->schema->columns[colIndex].type != 701 || !record->valuesSet[colIndex]) return 0;
+    if (record->schema->columns[colIndex].type != HOLO_TYPE_FLOAT8 || !record->valuesSet[colIndex]) return 0;
     memcpy(&val, record->values[colIndex], 8);
     endian_swap(&val, 8);
     return val;
 }
 
-char* holo_client_get_record_text_val_by_colindex(Record* record, int colIndex) {
-    if (record->schema->columns[colIndex].type != 25) return NULL;
+char* holo_client_get_record_text_val_by_colindex(const HoloRecord* record, int colIndex) {
+    if (record->schema->columns[colIndex].type != HOLO_TYPE_TEXT) return NULL;
     return deep_copy_string(record->values[colIndex]);
 }
 
-int32_t* holo_client_get_record_int32_array_val_by_colindex(Record* record, int colIndex, int* numValues) {
+int32_t* holo_client_get_record_int32_array_val_by_colindex(const HoloRecord* record, int colIndex, int* numValues) {
     int n;
     int32_t* array;
     char* cur;
-    if (record->schema->columns[colIndex].type != 1007 || record->valueFormats[colIndex] == 0 || !record->valuesSet[colIndex] || record->values[colIndex] == NULL) {
+    if (record->schema->columns[colIndex].type != HOLO_TYPE_INT4_ARRAY || record->valueFormats[colIndex] == 0 || !record->valuesSet[colIndex] || record->values[colIndex] == NULL) {
         *numValues = -1;
         return NULL;
     }
@@ -151,11 +166,11 @@ int32_t* holo_client_get_record_int32_array_val_by_colindex(Record* record, int 
     }
     return array;
 }
-int64_t* holo_client_get_record_int64_array_val_by_colindex(Record* record, int colIndex, int* numValues) {
+int64_t* holo_client_get_record_int64_array_val_by_colindex(const HoloRecord* record, int colIndex, int* numValues) {
     int n;
     int64_t* array;
     char* cur;
-    if (record->schema->columns[colIndex].type != 1016 || record->valueFormats[colIndex] == 0 || !record->valuesSet[colIndex] || record->values[colIndex] == NULL) {
+    if (record->schema->columns[colIndex].type != HOLO_TYPE_INT8_ARRAY || record->valueFormats[colIndex] == 0 || !record->valuesSet[colIndex] || record->values[colIndex] == NULL) {
         *numValues = -1;
         return NULL;
     }
@@ -170,11 +185,11 @@ int64_t* holo_client_get_record_int64_array_val_by_colindex(Record* record, int 
     }
     return array;
 }
-bool* holo_client_get_record_bool_array_val_by_colindex(Record* record, int colIndex, int* numValues) {
+bool* holo_client_get_record_bool_array_val_by_colindex(const HoloRecord* record, int colIndex, int* numValues) {
     int n;
     bool* array;
     char* cur;
-    if (record->schema->columns[colIndex].type != 1000 || record->valueFormats[colIndex] == 0 || !record->valuesSet[colIndex] || record->values[colIndex] == NULL) {
+    if (record->schema->columns[colIndex].type != HOLO_TYPE_BOOL_ARRAY || record->valueFormats[colIndex] == 0 || !record->valuesSet[colIndex] || record->values[colIndex] == NULL) {
         *numValues = -1;
         return NULL;
     }
@@ -189,11 +204,11 @@ bool* holo_client_get_record_bool_array_val_by_colindex(Record* record, int colI
     }
     return array;
 }
-float* holo_client_get_record_float_array_val_by_colindex(Record* record, int colIndex, int* numValues) {
+float* holo_client_get_record_float_array_val_by_colindex(const HoloRecord* record, int colIndex, int* numValues) {
     int n;
     float* array;
     char* cur;
-    if (record->schema->columns[colIndex].type != 1021 || record->valueFormats[colIndex] == 0 || !record->valuesSet[colIndex] || record->values[colIndex] == NULL) {
+    if (record->schema->columns[colIndex].type != HOLO_TYPE_FLOAT4_ARRAY || record->valueFormats[colIndex] == 0 || !record->valuesSet[colIndex] || record->values[colIndex] == NULL) {
         *numValues = -1;
         return NULL;
     }
@@ -208,11 +223,11 @@ float* holo_client_get_record_float_array_val_by_colindex(Record* record, int co
     }
     return array;
 }
-double* holo_client_get_record_double_array_val_by_colindex(Record* record, int colIndex, int* numValues) {
+double* holo_client_get_record_double_array_val_by_colindex(const HoloRecord* record, int colIndex, int* numValues) {
     int n;
     double* array;
     char* cur;
-    if (record->schema->columns[colIndex].type != 1022 || record->valueFormats[colIndex] == 0 || !record->valuesSet[colIndex] || record->values[colIndex] == NULL) {
+    if (record->schema->columns[colIndex].type != HOLO_TYPE_FLOAT8_ARRAY || record->valueFormats[colIndex] == 0 || !record->valuesSet[colIndex] || record->values[colIndex] == NULL) {
         *numValues = -1;
         return NULL;
     }
@@ -227,11 +242,11 @@ double* holo_client_get_record_double_array_val_by_colindex(Record* record, int 
     }
     return array;
 }
-char** holo_client_get_record_text_array_val_by_colindex(Record* record, int colIndex, int* numValues) {
+char** holo_client_get_record_text_array_val_by_colindex(const HoloRecord* record, int colIndex, int* numValues) {
     int n;
     char** array;
     char* cur;
-    if (record->schema->columns[colIndex].type != 1009 || record->valueFormats[colIndex] == 0 || !record->valuesSet[colIndex] || record->values[colIndex] == NULL) {
+    if (record->schema->columns[colIndex].type != HOLO_TYPE_TEXT_ARRAY || record->valueFormats[colIndex] == 0 || !record->valuesSet[colIndex] || record->values[colIndex] == NULL) {
         *numValues = -1;
         return NULL;
     }
@@ -262,8 +277,8 @@ void holo_client_destroy_text_array_val(char** val, int n) {
     val= NULL;
 }
 
-char* holo_client_get_record_val_with_text_by_colindex(Record* record, int colIndex) {
-    char* res;
+char* holo_client_get_record_val_with_text_by_colindex(const HoloRecord* record, int colIndex) {
+    char* res = NULL;
     int length;
     if (!record->valuesSet[colIndex] || record->values[colIndex] == NULL) {
         return NULL;
@@ -273,48 +288,48 @@ char* holo_client_get_record_val_with_text_by_colindex(Record* record, int colIn
     }
     switch (record->schema->columns[colIndex].type)
     {
-    case 21:
+    case HOLO_TYPE_INT2:
         return int16toa(holo_client_get_record_int16_val_by_colindex(record, colIndex));
-    case 23:
+    case HOLO_TYPE_INT4:
         return int32toa(holo_client_get_record_int32_val_by_colindex(record, colIndex));
-    case 20:
+    case HOLO_TYPE_INT8:
         return int64toa(holo_client_get_record_int64_val_by_colindex(record, colIndex));
-    case 16:
+    case HOLO_TYPE_BOOL:
         return btoa(holo_client_get_record_bool_val_by_colindex(record, colIndex));
-    case 700:
+    case HOLO_TYPE_FLOAT4:
         return ftoa(holo_client_get_record_float_val_by_colindex(record, colIndex));
-    case 701:
+    case HOLO_TYPE_FLOAT8:
         return dtoa(holo_client_get_record_double_val_by_colindex(record, colIndex));
-    case 1114:
+    case HOLO_TYPE_TIMESTAMP:
         return int64toa(holo_client_get_record_int64_val_by_colindex(record, colIndex));
-    case 1184:
+    case HOLO_TYPE_TIMESTAMPTZ:
         return int64toa(holo_client_get_record_int64_val_by_colindex(record, colIndex));
-    case 1007: {
+    case HOLO_TYPE_INT4_ARRAY: {
         int32_t* int32array = holo_client_get_record_int32_array_val_by_colindex(record, colIndex, &length);
         res = int32_array_toa(int32array, length);
         FREE(int32array);
         return res;}
-    case 1016: {
+    case HOLO_TYPE_INT8_ARRAY: {
         int64_t* int64array = holo_client_get_record_int64_array_val_by_colindex(record, colIndex, &length);
         res = int64_array_toa(int64array, length);
         FREE(int64array);
         return res;}
-    case 1000: {
+    case HOLO_TYPE_BOOL_ARRAY: {
         bool* boolarray = holo_client_get_record_bool_array_val_by_colindex(record, colIndex, &length);
         res = bool_array_toa(boolarray, length);
         FREE(boolarray);
         return res;}
-    case 1021: {
+    case HOLO_TYPE_FLOAT4_ARRAY: {
         float* floatarray = holo_client_get_record_float_array_val_by_colindex(record, colIndex, &length);
         res = float_array_toa(floatarray, length);
         FREE(floatarray);
         return res;}
-    case 1022: {
+    case HOLO_TYPE_FLOAT8_ARRAY: {
         double* doublearray = holo_client_get_record_double_array_val_by_colindex(record, colIndex, &length);
         res = double_array_toa(doublearray, length);
         FREE(doublearray);
         return res;}
-    case 1009: {
+    case HOLO_TYPE_TEXT_ARRAY: {
         char** textarray = holo_client_get_record_text_array_val_by_colindex(record, colIndex, &length);
         res = text_array_toa(textarray, length);
         holo_client_destroy_text_array_val(textarray, length);
@@ -329,8 +344,8 @@ void holo_client_destroy_val(void* val) {
     FREE(val);
 }
 
-int record_pk_hash_code(Record* record, int size) {
-    TableSchema* schema = record->schema;
+int record_pk_hash_code(HoloRecord* record, int size) {
+    HoloTableSchema* schema = record->schema;
     unsigned raw = 0;
     bool first = true;
     for (int i = 0;i < schema->nPrimaryKeys;i++){

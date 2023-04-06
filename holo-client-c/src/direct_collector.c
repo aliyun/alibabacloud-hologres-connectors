@@ -4,7 +4,7 @@
 
 typedef struct _DCArgs {
     DirectCollector* collector;
-    WorkerPool* pool;
+    HoloWorkerPool* pool;
 } DCArgs;
 
 DirectCollector* holo_client_new_direct_collector() {
@@ -23,10 +23,10 @@ DirectCollector* holo_client_new_direct_collector() {
 void* watch_direct_collector_run(void* argsPtr) {
     DCArgs* args = argsPtr;
     DirectCollector* collector = args->collector;
-    WorkerPool* pool = args->pool;
+    HoloWorkerPool* pool = args->pool;
     dlist_mutable_iter miter;
     ActionItem* actionItem;
-    Action* action;
+    Action* action = NULL;
     pthread_mutex_lock(collector->mutex);
     while(collector->status == 1 || collector->numActions > 0) {
         dlist_foreach_modify(miter, &(collector->actionsToDo)) {
@@ -48,7 +48,7 @@ void* watch_direct_collector_run(void* argsPtr) {
     return NULL;
 }
 
-int holo_client_start_watch_direct_collector(DirectCollector* collector, WorkerPool* pool) {
+int holo_client_start_watch_direct_collector(DirectCollector* collector, HoloWorkerPool* pool) {
     int rc;
     DCArgs* args = MALLOC(1, DCArgs);
     args->collector = collector;
@@ -63,7 +63,7 @@ int holo_client_start_watch_direct_collector(DirectCollector* collector, WorkerP
 }
 
 void holo_client_add_meta_request_to_direct_collector(DirectCollector* collector, Meta meta) {
-    MetaAction* action;
+    MetaAction* action = NULL;
     pthread_mutex_lock(collector->mutex);
     action = holo_client_new_meta_action(meta);
     dlist_push_tail(&(collector->actionsToDo), &(create_action_item((Action*)action)->list_node));
@@ -73,7 +73,7 @@ void holo_client_add_meta_request_to_direct_collector(DirectCollector* collector
 }
 
 void holo_client_add_sql_request_to_direct_collector(DirectCollector* collector, Sql sql) {
-    SqlAction* action;
+    SqlAction* action = NULL;
     pthread_mutex_lock(collector->mutex);
     action = holo_client_new_sql_action(sql);
     dlist_push_tail(&(collector->actionsToDo), &(create_action_item((Action*)action)->list_node));

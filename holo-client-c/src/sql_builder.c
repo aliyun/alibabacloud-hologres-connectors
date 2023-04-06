@@ -2,56 +2,56 @@
 #include "logger.h"
 #include "unistd.h"
 
-char* get_type_name_with_oid(unsigned int typeOid) {
-    char* ret;
+const char* holo_client_get_type_name_with_type_oid(unsigned int typeOid) {
+    const char* ret = NULL;
     switch (typeOid)
     {
-    case 16:    //bool
+    case HOLO_TYPE_BOOL:
         ret = "bool";
         break;
-    case 20:    //int8
+    case HOLO_TYPE_INT8:
         ret = "int8";
         break;
-    case 23:    //int4
+    case HOLO_TYPE_INT4:
         ret = "int4";
         break;
-    case 21:    //int2
+    case HOLO_TYPE_INT2:
         ret = "smallint";
         break;
-    case 700:   //float
+    case HOLO_TYPE_FLOAT4:
         ret = "float4";
         break;
-    case 701:   //float8
+    case HOLO_TYPE_FLOAT8:
         ret = "float8";
         break;
-    case 18:    //char
+    case HOLO_TYPE_CHAR:
         ret = "char";
         break;
-    case 1043:  //varchar
+    case HOLO_TYPE_VARCHAR:
         ret = "varchar";
         break;
-    case 25:    //text
+    case HOLO_TYPE_TEXT:
         ret = "text";
         break;
-    case 17:    //bytea
+    case HOLO_TYPE_BYTEA:
         ret = "bytea";
         break;
-    case 114:   //json
+    case HOLO_TYPE_JSON:
         ret = "json";
         break;
-    case 3802:  //jsonb
+    case HOLO_TYPE_JSONB:
         ret = "jsonb";
         break;
-    case 1114:  //timestamp
+    case HOLO_TYPE_TIMESTAMP:
         ret = "timestamp";
         break;
-    case 1184:  //timestamptz
+    case HOLO_TYPE_TIMESTAMPTZ:
         ret = "timestamptz";
         break;
-    case 1082:  //date
+    case HOLO_TYPE_DATE:
         ret = "date";
         break;
-    case 1700:  //numeric
+    case HOLO_TYPE_NUMERIC:
         ret = "numeric";
         break;
     default:
@@ -75,7 +75,7 @@ char* build_unnest_insert_sql_with_batch(Batch* batch, int nRecords){
     int count = 0;
     for (int i = 0; i < batch->schema->nColumns; i++) {
         if (!batch->valuesSet[i]) continue;
-        length += 13 + strlen(get_type_name_with_oid(batch->schema->columns[i].type)); // "unnest(::<typeName>[]),"
+        length += 13 + strlen(holo_client_get_type_name_with_type_oid(batch->schema->columns[i].type)); // "unnest(::<typeName>[]),"
         length += 1 + len_of_int(++count); // "$<count>"
     }
     if (batch->schema->nPrimaryKeys != 0) {
@@ -130,7 +130,7 @@ char* build_unnest_insert_sql_with_batch(Batch* batch, int nRecords){
         FREE(number);
         strncpy(sql + position, "::", 3);
         position += 2;
-        char* typeName = get_type_name_with_oid(batch->schema->columns[i].type);
+        const char* typeName = holo_client_get_type_name_with_type_oid(batch->schema->columns[i].type);
         strncpy(sql + position, typeName, strlen(typeName));
         position += strlen(typeName);
         strncpy(sql + position, "[])", 4);
@@ -362,7 +362,7 @@ char* build_delete_sql_with_batch(Batch* batch, int nRecords){
     return sql;
 }
 
-char* build_get_sql(TableSchema* schema, int nRecords) {
+char* build_get_sql(HoloTableSchema* schema, int nRecords) {
     //SELECT * FROM xx WHERE (f1=$1 and f2=$2) or (f1=$3 and f2=$4)
     int length = 21 - 4;
     length += strlen(schema->tableName->fullName);

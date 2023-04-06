@@ -4,7 +4,7 @@
 #include "logger.h"
 #include "murmur3.h"
 
-ShardCollector* holo_client_new_shard_collector(WorkerPool* pool, int batchSize, long writeMaxIntervalMs, bool hasPK, long maxByteSize) {
+ShardCollector* holo_client_new_shard_collector(HoloWorkerPool* pool, int batchSize, long writeMaxIntervalMs, bool hasPK, long maxByteSize) {
     ShardCollector* collector = MALLOC(1, ShardCollector);
     collector->map = holo_client_new_mutation_map(batchSize);
     collector->mutex = MALLOC(1, pthread_mutex_t);
@@ -31,7 +31,7 @@ bool shard_collector_should_flush(ShardCollector* collector) {
     return false;
 }
 
-long holo_client_add_request_to_shard_collector(ShardCollector* collector, Mutation mutation) {
+long holo_client_add_request_to_shard_collector(ShardCollector* collector, HoloMutation mutation) {
     long before, after;
     pthread_mutex_lock(collector->mutex);
     if (collector->numRequests == 0) collector->startTime = current_time_ms();
@@ -70,8 +70,8 @@ void holo_client_destroy_shard_collector(ShardCollector* collector) {
 
 void do_flush_shard_collector(ShardCollector* collector) {
     if (collector->numRequests == 0) return;
-    MutationAction* action;
-    Mutation mutation;
+    MutationAction* action = NULL;
+    HoloMutation mutation = NULL;
     //LOG_DEBUG("starting flush shard collector"); 
     action = holo_client_new_mutation_action();
     action->numRequests = collector->numRequests;
@@ -115,7 +115,7 @@ void holo_client_try_flush_shard_collector(ShardCollector* collector) {
     }
 }
 
-TableCollector* holo_client_new_table_collector(TableSchema* schema, WorkerPool* pool, int batchSize, long writeMaxIntervalMs, long maxByteSize) {
+TableCollector* holo_client_new_table_collector(HoloTableSchema* schema, HoloWorkerPool* pool, int batchSize, long writeMaxIntervalMs, long maxByteSize) {
     TableCollector* collector = MALLOC(1, TableCollector);
     collector->schema = schema;
     collector->numRequests = 0;
@@ -131,7 +131,7 @@ TableCollector* holo_client_new_table_collector(TableSchema* schema, WorkerPool*
     return collector;
 }
 
-int shard_hash(Record* record, int nShards){
+int shard_hash(HoloRecord* record, int nShards){
     unsigned raw = 0;
     bool first = true;
     for (int i = 0;i < record->schema->nDistributionKeys;i++){
@@ -158,7 +158,7 @@ int shard_hash(Record* record, int nShards){
     return index;
 }
 
-long holo_client_add_request_to_table_collector(TableCollector* collector, Mutation mutation) {
+long holo_client_add_request_to_table_collector(TableCollector* collector, HoloMutation mutation) {
     int shard = shard_hash(mutation->record, collector->nShardCollectors);
     long byteChange = holo_client_add_request_to_shard_collector(collector->shardCollectors[shard],  mutation);
     collector->byteSize += byteChange;
@@ -196,7 +196,7 @@ void holo_client_destroy_table_collector(TableCollector* collector) {
     FREE(collector);
 }
 
-MutationCollector* holo_client_new_mutation_collector(WorkerPool* pool, HoloConfig config) {
+MutationCollector* holo_client_new_mutation_collector(HoloWorkerPool* pool, HoloConfig config) {
     MutationCollector* collector = MALLOC(1, MutationCollector);
     collector->pool = pool;
     dlist_init(&(collector->tableCollectors));
@@ -216,13 +216,11 @@ MutationCollector* holo_client_new_mutation_collector(WorkerPool* pool, HoloConf
 void* watch_mutation_collector_run(void* mutationCollector) {
     int waitInMs = 1000;
     MutationCollector* collector = mutationCollector;
-    WorkerPool* pool = collector->pool;
+    HoloWorkerPool* pool = collector->pool;
     dlist_iter iter;
     TableCollectorItem* item;
     pthread_mutex_t fakeMutex = PTHREAD_MUTEX_INITIALIZER;
     pthread_cond_t fakeCond = PTHREAD_COND_INITIALIZER;
-    struct timespec timeToWait;
-    struct timeval now;
     long byteBefore, byteAfter;
 
     while(collector->status == 1) {
@@ -265,7 +263,7 @@ TableCollectorItem* create_table_collector_item(TableCollector* tableCollector) 
     return item;
 }
 
-TableCollector* find_table_collector(MutationCollector* collector, TableSchema* schema) {
+TableCollector* find_table_collector(MutationCollector* collector, HoloTableSchema* schema) {
     TableCollector* tableCollector = NULL;
     dlist_iter iter;
     TableCollectorItem* item;
@@ -279,8 +277,8 @@ TableCollector* find_table_collector(MutationCollector* collector, TableSchema* 
     return tableCollector;
 }
 
-TableCollector* find_or_create_table_collector(MutationCollector* collector, TableSchema* schema) {
-    TableCollector* tableCollector;
+TableCollector* find_or_create_table_collector(MutationCollector* collector, HoloTableSchema* schema) {
+    TableCollector* tableCollector = NULL;
     pthread_rwlock_rdlock(collector->rwLock);
     tableCollector = find_table_collector(collector, schema);
     pthread_rwlock_unlock(collector->rwLock);
@@ -298,7 +296,7 @@ TableCollector* find_or_create_table_collector(MutationCollector* collector, Tab
 }
 
 
-void holo_client_add_request_to_mutation_collector(MutationCollector* collector, Mutation mutation) {
+void holo_client_add_request_to_mutation_collector(MutationCollector* collector, HoloMutation mutation) {
     TableCollector* tableCollector = find_or_create_table_collector(collector, mutation->record->schema);
     long byteChange = holo_client_add_request_to_table_collector(tableCollector, mutation);
     collector->byteSize += byteChange;
@@ -315,7 +313,7 @@ int holo_client_stop_watch_mutation_collector(MutationCollector* collector) {
 
 void holo_client_destroy_mutation_collector(MutationCollector* collector) {
     TableCollectorItem* item;
-    TableCollector* tableCollector;
+    TableCollector* tableCollector = NULL;
     dlist_mutable_iter miter;
     dlist_foreach_modify(miter, &(collector->tableCollectors)) {
         item = dlist_container(TableCollectorItem, list_node, miter.cur);

@@ -3,20 +3,20 @@
 #include "table_schema_private.h"
 #include "logger.h"
 
-SchemaItem* create_schema_item(TableSchema* schema) {
+SchemaItem* create_schema_item(HoloTableSchema* schema) {
     SchemaItem* item = MALLOC(1, SchemaItem);
     item->schema = schema;
     return item;
 }
 
-ParentItem* create_parent_item(TableSchema** parent) {
+ParentItem* create_parent_item(HoloTableSchema** parent) {
     ParentItem* item = MALLOC(1, ParentItem);
     item->parent = parent;
     dlist_init(&(item->partitions));
     return item;
 }
 
-PartitionItem* create_partition_item(TableSchema** partition, char* value) {
+PartitionItem* create_partition_item(HoloTableSchema** partition, char* value) {
     PartitionItem* item = MALLOC(1, PartitionItem);
     item->partition = partition;
     item->value = deep_copy_string(value);
@@ -36,7 +36,7 @@ void clear_all_contents(MetaCache* cache) {
     SchemaItem* schemaItem;
     ParentItem* parentItem;
     PartitionItem* partitionItem;
-    TableSchema* schema;
+    HoloTableSchema* schema = NULL;
     dlist_mutable_iter miter, miter2;
     dlist_foreach_modify(miter, &(cache->parentList)) {
         parentItem = dlist_container(ParentItem, list_node, miter.cur);
@@ -66,8 +66,8 @@ void holo_client_destroy_metacache(MetaCache* cache) {
     cache = NULL;
 }
 
-TableSchema* find_tableschema_in_metacache(MetaCache* cache, TableName name) {
-    TableSchema* schema = NULL;
+HoloTableSchema* find_tableschema_in_metacache(MetaCache* cache, HoloTableName name) {
+    HoloTableSchema* schema = NULL;
     dlist_iter	iter;
     SchemaItem* schemaItem;
     pthread_rwlock_rdlock(cache->rwlock);
@@ -82,7 +82,7 @@ TableSchema* find_tableschema_in_metacache(MetaCache* cache, TableName name) {
     return schema;
 }
 
-void add_tableschema_to_metacache(MetaCache* cache, TableSchema* schema) {
+void add_tableschema_to_metacache(MetaCache* cache, HoloTableSchema* schema) {
     dlist_iter	iter;
     SchemaItem* schemaItem;
     bool updated = false;
@@ -107,9 +107,9 @@ void add_tableschema_to_metacache(MetaCache* cache, TableSchema* schema) {
     pthread_rwlock_unlock(cache->rwlock);
 }
 
-TableSchema* meta_cache_find_partition(MetaCache* cache, TableSchema* schema, char* value) {
+HoloTableSchema* meta_cache_find_partition(MetaCache* cache, HoloTableSchema* schema, char* value) {
     dlist_iter	iter, iter2;
-    TableSchema* partition = NULL;
+    HoloTableSchema* partition = NULL;
     ParentItem* parentItem;
     PartitionItem* partitionItem;
     pthread_rwlock_rdlock(cache->rwlock);
@@ -130,7 +130,7 @@ TableSchema* meta_cache_find_partition(MetaCache* cache, TableSchema* schema, ch
     return partition;
 }
 
-void meta_cache_add_partition(MetaCache* cache, TableSchema* parent, TableSchema* partition, char* value) {
+void meta_cache_add_partition(MetaCache* cache, HoloTableSchema* parent, HoloTableSchema* partition, char* value) {
     dlist_iter	iter;
     ParentItem* parentItem = NULL;
     SchemaItem* schemaItem = NULL;

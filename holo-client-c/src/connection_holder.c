@@ -7,6 +7,7 @@
 #include "ilist.h"
 #include "sql_builder.h"
 #include "holo_client.h"
+#include "exception.h"
 
 typedef struct _PrepareItem {
     dlist_node list_node;
@@ -40,7 +41,7 @@ typedef struct _GetSqlItem {
     dlist_node list_node;
     int numRecords;
     SqlCache* sqlCache;
-    TableSchema* schema;
+    HoloTableSchema* schema;
 } GetSqlItem;
 
 InsertSqlItem* create_sql_cache_item(Batch* batch, int nRecords, SqlCache* sqlCache) {
@@ -51,7 +52,7 @@ InsertSqlItem* create_sql_cache_item(Batch* batch, int nRecords, SqlCache* sqlCa
     return item;
 }
 
-GetSqlItem* create_get_sql_cache_item(int nRecords, SqlCache* sqlCache, TableSchema* schema) {
+GetSqlItem* create_get_sql_cache_item(int nRecords, SqlCache* sqlCache, HoloTableSchema* schema) {
     GetSqlItem* item = MALLOC(1, GetSqlItem);
     item->numRecords = nRecords;
     item->sqlCache = sqlCache;
@@ -92,14 +93,19 @@ void destroy_get_sql_cache(ConnectionHolder* connHolder) {
     }
 }
 
-ConnectionHolder* holo_client_new_connection_holder(HoloConfig config){
+ConnectionHolder* holo_client_new_connection_holder(HoloConfig config, bool isFixedFe){
     ConnectionHolder* connHolder = MALLOC(1, ConnectionHolder);
     connHolder->conn = NULL;
-    connHolder->connInfo = config.connInfo;
+    connHolder->useFixedFe = isFixedFe;
+    if (isFixedFe) {
+        connHolder->connInfo = generate_fixed_fe_conn_info(config.connInfo);
+    } else {
+        connHolder->connInfo = deep_copy_string(config.connInfo);
+    }
     connHolder->holoVersion = MALLOC(1, HoloVersion);
-    connHolder->holoVersion->majorVersion = 0;
-    connHolder->holoVersion->minorVersion = 0;
-    connHolder->holoVersion->fixVersion = 0;
+    connHolder->holoVersion->majorVersion = -1;
+    connHolder->holoVersion->minorVersion = -1;
+    connHolder->holoVersion->fixVersion = -1;
     connHolder->retryCount = config.retryCount;
     connHolder->retrySleepStepMs = config.retrySleepStepMs;
     connHolder->retrySleepInitMs = config.retrySleepInitMs;
@@ -111,6 +117,7 @@ ConnectionHolder* holo_client_new_connection_holder(HoloConfig config){
     connHolder->getSqlCount = 0;
     dlist_init(&(connHolder->getSqlCache));
     connHolder->handleExceptionByUser = config.exceptionHandler;
+    connHolder->exceptionHandlerParam = config.exceptionHandlerParam;
     return connHolder;
 }
 
@@ -123,12 +130,12 @@ extern PGresult *connection_holder_exec_params(ConnectionHolder *connHolder,
 	const int *paramFormats,
 	int resultFormat
 ){
-    PGresult *res;
-    char* stmtName;
+    PGresult *res = NULL;
+    char* stmtName = NULL;
     bool prepared = false;
     dlist_mutable_iter miter;
     PrepareItem* prepareItem;
-    const char* preparedCommand;
+    const char* preparedCommand = NULL;
     int preparedCount = 0;
     dlist_foreach_modify(miter, &(connHolder->prepareList)) {
         prepareItem = dlist_container(PrepareItem, list_node, miter.cur);
@@ -145,6 +152,7 @@ extern PGresult *connection_holder_exec_params(ConnectionHolder *connHolder,
         res = PQprepare(connHolder->conn, stmtName, command, nParams, paramTypes);
         if (PQresultStatus(res) != PGRES_COMMAND_OK){
             LOG_WARN("Prepare command failed.");
+            FREE(stmtName);
             return res;
         }
         //LOG_DEBUG("Prepared successfully. Statement name: %s", stmtName);
@@ -176,7 +184,11 @@ bool conneciton_holder_connect_or_reset_db(ConnectionHolder* connHolder){
         clear_prepare_list(connHolder);
     }
     if (connHolder->conn == NULL || PQstatus(connHolder->conn) != CONNECTION_OK) return false;
-    PGresult* res;
+    if (connHolder->useFixedFe) {
+        // if FixedFE, skip set guc
+        return true;
+    }
+    PGresult* res = NULL;
     res = PQexec(connHolder->conn, "set hg_experimental_enable_fixed_dispatcher = on");
     PQclear(res);
     res = PQexec(connHolder->conn, "set hg_experimental_enable_fixed_dispatcher_for_multi_values = on");
@@ -188,24 +200,21 @@ bool conneciton_holder_connect_or_reset_db(ConnectionHolder* connHolder){
     return true;
 }
 
-bool need_retry(char* errorMessage){
-    if (strstr(errorMessage, "onnection") != NULL) {
-        LOG_WARN("Connection Error.");
-        return true;
+bool need_retry(PGresult* res){
+    if (res == NULL) {
+        return false;
     }
-    if (strstr(errorMessage, "nvalid table id") != NULL ||
-    strstr(errorMessage, "efresh meta timeout") != NULL ||
-    strstr(errorMessage, "ismatches the version of the table") != NULL){
-        LOG_WARN("META NOT MATCH. Retrying...");
-        return true;
-    }
-    if (strstr(errorMessage, "ot allowed in readonly mode") != NULL){
-        LOG_WARN("READ ONLY. Retrying...");
-        return true;
-    }
-    if (strstr(errorMessage, "does not exist") != NULL && strstr(errorMessage, "relation") != NULL){
-        LOG_WARN("TABLE NOT FOUND. Retrying...");
-        return true;
+    HoloErrCode errCode = get_errcode_from_pg_res(res);
+    switch (errCode)
+    {
+    case CONNECTION_ERROR:
+    case META_NOT_MATCH:
+    case READ_ONLY:
+    case TOO_MANY_CONNECTIONS:
+    case BUSY:
+        return true; 
+    default:
+        break;
     }
     return false;
 }
@@ -236,7 +245,7 @@ extern PGresult *connection_holder_exec_params_with_retry(ConnectionHolder *conn
             if (res != NULL) PQclear(res);  //只保留最后一个res
             res = connection_holder_exec_params(connHolder, command, nParams, paramTypes, paramValues, paramLengths, paramFormats, resultFormat);
             if (PQresultStatus(res) == PGRES_COMMAND_OK || PQresultStatus(res) == PGRES_TUPLES_OK) return res;
-            needRetry = need_retry(PQresultErrorMessage(res));
+            needRetry = need_retry(res);
         }
         if (!needRetry) break;
         long long sleepTime = connHolder->retrySleepStepMs * i + connHolder->retrySleepInitMs;
@@ -261,7 +270,7 @@ void connection_holder_close_conn(ConnectionHolder* connHolder){
     LOG_INFO("Connection closed.");
 }
 
-bool compare_holo_version(HoloVersion* a, HoloVersion* b) {
+int compare_holo_version(HoloVersion* a, HoloVersion* b) {
     if (a->majorVersion != b->majorVersion) {
         return a->majorVersion - b->majorVersion;
     }
@@ -272,6 +281,10 @@ bool compare_holo_version(HoloVersion* a, HoloVersion* b) {
 }
 
 bool is_holo_version_support_unnest(ConnectionHolder* connHolder) {
+    if (connHolder->useFixedFe) {
+        // if FixedFE, support unnest mode by default
+        return true;
+    }
     if (connHolder->holoVersion == NULL) {
         LOG_ERROR("Check holo version failed.");
         return false;
@@ -291,22 +304,22 @@ bool is_holo_version_support_unnest(ConnectionHolder* connHolder) {
 bool is_type_support_unnest(unsigned int type) {
     switch (type)
     {
-    case 16:    //bool
-    case 20:    //int8
-    case 23:    //int4
-    case 21:    //int2
-    case 700:   //float
-    case 701:   //float8
-    case 18:    //char
-    case 1043:  //varchar
-    case 25:    //text
-    case 17:    //bytea
-    case 114:   //json
-    case 3802:  //jsonb
-    case 1114:  //timestamp
-    case 1184:  //timestamptz
-    case 1082:  //date
-    case 1700:  //numeric
+    case HOLO_TYPE_BOOL:
+    case HOLO_TYPE_INT8:
+    case HOLO_TYPE_INT4:
+    case HOLO_TYPE_INT2:
+    case HOLO_TYPE_FLOAT4:
+    case HOLO_TYPE_FLOAT8:
+    case HOLO_TYPE_CHAR:
+    case HOLO_TYPE_VARCHAR:
+    case HOLO_TYPE_TEXT:
+    case HOLO_TYPE_BYTEA:
+    case HOLO_TYPE_JSON:
+    case HOLO_TYPE_JSONB:
+    case HOLO_TYPE_TIMESTAMP:
+    case HOLO_TYPE_TIMESTAMPTZ:
+    case HOLO_TYPE_DATE:
+    case HOLO_TYPE_NUMERIC:
         return true;
         break;
     default:
@@ -341,11 +354,11 @@ bool is_batch_support_unnest(ConnectionHolder* connHolder, Batch* batch) {
 }
 
 SqlCache* connection_holder_get_or_create_sql_cache_with_batch(ConnectionHolder* connHolder, Batch* batch, int nRecords){
-    SqlCache* sqlCache;
+    SqlCache* sqlCache = NULL;
     bool cached = false;
     dlist_mutable_iter miter;
     InsertSqlItem* insertSqlItem;
-    Batch* cachedBatch;
+    Batch* cachedBatch = NULL;
 
     dlist_foreach_modify(miter, &(connHolder->sqlCache)) {
         insertSqlItem = dlist_container(InsertSqlItem, list_node, miter.cur);
@@ -409,8 +422,8 @@ SqlCache* connection_holder_get_or_create_sql_cache_with_batch(ConnectionHolder*
     return sqlCache;
 }
 
-SqlCache* connection_holder_get_or_create_get_sql_cache(ConnectionHolder* connHolder, TableSchema* schema, int nRecords) {
-    SqlCache* sqlCache;
+SqlCache* connection_holder_get_or_create_get_sql_cache(ConnectionHolder* connHolder, HoloTableSchema* schema, int nRecords) {
+    SqlCache* sqlCache = NULL;
     bool cached = false;
     dlist_mutable_iter miter;
     GetSqlItem* getSqlItem;
@@ -468,4 +481,14 @@ extern void connection_holder_exec_func_with_retry(ConnectionHolder* connHolder,
         if (i + 1 < connHolder->retryCount) usleep(sleepTime * 1000);
     }
     return;
+}
+
+char* generate_fixed_fe_conn_info(const char* connInfo) {
+    const char* fixedOption = " options=type=fixed";
+    int length = strlen(connInfo) + 20;
+    char* fixedConnInfo = (char*)malloc(length);
+    deep_copy_string_to(connInfo, fixedConnInfo, strlen(connInfo));
+    deep_copy_string_to(fixedOption, fixedConnInfo + strlen(connInfo), 20);
+    // LOG_DEBUG("Generate FixedFE connInfo: %s", fixedConnInfo);
+    return fixedConnInfo;
 }

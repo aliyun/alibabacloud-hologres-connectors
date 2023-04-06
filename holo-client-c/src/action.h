@@ -39,7 +39,7 @@ typedef struct _MutationAction {
 } MutationAction;
 
 MutationAction* holo_client_new_mutation_action();
-void mutation_action_add_mutation(MutationAction*, Mutation);
+void mutation_action_add_mutation(MutationAction*, HoloMutation);
 void holo_client_destroy_mutation_action(MutationAction*);
 
 typedef struct _SqlAction {
@@ -54,11 +54,11 @@ typedef struct _GetAction {
     int type; //3
     dlist_head requests; //list of get requests
     int numRequests;
-    TableSchema* schema;
+    HoloTableSchema* schema;
 } GetAction;
 GetAction* holo_client_new_get_action();
 void holo_client_destroy_get_action(GetAction*);
-void get_action_add_request(GetAction*, Get);
+void get_action_add_request(GetAction*, HoloGet);
 void abort_get_action(GetAction*);
 
 #endif

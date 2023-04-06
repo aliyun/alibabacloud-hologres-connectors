@@ -14,29 +14,29 @@ typedef struct _MetaCache {
 
 typedef struct _SchemaItem {
     dlist_node list_node;
-    TableSchema* schema;
+    HoloTableSchema* schema;
     time_t age;
 } SchemaItem;
 
 typedef struct _ParentItem {
     dlist_node list_node;
-    TableSchema** parent;
+    HoloTableSchema** parent;
     dlist_head partitions;
 } ParentItem;
 
 typedef struct _PartitionItem {
     dlist_node list_node;
     char* value;
-    TableSchema** partition;
+    HoloTableSchema** partition;
 } PartitionItem;
 
 MetaCache* holo_client_new_metacache();
 void holo_client_destroy_metacache(MetaCache*);
 void clear_all_contents(MetaCache*);
 
-TableSchema* find_tableschema_in_metacache(MetaCache*, TableName);
-void add_tableschema_to_metacache(MetaCache*, TableSchema*);
-TableSchema* meta_cache_find_partition(MetaCache*, TableSchema*, char*);
-void meta_cache_add_partition(MetaCache*, TableSchema*, TableSchema*, char*);
+HoloTableSchema* find_tableschema_in_metacache(MetaCache*, HoloTableName);
+void add_tableschema_to_metacache(MetaCache*, HoloTableSchema*);
+HoloTableSchema* meta_cache_find_partition(MetaCache*, HoloTableSchema*, char*);
+void meta_cache_add_partition(MetaCache*, HoloTableSchema*, HoloTableSchema*, char*);
 
 #endif

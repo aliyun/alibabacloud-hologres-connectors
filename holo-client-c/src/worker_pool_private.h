@@ -6,7 +6,7 @@
 #include "metrics.h"
 #include "../include/worker_pool.h"
 
-struct _WorkerPool {
+struct _HoloWorkerPool {
     Worker** workers;
     int numWorkers;
     MetaCache* metaCache;
@@ -17,6 +17,6 @@ struct _WorkerPool {
     pthread_cond_t* idleCond;
 };
 
-bool holo_client_submit_action_to_worker_pool(WorkerPool*, Action*);
+bool holo_client_submit_action_to_worker_pool(HoloWorkerPool*, Action*);
 
 #endif

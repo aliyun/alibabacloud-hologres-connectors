@@ -13,6 +13,6 @@ typedef struct _SqlCache{
 char* build_unnest_insert_sql_with_batch(Batch*, int);
 char* build_insert_sql_with_batch(Batch*, int);
 char* build_delete_sql_with_batch(Batch*, int);
-char* build_get_sql(TableSchema*, int);
+char* build_get_sql(HoloTableSchema*, int);
 
 #endif

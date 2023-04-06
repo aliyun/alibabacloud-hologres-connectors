@@ -30,7 +30,7 @@ MutationAction* holo_client_new_mutation_action(){
     return action;
 }
 
-void mutation_action_add_mutation(MutationAction* action, Mutation mutation){
+void mutation_action_add_mutation(MutationAction* action, HoloMutation mutation){
     dlist_push_tail(&(action->requests),&(create_mutation_item(mutation)->list_node));
     action->numRequests += 1;
 }
@@ -79,7 +79,7 @@ void abort_get_action(GetAction* action) {
     }
 }
 
-void get_action_add_request(GetAction* action, Get get) {
+void get_action_add_request(GetAction* action, HoloGet get) {
     dlist_push_tail(&(action->requests),&(create_get_item(get)->list_node));
     action->numRequests++;
 }

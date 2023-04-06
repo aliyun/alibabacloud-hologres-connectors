@@ -3,7 +3,7 @@
 #include "logger.h"
 #include "utils.h"
 
-void holo_client_destroy_tablename(TableName* tableName) {
+void holo_client_destroy_tablename(HoloTableName* tableName) {
     FREE(tableName->fullName);
     tableName->fullName = NULL;
     FREE(tableName->schemaName);
@@ -12,7 +12,7 @@ void holo_client_destroy_tablename(TableName* tableName) {
     tableName->tableName = NULL;
 }
 
-void holo_client_destroy_columns(Column* columns, int n) {
+void holo_client_destroy_columns(HoloColumn* columns, int n) {
     if (columns == NULL) {
         return;
     }
@@ -25,8 +25,8 @@ void holo_client_destroy_columns(Column* columns, int n) {
     columns = NULL;
 }
 
-Column* holo_client_new_columns(int n) {
-    Column* columns = MALLOC(n, Column);
+HoloColumn* holo_client_new_columns(int n) {
+    HoloColumn* columns = MALLOC(n, HoloColumn);
     for (int i = 0; i < n; i++) {
         columns[i].name = NULL;
         columns[i].quoted = NULL;
@@ -35,9 +35,9 @@ Column* holo_client_new_columns(int n) {
     return columns;
 }
 
-TableSchema* holo_client_new_tableschema() {
-    TableSchema* schema = MALLOC(1, TableSchema);
-    schema->tableName = MALLOC(1, TableName);
+HoloTableSchema* holo_client_new_tableschema() {
+    HoloTableSchema* schema = MALLOC(1, HoloTableSchema);
+    schema->tableName = MALLOC(1, HoloTableName);
     schema->tableName->fullName = NULL;
     schema->tableName->schemaName = NULL;
     schema->tableName->tableName = NULL;
@@ -55,7 +55,7 @@ TableSchema* holo_client_new_tableschema() {
     return schema;
 }
 
-void holo_client_destroy_tableschema(TableSchema* schema) {
+void holo_client_destroy_tableschema(HoloTableSchema* schema) {
     holo_client_destroy_tablename(schema->tableName);
     FREE(schema->tableName);
     holo_client_destroy_columns(schema->columns, schema->nColumns);
@@ -69,7 +69,7 @@ void holo_client_destroy_tableschema(TableSchema* schema) {
     schema = NULL;
 }
 
-int get_colindex_by_colname(TableSchema* schema, char* colName) {
+int get_colindex_by_colname(HoloTableSchema* schema, const char* colName) {
     for (int i = 0; i < schema->nColumns; i++) {
         if (strcmp(colName, schema->columns[i].name) == 0) {
             return i;
@@ -78,6 +78,6 @@ int get_colindex_by_colname(TableSchema* schema, char* colName) {
     return -1;
 }
 
-bool table_has_pk(TableSchema* schema) {
+bool table_has_pk(HoloTableSchema* schema) {
     return (schema->nPrimaryKeys > 0);
 }

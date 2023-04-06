@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 #define MALLOC(n, type) \
     ((type *)malloc((n) * sizeof(type)))
@@ -12,18 +13,25 @@
 #define FREE(ptr) \
     free(ptr)
 
+#define SQL_STR_DOUBLE(ch, escape_backslash)	\
+	((ch) == '\'' || ((ch) == '\\' && (escape_backslash)))
+#define ESCAPE_STRING_SYNTAX	'E'
+
 char* deep_copy_string(const char*);
-void deep_copy_string_to(const char*, char*);
+void deep_copy_string_to(const char*, char*, int);
 long long get_time_usec();
 struct timespec get_out_time(long long);
 char* itoa(int);
 int len_of_int(int);
-char* quote_identifier(char*);
+char* quote_table_name(const char*, const char*);
+char* quote_identifier(const char*);
+size_t quote_literal_internal(char *dst, const char *src, size_t len);
+char* quote_literal_cstr(const char*);
 int get_max_pow(int);
 
 long current_time_ms();
 void endian_swap(void*, int);
-void to_lower_case(char*);
+void to_lower_case(char*, int len);
 
 char* int16toa(int16_t);
 char* int32toa(int32_t);

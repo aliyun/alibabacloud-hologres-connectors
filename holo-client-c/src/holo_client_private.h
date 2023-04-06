@@ -8,7 +8,8 @@
 #include <stdbool.h>
 
 struct _HoloClient {
-    WorkerPool *workerPool;
+    HoloWorkerPool *workerPool;
+    HoloWorkerPool *fixedPool;
     bool isEmbeddedPool;
     DirectCollector* directCollector;
     MutationCollector* mutationCollector;
@@ -16,7 +17,7 @@ struct _HoloClient {
     HoloConfig config;
 };
 
-TableSchema* holo_client_get_tableschema_by_tablename(HoloClient* client, TableName name, bool withCache);
+HoloTableSchema* holo_client_get_tableschema_by_tablename(HoloClient* client, HoloTableName name, bool withCache);
 
 void* holo_client_sql(HoloClient*, Sql);
 

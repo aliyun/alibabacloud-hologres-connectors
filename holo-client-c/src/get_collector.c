@@ -3,7 +3,7 @@
 #include "action.h"
 #include "logger.h"
 
-TableGetCollector* holo_client_new_table_get_collector(TableSchema* schema, WorkerPool* pool, int batchSize, pthread_cond_t* signal) {
+TableGetCollector* holo_client_new_table_get_collector(HoloTableSchema* schema, HoloWorkerPool* pool, int batchSize, pthread_cond_t* signal) {
     TableGetCollector* collector = MALLOC(1, TableGetCollector);
     collector->schema = schema;
     collector->pool = pool;
@@ -11,7 +11,7 @@ TableGetCollector* holo_client_new_table_get_collector(TableSchema* schema, Work
     collector->batchSize = batchSize;
     collector->mutex = MALLOC(1, pthread_mutex_t);
     pthread_mutex_init(collector->mutex, NULL);
-    collector->requests = MALLOC(batchSize, Get);
+    collector->requests = MALLOC(batchSize, HoloGet);
     collector->signal = signal;
     return collector;
 }
@@ -26,7 +26,7 @@ void holo_client_destroy_table_get_collector(TableGetCollector* collector) {
 }
 
 GetAction* do_flush_table_get_collector(TableGetCollector* collector) {
-    GetAction* action;
+    GetAction* action = NULL;
     if (collector->numRequests == 0) return NULL;
     action = holo_client_new_get_action();
     for (int i = 0; i < collector->numRequests; i++) {
@@ -37,12 +37,10 @@ GetAction* do_flush_table_get_collector(TableGetCollector* collector) {
     action->schema = collector->schema;
     // LOG_DEBUG("num request: %d", action->numRequests);
     return action;
-    // submit action to worker pool
-    // holo_client_submit_action_to_worker_pool(collector->pool, (Action*)action);
 }
 
 void flush_table_get_collector(TableGetCollector* collector) {
-    GetAction* action;
+    GetAction* action = NULL;
     if (collector->numRequests == 0) return;
     pthread_mutex_lock(collector->mutex);
     action = do_flush_table_get_collector(collector);
@@ -50,7 +48,7 @@ void flush_table_get_collector(TableGetCollector* collector) {
     if (action != NULL) holo_client_submit_action_to_worker_pool(collector->pool, (Action*)action);
 }
 
-void table_get_collector_add_request(TableGetCollector* collector, Get get) {
+void table_get_collector_add_request(TableGetCollector* collector, HoloGet get) {
     GetAction* action = NULL;
     pthread_mutex_lock(collector->mutex);
     collector->requests[collector->numRequests] = get;
@@ -65,7 +63,7 @@ void table_get_collector_add_request(TableGetCollector* collector, Get get) {
     if (action != NULL) holo_client_submit_action_to_worker_pool(collector->pool, (Action*)action);
 }
 
-GetCollector* holo_client_new_get_collector(WorkerPool* pool, int batchSize) {
+GetCollector* holo_client_new_get_collector(HoloWorkerPool* pool, int batchSize) {
     GetCollector* collector = MALLOC(1, GetCollector);
     dlist_init(&(collector->tableCollectors));
     collector->numTables = 0;
@@ -82,7 +80,7 @@ GetCollector* holo_client_new_get_collector(WorkerPool* pool, int batchSize) {
 
 void holo_client_destroy_get_collector(GetCollector* collector) {
     TableGetCollectorItem* item;
-    TableGetCollector* tableCollector;
+    TableGetCollector* tableCollector = NULL;
     dlist_mutable_iter miter;
     dlist_foreach_modify(miter, &(collector->tableCollectors)) {
         item = dlist_container(TableGetCollectorItem, list_node, miter.cur);
@@ -102,7 +100,7 @@ void holo_client_destroy_get_collector(GetCollector* collector) {
 
 void holo_client_do_flush_get_collector(GetCollector* collector) {
     dlist_iter iter;
-    TableGetCollector* tableCollector;
+    TableGetCollector* tableCollector = NULL;
     dlist_foreach(iter, &(collector->tableCollectors)) {
         tableCollector = dlist_container(TableGetCollectorItem, list_node, iter.cur)->tableGetCollector;
         flush_table_get_collector(tableCollector);
@@ -131,7 +129,7 @@ int holo_client_start_watch_get_collector(GetCollector* collector) {
         collector->status = 4;
         LOG_ERROR("start get collector failed with error code %d", rc);
     }
-    LOG_INFO("start watch get collector");
+    LOG_DEBUG("start watch get collector");
     return rc;
 }
 
@@ -150,7 +148,7 @@ TableGetCollectorItem* create_table_get_collector_item(TableGetCollector* tableC
     return item;
 }
 
-TableGetCollector* find_table_get_collector(GetCollector* collector, TableSchema* schema) {
+TableGetCollector* find_table_get_collector(GetCollector* collector, HoloTableSchema* schema) {
     TableGetCollector* tableCollector = NULL;
     dlist_iter iter;
     TableGetCollectorItem* item;
@@ -164,8 +162,8 @@ TableGetCollector* find_table_get_collector(GetCollector* collector, TableSchema
     return tableCollector;
 }
 
-TableGetCollector* find_or_create_table_get_collector(GetCollector* collector, TableSchema* schema) {
-    TableGetCollector* tableCollector;
+TableGetCollector* find_or_create_table_get_collector(GetCollector* collector, HoloTableSchema* schema) {
+    TableGetCollector* tableCollector = NULL;
     tableCollector = find_table_get_collector(collector, schema);
     if (tableCollector != NULL) return tableCollector;
     pthread_mutex_lock(collector->mutex);
@@ -180,7 +178,7 @@ TableGetCollector* find_or_create_table_get_collector(GetCollector* collector, T
     return tableCollector;
 }
 
-void holo_client_add_request_to_get_collector(GetCollector* collector, Get get) {
+void holo_client_add_request_to_get_collector(GetCollector* collector, HoloGet get) {
     TableGetCollector* tableCollector = find_or_create_table_get_collector(collector, get->record->schema);
     table_get_collector_add_request(tableCollector, get);
 }

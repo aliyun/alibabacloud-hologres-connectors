@@ -5,8 +5,8 @@
 #include "ilist.h"
 #include "../include/record.h"
 
-struct _Record{
-    TableSchema *schema;
+struct _HoloRecord{
+    HoloTableSchema *schema;
     char **values;
     bool *valuesSet;
     int *valueLengths;
@@ -15,21 +15,21 @@ struct _Record{
     int byteSize;
 };
 
-Record* holo_client_new_record(TableSchema*);
-void holo_client_destroy_record(Record*);
-bool record_conflict(Record*, Record*);
-void* new_record_val(Record* , int);
-void revoke_record_val(void*, Record*, int);
-void destroy_record_val(Record*, int);
+HoloRecord* holo_client_new_record(HoloTableSchema*);
+void holo_client_destroy_record(HoloRecord*);
+bool record_conflict(HoloRecord*, HoloRecord*);
+void* new_record_val(HoloRecord* , int);
+void revoke_record_val(void*, HoloRecord*, int);
+void destroy_record_val(HoloRecord*, int);
 
 typedef struct _RecordItem {
     dlist_node list_node;
-    Record* record;
+    HoloRecord* record;
 } RecordItem;
 
-RecordItem* create_record_item(Record*);
+RecordItem* create_record_item(HoloRecord*);
 
-bool has_same_pk(Record*, Record*);
-int record_pk_hash_code(Record* record, int size);
+bool has_same_pk(HoloRecord*, HoloRecord*);
+int record_pk_hash_code(HoloRecord* record, int size);
 
 #endif

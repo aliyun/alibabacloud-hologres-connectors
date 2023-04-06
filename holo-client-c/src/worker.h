@@ -28,7 +28,7 @@ typedef struct _Worker {
     LPMap* map;
 } Worker;
 
-Worker* holo_client_new_worker(HoloConfig, int);
+Worker* holo_client_new_worker(HoloConfig, int, bool);
 int holo_client_start_worker(Worker*);
 int holo_client_stop_worker(Worker*);
 void holo_client_close_worker(Worker*);

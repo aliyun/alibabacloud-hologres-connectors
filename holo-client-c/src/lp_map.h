@@ -18,7 +18,6 @@ void holo_client_destroy_lp_map(LPMap* map);
 
 void holo_client_clear_lp_map(LPMap* map);
 
-
 // void lp_map_add(LPMap* map, int index, void* value, ValueComparer comparer);
 
 #endif

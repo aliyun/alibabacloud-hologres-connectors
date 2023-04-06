@@ -3,23 +3,23 @@
 
 #include "../include/table_schema.h"
 
-struct _TableName {
+struct _HoloTableName {
     char *schemaName; //no "" e.g. = "schemaName"
     char *tableName; //no "" e.g. = "tableName"
     char *fullName; //has "" e.g. = "\"schemaName\".\"tableName\""
 };
 
-void holo_client_destroy_tablename(TableName*);
+void holo_client_destroy_tablename(HoloTableName*);
 
-void holo_client_destroy_columns(Column*, int);
+void holo_client_destroy_columns(HoloColumn*, int);
 
-Column* holo_client_new_columns(int);
+HoloColumn* holo_client_new_columns(int);
 
-TableSchema* holo_client_new_tableschema();
-void holo_client_destroy_tableschema(TableSchema*);
+HoloTableSchema* holo_client_new_tableschema();
+void holo_client_destroy_tableschema(HoloTableSchema*);
 
-int get_colindex_by_colname(TableSchema*, char*);
+int get_colindex_by_colname(HoloTableSchema*, const char* );
 
-bool table_has_pk(TableSchema*);
+bool table_has_pk(HoloTableSchema*);
 
 #endif

@@ -3,17 +3,21 @@
 #include "holo_config_private.h"
 #include "logger.h"
 
-WorkerPool* holo_client_new_worker_pool(HoloConfig config) {
+HoloWorkerPool* holo_client_new_worker_pool(HoloConfig config, bool isFixedFe, int threadSize) {
     if (!holo_config_is_valid(&config)){
         LOG_ERROR("Holo config invalid.");
         return NULL;
     }
     int i;
-    WorkerPool* pool = MALLOC(1, WorkerPool);
+    HoloWorkerPool* pool = MALLOC(1, HoloWorkerPool);
     pool->config = config;
-    pool->config.connInfo = deep_copy_string(config.connInfo);
-    pool->numWorkers = config.threadSize;
-    pool->workers = MALLOC(config.threadSize, Worker*);
+    if (isFixedFe) {
+        pool->config.connInfo = generate_fixed_fe_conn_info(config.connInfo);
+    } else {
+        pool->config.connInfo = deep_copy_string(config.connInfo);
+    }
+    pool->numWorkers = threadSize;
+    pool->workers = MALLOC(pool->numWorkers, Worker*);
     pool->status = 0;
     pool->metaCache = holo_client_new_metacache();
     pool->metrics = holo_client_new_metrics(pool->numWorkers, config.reportInterval);
@@ -22,7 +26,7 @@ WorkerPool* holo_client_new_worker_pool(HoloConfig config) {
     pthread_mutex_init(pool->idleMutex, NULL);
     pthread_cond_init(pool->idleCond, NULL);
     for (i = 0; i < pool->numWorkers; i++) {
-        pool->workers[i] = holo_client_new_worker(config, i);
+        pool->workers[i] = holo_client_new_worker(config, i, isFixedFe);
         pool->metrics->metricsList[i] = pool->workers[i]->metrics;
         pool->workers[i]->idleMutex = pool->idleMutex;
         pool->workers[i]->idleCond = pool->idleCond;
@@ -30,7 +34,7 @@ WorkerPool* holo_client_new_worker_pool(HoloConfig config) {
     return pool;
 } 
 
-int holo_client_start_worker_pool(WorkerPool* pool) {
+int holo_client_start_worker_pool(HoloWorkerPool* pool) {
     if (pool == NULL) {
         LOG_ERROR("Worker pool is NULL.");
         return -1;
@@ -49,7 +53,7 @@ int holo_client_start_worker_pool(WorkerPool* pool) {
     return numFail;
 }
 
-int holo_client_worker_pool_status(WorkerPool* pool) {
+int holo_client_worker_pool_status(const HoloWorkerPool* pool) {
     if (pool == NULL) {
         LOG_ERROR("Worker pool is NULL.");
         return -1;
@@ -57,7 +61,7 @@ int holo_client_worker_pool_status(WorkerPool* pool) {
     return pool->status;
 }
 
-int holo_client_stop_worker_pool(WorkerPool* pool) {
+int holo_client_stop_worker_pool(HoloWorkerPool* pool) {
     if (pool == NULL) {
         LOG_ERROR("Worker pool is NULL.");
         return -1;
@@ -78,7 +82,7 @@ int holo_client_stop_worker_pool(WorkerPool* pool) {
     return 0;
 }
 
-int holo_client_close_worker_pool(WorkerPool* pool) {
+int holo_client_close_worker_pool(HoloWorkerPool* pool) {
     if (pool == NULL) {
         LOG_WARN("Worker pool is NULL.");
         return -1;
@@ -101,7 +105,7 @@ int holo_client_close_worker_pool(WorkerPool* pool) {
     return 0;
 }
 
-bool holo_client_submit_action_to_worker_pool(WorkerPool* pool, Action* action) {
+bool holo_client_submit_action_to_worker_pool(HoloWorkerPool* pool, Action* action) {
     if (action->type == 1) metrics_histogram_update(pool->metrics->actionSize, ((MutationAction*)action)->numRequests);
     if (action->type == 3) metrics_histogram_update(pool->metrics->actionSize, ((GetAction*)action)->numRequests);
     pthread_mutex_lock(pool->idleMutex);

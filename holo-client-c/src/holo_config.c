@@ -5,11 +5,11 @@
 #include "string.h"
 #include "utils.h"
 
-void* handle_exception_by_doing_nothing(Record* record, char* errorMsg){
+void* handle_exception_by_doing_nothing(const HoloRecord* record, const char* errMsg, void* exceptionHandlerParam){
     return NULL;
 }
 
-HoloConfig holo_client_new_config(char* connInfo){
+HoloConfig holo_client_new_config(const char* connInfo){
     HoloConfig config;
     config.connInfo = deep_copy_string(connInfo);
     config.threadSize = 1;
@@ -23,9 +23,12 @@ HoloConfig holo_client_new_config(char* connInfo){
     config.failFastWhenInit = true;
     config.connectionMaxIdleMs = 60000;
     config.exceptionHandler = handle_exception_by_doing_nothing;
+    config.exceptionHandlerParam = NULL;
     config.reportInterval = 20000;
     config.readBatchSize = 128;
     config.dynamicPartition = false;
+    config.useFixedFe = false;
+    config.connectionSizeWhenUseFixedFe = 1;
     config.writeBatchByteSize = 2 * 1024 * 1024;
     config.writeBatchTotalByteSize = -1;
     return config;
@@ -45,6 +48,17 @@ bool holo_config_is_valid(HoloConfig* config){
         FREE(config->connInfo);
         config->connInfo = newConnInfo;
         LOG_WARN("Holo Config - Connect timeout not set in connection info. Set to 2s.");
+    }
+    if (strstr(config->connInfo, "application_name=") == NULL){
+        int len = strlen(config->connInfo);
+        int lenVer = strlen(BUILD_VERSION);
+        char* newConnInfo = MALLOC(len + lenVer + 33, char);
+        strncpy(newConnInfo, config->connInfo, len);
+        strncpy(newConnInfo + len, " application_name=holo-client-c_", 33);
+        strncpy(newConnInfo + len + 32, BUILD_VERSION, lenVer + 1);
+        FREE(config->connInfo);
+        config->connInfo = newConnInfo;
+        LOG_WARN("Holo Config - Application_name not set in connection info. Set to holo-client-c");
     }
     if (config->threadSize <= 0) {
         LOG_ERROR("Holo Config - Thread size <= 0. Use holo_client_new_config to create config.");

@@ -11,44 +11,44 @@
 #include <libpq-fe.h>
 
 typedef struct _MetaRequest {
-    TableName tableName;
+    HoloTableName tableName;
     Future* future;
 } MetaRequest;
 typedef MetaRequest* Meta;
-Meta holo_client_new_meta_request(TableName);
+Meta holo_client_new_meta_request(HoloTableName);
 void holo_client_destroy_meta_request(Meta);
 
-struct _MutationRequest {
+struct _HoloMutationRequest {
     HoloMutationMode mode;
-    Record* record;
+    HoloRecord* record;
     dlist_head attachmentList;
     HoloWriteMode writeMode;
     int byteSize;
 };
-void holo_client_destroy_mutation_request(Mutation);
-bool normalize_mutation_request(Mutation);
-bool mutation_request_conflict(Mutation, Mutation);
-Mutation mutation_request_merge(Mutation, Mutation);
+void holo_client_destroy_mutation_request(HoloMutation);
+bool normalize_mutation_request(HoloMutation);
+bool mutation_request_conflict(HoloMutation, HoloMutation);
+HoloMutation mutation_request_merge(HoloMutation, HoloMutation);
 
 typedef struct _MutationItem {
     dlist_node list_node;
-    Mutation mutation;
+    HoloMutation mutation;
 } MutationItem;
 
-MutationItem* create_mutation_item(Mutation mutation);
+MutationItem* create_mutation_item(HoloMutation mutation);
 
-struct _GetRequest {
-    Record* record;
+struct _HoloGetRequest {
+    HoloRecord* record;
     Future* future;
     bool submitted;
 };
 
 typedef struct _GetItem {
     dlist_node list_node;
-    Get get;
+    HoloGet get;
 } GetItem;
 
-GetItem* create_get_item(Get get);
+GetItem* create_get_item(HoloGet get);
 typedef void* (*SqlFunction)(PGconn*, void*);
 
 typedef struct _SqlRequest {
@@ -61,6 +61,6 @@ typedef SqlRequest* Sql;
 Sql holo_client_new_sql_request(SqlFunction, void*);
 void holo_client_destroy_sql_request(Sql);
 
-bool set_record_val(Record* record, int colIndex, char* ptr, int format, int length);
+bool set_record_val(HoloRecord* record, int colIndex, char* ptr, int format, int length);
 
 #endif

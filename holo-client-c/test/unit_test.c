@@ -13,7 +13,8 @@ char* connInfo = "host=test_instance_host port=test_instance_port dbname=test_db
 #include "testHoloClient.c"
 #include "testDataType.c"
 #include "testMultiThread.c"
-
+#include "testPerformance.c"
+#include "testFunctions.c"
 
 CU_TestInfo testcase[] = {
     {"testGet", testGet},
@@ -71,6 +72,18 @@ CU_TestInfo testcase_multithread[] = {
     CU_TEST_INFO_NULL
 };
 
+CU_TestInfo testcase_performance[] = {
+    {"testPerformance01", testPerformance01},
+    {"testPerformance02", testPerformance02},
+    CU_TEST_INFO_NULL
+};
+
+CU_TestInfo testcase_functions[] = {
+    {"testQuoteTableName", testQuoteTableName},
+    {"testQuoteLiteralCStr", testQuoteLiteralCStr},
+    CU_TEST_INFO_NULL
+};
+
 int suite_success_init(void) {
     return 0;
 }
@@ -83,6 +96,9 @@ CU_SuiteInfo suites[] = {
     {"testPutSuite", suite_success_init, suite_success_clean, NULL, NULL, testcase},
     {"testDataTypeSuite", suite_success_init, suite_success_clean, NULL, NULL, testcase_type},
     {"testMultiThreadSuite", suite_success_init, suite_success_clean, NULL, NULL, testcase_multithread},
+    {"testFuncsSuite", suite_success_init, suite_success_clean, NULL, NULL, testcase_functions},
+    // 性能测试默认不开启
+    // {"testPerformanceSuite", suite_success_init, suite_success_clean, NULL, NULL, testcase_performance},
     CU_SUITE_INFO_NULL
 };
 

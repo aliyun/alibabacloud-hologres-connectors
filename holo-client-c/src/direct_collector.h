@@ -20,7 +20,7 @@ typedef struct _DirectCollector {
 } DirectCollector;
 
 DirectCollector* holo_client_new_direct_collector();
-int holo_client_start_watch_direct_collector(DirectCollector*, WorkerPool*);
+int holo_client_start_watch_direct_collector(DirectCollector*, HoloWorkerPool*);
 void holo_client_add_meta_request_to_direct_collector(DirectCollector*, Meta);
 void holo_client_add_sql_request_to_direct_collector(DirectCollector*, Sql);
 int holo_client_stop_watch_direct_collector(DirectCollector*);

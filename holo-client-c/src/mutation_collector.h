@@ -2,7 +2,6 @@
 #define _MUTATION_COLLECTOR_H_
 //AutoFlush request数大于batchSize或者等待时间大于writeMaxIntervalMs就自动flush
 
-
 #include <pthread.h>
 #include "request_private.h"
 #include "action.h"
@@ -10,9 +9,8 @@
 #include "worker_pool_private.h"
 #include "mutation_map.h"
 
-
 typedef struct _ShardCollector {
-    WorkerPool* pool;
+    HoloWorkerPool* pool;
     MutationMap* map;
     int numRequests;
     pthread_mutex_t* mutex;
@@ -25,16 +23,16 @@ typedef struct _ShardCollector {
     long maxByteSize;
 } ShardCollector;
 
-ShardCollector* holo_client_new_shard_collector(WorkerPool*, int, long, bool, long);
-long holo_client_add_request_to_shard_collector(ShardCollector*, Mutation);
+ShardCollector* holo_client_new_shard_collector(HoloWorkerPool*, int, long, bool, long);
+long holo_client_add_request_to_shard_collector(ShardCollector*, HoloMutation);
 void holo_client_destroy_shard_collector(ShardCollector*);
 void holo_client_flush_shard_collector(ShardCollector*);
 void holo_client_try_flush_shard_collector(ShardCollector*);
 void do_flush_shard_collector(ShardCollector*);
 
 typedef struct _TableCollector {
-    TableSchema* schema;
-    WorkerPool* pool;
+    HoloTableSchema* schema;
+    HoloWorkerPool* pool;
     ShardCollector** shardCollectors;
     int nShardCollectors;
     int numRequests;
@@ -43,8 +41,8 @@ typedef struct _TableCollector {
     long maxByteSize;
 } TableCollector;
 
-TableCollector* holo_client_new_table_collector(TableSchema*, WorkerPool*, int, long, long);
-long holo_client_add_request_to_table_collector(TableCollector*, Mutation);
+TableCollector* holo_client_new_table_collector(HoloTableSchema*, HoloWorkerPool*, int, long, long);
+long holo_client_add_request_to_table_collector(TableCollector*, HoloMutation);
 void holo_client_destroy_table_collector(TableCollector*);
 void holo_client_flush_table_collector(TableCollector*);
 void holo_client_try_flush_table_collector(TableCollector*);
@@ -55,7 +53,7 @@ typedef struct _TableCollectorItem {
 } TableCollectorItem;
 
 typedef struct _MutationCollector {
-    WorkerPool* pool;
+    HoloWorkerPool* pool;
     dlist_head tableCollectors;
     int numTables;
     pthread_t* autoFlush;
@@ -68,9 +66,9 @@ typedef struct _MutationCollector {
     long maxTotalByteSize;
 } MutationCollector;
 
-MutationCollector* holo_client_new_mutation_collector(WorkerPool*, HoloConfig);
+MutationCollector* holo_client_new_mutation_collector(HoloWorkerPool*, HoloConfig);
 int holo_client_start_watch_mutation_collector(MutationCollector*);
-void holo_client_add_request_to_mutation_collector(MutationCollector*, Mutation);
+void holo_client_add_request_to_mutation_collector(MutationCollector*, HoloMutation);
 int holo_client_stop_watch_mutation_collector(MutationCollector*);
 void holo_client_destroy_mutation_collector(MutationCollector*);
 void holo_client_flush_mutation_collector(MutationCollector*);

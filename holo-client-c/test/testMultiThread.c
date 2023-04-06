@@ -14,17 +14,17 @@
 typedef struct _TableInfo {
     HoloClient* client;
     char* tableName;
-    TableSchema* schema;
+    HoloTableSchema* schema;
     int start;
 } TableInfo;
 
 void* put_record(void* arg) {
     TableInfo* info = arg;
     for (int i = info->start; i < info->start + 1000; i++) {
-    Mutation mutation = holo_client_new_mutation_request(info->schema);
+    HoloMutation mutation = holo_client_new_mutation_request(info->schema);
     holo_client_set_req_int32_val_by_colindex(mutation, 0, i);
-    holo_client_set_req_val_with_text_by_colindex(mutation, 1, "name");
-    holo_client_set_req_val_with_text_by_colindex(mutation, 2, "address");
+    holo_client_set_req_val_with_text_by_colindex(mutation, 1, "name", 4);
+    holo_client_set_req_val_with_text_by_colindex(mutation, 2, "address", 7);
     holo_client_submit(info->client, mutation);
     }
     return NULL;
@@ -32,12 +32,12 @@ void* put_record(void* arg) {
 
 void* put_record_2(void* arg) {
     TableInfo* info = arg;
-    TableSchema* schema = holo_client_get_tableschema(info->client, NULL, info->tableName, true); //不同的表可以同时拿
+    HoloTableSchema* schema = holo_client_get_tableschema(info->client, NULL, info->tableName, true); //不同的表可以同时拿
     for (int i = info->start; i < info->start + 1000; i++) {
-    Mutation mutation = holo_client_new_mutation_request(schema);
+    HoloMutation mutation = holo_client_new_mutation_request(schema);
     holo_client_set_req_int32_val_by_colindex(mutation, 0, i);
-    holo_client_set_req_val_with_text_by_colindex(mutation, 1, "name");
-    holo_client_set_req_val_with_text_by_colindex(mutation, 2, "address");
+    holo_client_set_req_val_with_text_by_colindex(mutation, 1, "name", 4);
+    holo_client_set_req_val_with_text_by_colindex(mutation, 2, "address", 7);
     holo_client_submit(info->client, mutation);
     }
     return NULL;
@@ -60,7 +60,7 @@ void testMT1() {
     PQclear(PQexec(conn, createSql));
     HoloClient* client = holo_client_new_client(config);
     //同一张表要在主线程拿table schema, 或者不同时拿，多线程同时拿的话会出问题
-    TableSchema* schema = holo_client_get_tableschema(client, NULL, tableName, true);
+    HoloTableSchema* schema = holo_client_get_tableschema(client, NULL, tableName, true);
 
     TableInfo* info1 = MALLOC(1, TableInfo);
     info1->client = client;
@@ -167,8 +167,8 @@ void testMT2() {
 
 // int main(int argc, char** argv) {
 //     holo_client_logger_open();
-//     test1();
-//     test2();
+//     testMT1();
+//     testMT2();
 //     holo_client_logger_close();
 //     return 0;
 // }

@@ -7,28 +7,35 @@
 #include "table_schema_private.h"
 #include "batch.h"
 #include "sql_builder.h"
+#include "exception.h"
+
+#define MAX_PARAM_NUM 32767 // max number of parameters in PG's prepared statement
 
 typedef ActionStatus (*BatchHandler)(ConnectionHolder*, Batch*, dlist_node**, int);
 
 ActionStatus get_holo_version(ConnectionHolder*);
-ActionStatus get_table_schema(ConnectionHolder*, TableSchema*, TableName);
+ActionStatus get_table_schema(ConnectionHolder*, HoloTableSchema*, HoloTableName);
 ActionStatus handle_mutations(ConnectionHolder*, dlist_head*);
 ActionStatus handle_batch(Batch*, int, BatchHandler, ConnectionHolder*);
 ActionStatus exec_batch(ConnectionHolder*, Batch*, dlist_node**, int);
 ActionStatus exec_batch_one_by_one(ConnectionHolder*, Batch*, dlist_node**, int);
 ActionStatus delete_batch(ConnectionHolder*, Batch*, dlist_node**, int);
 ActionStatus handle_sql(ConnectionHolder* connHolder, SqlFunction sqlFunction, void* arg, void** retAddr);
-ActionStatus handle_gets(ConnectionHolder*, TableSchema*, dlist_head*, int);
+ActionStatus handle_gets(ConnectionHolder*, HoloTableSchema*, dlist_head*, int);
 
 extern void unnest_convert_array_to_postgres_binary(char*, void*, int, int, int, int);
-extern void convert_text_array_to_postgres_binary(char*, char**, int);
+extern void convert_text_array_to_postgres_binary(char*, char**, int, int);
 
-Worker* holo_client_new_worker(HoloConfig config, int index) {
+Worker* holo_client_new_worker(HoloConfig config, int index, bool isFixedFe) {
     Worker* worker = MALLOC(1, Worker);
-    worker->connHolder = holo_client_new_connection_holder(config);
+    worker->connHolder = holo_client_new_connection_holder(config, isFixedFe);
     worker->action = NULL;
     worker->config = config;
-    worker->config.connInfo = deep_copy_string(config.connInfo);
+    if (isFixedFe) {
+        worker->config.connInfo = generate_fixed_fe_conn_info(config.connInfo);
+    } else {
+        worker->config.connInfo = deep_copy_string(config.connInfo);
+    }
     worker->index = index;
     worker->status = 0;
     worker->thread = MALLOC(1, pthread_t);
@@ -122,6 +129,7 @@ void holo_client_close_worker(Worker* worker) {
     pthread_mutex_destroy(worker->mutex);
     pthread_cond_destroy(worker->cond);
     FREE(worker->connHolder->holoVersion);
+    FREE(worker->connHolder->connInfo);
     FREE(worker->connHolder);
     FREE(worker->config.connInfo);
     FREE(worker->thread);
@@ -147,8 +155,10 @@ bool holo_client_try_submit_action_to_worker(Worker* worker, Action* action) {
 }
 
 ActionStatus handle_meta_action(ConnectionHolder* connHolder, Action* action) {
-    TableSchema* schema = holo_client_new_tableschema();
-    ActionStatus rc = get_table_schema(connHolder, schema, ((MetaAction*)action)->meta->tableName);
+    ActionStatus rc = get_holo_version(connHolder);
+    // 若获取holo版本失败，仍然尝试获取table schema
+    HoloTableSchema* schema = holo_client_new_tableschema();
+    rc = get_table_schema(connHolder, schema, ((MetaAction*)action)->meta->tableName);
     if (rc != SUCCESS) return rc;
     complete_future(((MetaAction*)action)->meta->future, schema);
     holo_client_destroy_meta_action((MetaAction*)action);
@@ -156,7 +166,6 @@ ActionStatus handle_meta_action(ConnectionHolder* connHolder, Action* action) {
 }
 
 ActionStatus handle_mutation_action(ConnectionHolder* connHolder, Action* action) {
-    ActionStatus rc1 = get_holo_version(connHolder);
     ActionStatus rc = handle_mutations(connHolder, &((MutationAction*)action)->requests);
     if (rc != SUCCESS) return rc;
     complete_future(((MutationAction*)action)->future, NULL);
@@ -197,11 +206,14 @@ void worker_abort_action(Worker* worker){
             abort_get_action((GetAction*)worker->action);
             holo_client_destroy_get_action((GetAction*)worker->action);
             break;
+        default:
+            LOG_ERROR("Worker abort action falied. Invalid action type: %d", worker->action->type);
+            break;
         }
 }
 
 ActionStatus get_holo_version(ConnectionHolder* connHolder) {
-    PGresult* res;
+    PGresult* res = NULL;
     const char* findHgVersion = "select hg_version()";
     const char* findHoloVersion = "select version()";
 
@@ -220,7 +232,7 @@ ActionStatus get_holo_version(ConnectionHolder* connHolder) {
             PQclear(res);
         }
         if (cnt > 0) {
-            // LOG_DEBUG("Get Hg Version: %d.%d.%d", connHolder->holoVersion->majorVersion, connHolder->holoVersion->minorVersion, connHolder->holoVersion->fixVersion);
+            LOG_DEBUG("Get Hg Version: %d.%d.%d", connHolder->holoVersion->majorVersion, connHolder->holoVersion->minorVersion, connHolder->holoVersion->fixVersion);
             return SUCCESS;
         } else {
             LOG_ERROR("Get Hg Version failed.");
@@ -243,7 +255,7 @@ ActionStatus get_holo_version(ConnectionHolder* connHolder) {
             PQclear(res);
         }
         if (cnt > 0) {
-            LOG_INFO("Get Holo Version: %d.%d.%d", connHolder->holoVersion->majorVersion, connHolder->holoVersion->minorVersion, connHolder->holoVersion->fixVersion);
+            LOG_DEBUG("Get Holo Version: %d.%d.%d", connHolder->holoVersion->majorVersion, connHolder->holoVersion->minorVersion, connHolder->holoVersion->fixVersion);
             return SUCCESS;
         } else {
             LOG_ERROR("Get Holo Version failed.");
@@ -252,21 +264,20 @@ ActionStatus get_holo_version(ConnectionHolder* connHolder) {
     }
 }
 
-ActionStatus get_table_schema(ConnectionHolder* connHolder, TableSchema* schema, TableName tableName) {
-    Column* columns;
-    const char* findTableOidSql = "SELECT property_value FROM hologres.hg_table_properties where table_namespace = $1 and table_name = $2 and property_key = 'table_id'";
+ActionStatus get_table_schema(ConnectionHolder* connHolder, HoloTableSchema* schema, HoloTableName tableName) {
+    HoloColumn* columns = NULL;
+    const char* findTableOidSql = "SELECT property_value FROM hologres.hg_table_properties WHERE table_namespace = $1 AND table_name = $2 AND property_key = 'table_id'";
     const char* findColumnsSql = "WITH c AS (SELECT column_name, ordinal_position, is_nullable, column_default FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2), a AS (SELECT attname, atttypid from pg_catalog.pg_attribute WHERE attrelid = $3::regclass::oid) SELECT * FROM c LEFT JOIN a ON c.column_name = a.attname;";
     const char* findPrimaryKeysSql = "SELECT c.column_name, cc.ordinal_position FROM information_schema.key_column_usage AS c LEFT JOIN information_schema.table_constraints AS t ON t.constraint_name = c.constraint_name AND c.table_schema = t.table_schema AND c.table_name = t.table_name LEFT JOIN information_schema.columns cc ON c.table_schema = cc.table_schema AND c.table_name = cc.table_name AND c.column_name = cc.column_name WHERE t.table_schema = $1 AND t.table_name = $2 AND t.constraint_type = 'PRIMARY KEY'";
     const char* findDistributionKeysSql = "WITH d AS (SELECT table_namespace, table_name, unnest(string_to_array(property_value, ',')) as column_name from hologres.hg_table_properties WHERE table_namespace = $1 AND table_name = $2 AND property_key = 'distribution_key') SELECT c.column_name, c.ordinal_position FROM d LEFT JOIN information_schema.columns c ON d.table_namespace = c.table_schema AND d.table_name=c.table_name AND d.column_name = c.column_name";
     const char* findPartitionColumnSql = "SELECT partattrs FROM pg_partitioned_table WHERE partrelid = $1::regclass::oid";
-    PGresult* res;
-    char* errorMsg;
+    PGresult* res = NULL;
     int nTuples, i, pos;
     char oid[11];
+    // use prepared statement, so there's no need to quote_literal_cstr() before use
     const char* name[1] = {tableName.fullName};
     const char* names[2] = {tableName.schemaName, tableName.tableName};
     const char* names3[3] = {tableName.schemaName, tableName.tableName, tableName.fullName};
-    
 
     //get table oid
     res = connection_holder_exec_params_with_retry(connHolder, findTableOidSql, 2, NULL, names, NULL, NULL, 0);
@@ -285,7 +296,6 @@ ActionStatus get_table_schema(ConnectionHolder* connHolder, TableSchema* schema,
     res = connection_holder_exec_params_with_retry(connHolder, findColumnsSql, 3, NULL, names3, NULL, NULL, 0);
     if (res == NULL || PQresultStatus(res) != PGRES_TUPLES_OK  || PQntuples(res) == 0){
         LOG_ERROR("Get column info of table %s failed\n", tableName.fullName);
-        PQclear(res);
         if (res != NULL) PQclear(res);
         return FAILURE_NOT_NEED_RETRY;
     } else {
@@ -418,27 +428,28 @@ ActionStatus handle_mutations(ConnectionHolder* connHolder, dlist_head* mutation
     }
 
     ActionStatus rc = SUCCESS;
-    ActionStatus t;
+    ActionStatus t = SUCCESS;
 
     if (deleteBatch != NULL) {
         int maxSize = get_max_pow(deleteBatch->nRecords);
         if (!is_batch_support_unnest(connHolder, deleteBatch)) {
-            while (maxSize * deleteBatch->nValues > 32768) {
+            while (maxSize * deleteBatch->nValues > MAX_PARAM_NUM) {
                 maxSize >>= 1;
             }
         } else {
             deleteBatch->isSupportUnnest = true;
         }
         t = handle_batch(deleteBatch, maxSize, exec_batch, connHolder);
+        if (t != SUCCESS) rc = FAILURE_NOT_NEED_RETRY;
         holo_client_destroy_batch(deleteBatch);
     }
-    if (t != SUCCESS) rc = FAILURE_NOT_NEED_RETRY;
 
     dlist_foreach_modify(miterBatch, &batchList) {
         insertBatchItem = dlist_container(BatchItem, list_node, miterBatch.cur);
         int maxSize = get_max_pow(insertBatchItem->batch->nRecords);
         if (!is_batch_support_unnest(connHolder, insertBatchItem->batch)) {
-            while (maxSize * insertBatchItem->batch->nValues > 32768) {
+            // make sure that num of parameters in one batch is less than MAX_PARAM_NUM in PG
+            while (maxSize * insertBatchItem->batch->nValues > MAX_PARAM_NUM) {
                 maxSize >>= 1;
             }
         } else {
@@ -473,6 +484,70 @@ ActionStatus handle_batch(Batch* batch, int maxSize ,BatchHandler do_handle_batc
     return rc;
 }
 
+int get_val_len_by_type_oid(unsigned int typeOid) {
+    switch (typeOid)
+    {
+    case HOLO_TYPE_INT4:
+    case HOLO_TYPE_FLOAT4:
+        return 4;
+    case HOLO_TYPE_INT8:
+    case HOLO_TYPE_FLOAT8:
+    case HOLO_TYPE_TIMESTAMP:
+    case HOLO_TYPE_TIMESTAMPTZ:
+        return 8;
+    case HOLO_TYPE_INT2:
+        return 2;
+    case HOLO_TYPE_BOOL:
+        return 1;
+    default:
+        LOG_ERROR("Varlena type cannot get fixed value length.");
+        break;
+    }
+    return -1;
+}
+
+unsigned int get_array_oid_by_type_oid(unsigned int typeOid) {
+    switch (typeOid)
+    {
+    case HOLO_TYPE_INT4:
+        return HOLO_TYPE_INT4_ARRAY;
+    case HOLO_TYPE_INT8:
+        return HOLO_TYPE_INT8_ARRAY;
+    case HOLO_TYPE_INT2:
+        return HOLO_TYPE_INT2_ARRAY;
+    case HOLO_TYPE_BOOL:
+        return HOLO_TYPE_BOOL_ARRAY;
+    case HOLO_TYPE_FLOAT4:
+        return HOLO_TYPE_FLOAT4_ARRAY;
+    case HOLO_TYPE_FLOAT8:
+        return HOLO_TYPE_FLOAT8_ARRAY;
+    case HOLO_TYPE_TIMESTAMP:
+        return HOLO_TYPE_TIMESTAMP_ARRAY;
+    case HOLO_TYPE_TIMESTAMPTZ:
+        return HOLO_TYPE_TIMESTAMPTZ_ARRAY;
+    case HOLO_TYPE_CHAR:
+        return HOLO_TYPE_CHAR_ARRAY;
+    case HOLO_TYPE_VARCHAR:
+        return HOLO_TYPE_VARCHAR_ARRAY;
+    case HOLO_TYPE_TEXT:
+        return HOLO_TYPE_TEXT_ARRAY;
+    case HOLO_TYPE_BYTEA:
+        return HOLO_TYPE_BYTEA_ARRAY;
+    case HOLO_TYPE_JSON:
+        return HOLO_TYPE_JSON_ARRAY;
+    case HOLO_TYPE_JSONB:
+        return HOLO_TYPE_JSONB_ARRAY;
+    case HOLO_TYPE_DATE:
+        return HOLO_TYPE_DATE_ARRAY;
+    case HOLO_TYPE_NUMERIC:
+        return HOLO_TYPE_NUMERIC_ARRAY;
+    default:
+        LOG_ERROR("Unsupported array type, origin type: %d.", typeOid);
+        break;
+    }
+    return 0;
+}
+
 ActionStatus exec_batch(ConnectionHolder* connHolder, Batch* batch, dlist_node** current, int nRecords){
     if (batch->nRecords <= 0){
         LOG_WARN("Nothing to insert.");
@@ -505,79 +580,61 @@ ActionStatus exec_batch(ConnectionHolder* connHolder, Batch* batch, dlist_node**
                 valueArray[cRecords++] = recordItem->record->values[i];
             }
             // 把这个数组变成一条record，插入param
-            int length;
-            char* ptr;
+            int length = 0;
+            char* ptr = NULL;
+            int convertMode = 0;
+
+            // 有三种转换方式
             switch (batch->schema->columns[i].type)
             {
-            case 23:
-                length = 20 + 4 * nRecords + 4 * nRecords;
-                ptr = MALLOC(length, char);
-                unnest_convert_array_to_postgres_binary(ptr, valueArray, length, nRecords, 4, 23);
-                sqlCache->paramTypes[cParam] = 1007;
-                sqlCache->paramFormats[cParam] = 1;
-                break;
-            case 20:
-                length = 20 + 4 * nRecords + 8 * nRecords;
-                ptr = MALLOC(length, char);
-                unnest_convert_array_to_postgres_binary(ptr, valueArray, length, nRecords, 8, 20);
-                sqlCache->paramTypes[cParam] = 1016;
-                sqlCache->paramFormats[cParam] = 1;
-                break;
-            case 21:
-                length = 20 + 4 * nRecords + 2 * nRecords;
-                ptr = MALLOC(length, char);
-                unnest_convert_array_to_postgres_binary(ptr, valueArray, length, nRecords, 2, 21);
-                sqlCache->paramTypes[cParam] = 1005;
-                sqlCache->paramFormats[cParam] = 1;
-                break;
-            case 16:
-                length = 20 + 4 * nRecords + 1 * nRecords;
-                ptr = MALLOC(length, char);
-                unnest_convert_array_to_postgres_binary(ptr, valueArray, length, nRecords, 1, 16);
-                sqlCache->paramTypes[cParam] = 1000;
-                sqlCache->paramFormats[cParam] = 1;
-                break;
-            case 700:
-                length = 20 + 4 * nRecords + 4 * nRecords;
-                ptr = MALLOC(length, char);
-                unnest_convert_array_to_postgres_binary(ptr, valueArray, length, nRecords, 4, 700);
-                sqlCache->paramTypes[cParam] = 1021;
-                sqlCache->paramFormats[cParam] = 1;
-                break;
-            case 701:
-                length = 20 + 4 * nRecords + 8 * nRecords;
-                ptr = MALLOC(length, char);
-                unnest_convert_array_to_postgres_binary(ptr, valueArray, length, nRecords, 8, 701);
-                sqlCache->paramTypes[cParam] = 1022;
-                sqlCache->paramFormats[cParam] = 1;
-                break;
-            // TODO: timestamp和timestamptz的binary写入
-            case 1114:  //timestamp
-                if (batch->schema->columns[i].type == 1114 && batch->valueFormats[i] == 1) {
-                    length = 20 + 4 * nRecords + 8 * nRecords;
-                    ptr = MALLOC(length, char);
-                    unnest_convert_array_to_postgres_binary(ptr, valueArray, length, nRecords, 8, 1114);
-                    sqlCache->paramTypes[cParam] = 1115;
-                    sqlCache->paramFormats[cParam] = 1;
-                    break;
+            case HOLO_TYPE_TIMESTAMP:
+            case HOLO_TYPE_TIMESTAMPTZ:
+                if (batch->valueFormats[i] == 1) {
+                    convertMode = 1;
+                } else {
+                    convertMode = 3;
                 }
-            case 1184:  //timestamptz
-                if (batch->schema->columns[i].type == 1184 && batch->valueFormats[i] == 1) {
-                    length = 20 + 4 * nRecords + 8 * nRecords;
-                    ptr = MALLOC(length, char);
-                    unnest_convert_array_to_postgres_binary(ptr, valueArray, length, nRecords, 8, 1184);
-                    sqlCache->paramTypes[cParam] = 1185;
-                    sqlCache->paramFormats[cParam] = 1;
-                    break;
-                }
-            case 18:    //char
-            case 1043:  //varchar
-            case 25:    //text
-            case 17:    //bytea
-            case 114:   //json
-            case 3802:  //jsonb
-            case 1082:  //date
-            case 1700:  //numeric
+                break;
+            case HOLO_TYPE_INT4:
+            case HOLO_TYPE_INT8:
+            case HOLO_TYPE_INT2:
+            case HOLO_TYPE_BOOL:
+            case HOLO_TYPE_FLOAT4:
+            case HOLO_TYPE_FLOAT8:
+                convertMode = 1;
+                break;
+            case HOLO_TYPE_CHAR:
+            case HOLO_TYPE_VARCHAR:
+            case HOLO_TYPE_TEXT:
+            case HOLO_TYPE_JSON:
+            case HOLO_TYPE_JSONB:
+                convertMode = 2;
+                break;
+            case HOLO_TYPE_BYTEA:
+            case HOLO_TYPE_NUMERIC:
+            case HOLO_TYPE_DATE:
+                convertMode = 3;
+                break;
+            default:
+                LOG_ERROR("Generate value array failed for unnest, type is %d.", batch->schema->columns[i].type);
+                break;
+            }
+
+            switch (convertMode)
+            {
+            case 1:
+                // binary转成binary写入
+                length = 20 + 4 * nRecords + get_val_len_by_type_oid(batch->schema->columns[i].type) * nRecords;
+                ptr = MALLOC(length, char);
+                unnest_convert_array_to_postgres_binary(ptr, valueArray, length, nRecords, get_val_len_by_type_oid(batch->schema->columns[i].type), batch->schema->columns[i].type);
+                sqlCache->paramTypes[cParam] = get_array_oid_by_type_oid(batch->schema->columns[i].type);
+                sqlCache->paramFormats[cParam] = 1;
+                params[cParam] = ptr;
+                sqlCache->paramLengths[cParam++] = length;
+                FREE(valueArray);
+                break;
+            case 2:
+                // text转成binary写入
                 length = 20 + 4 * nRecords;
                 for (int i = 0; i < nRecords; i++) {
                     if (valueArray[i] == NULL) {
@@ -586,17 +643,60 @@ ActionStatus exec_batch(ConnectionHolder* connHolder, Batch* batch, dlist_node**
                     length += strlen(valueArray[i]);
                 }
                 ptr = MALLOC(length, char);
-                convert_text_array_to_postgres_binary(ptr, valueArray, nRecords);
-                sqlCache->paramTypes[cParam] = 1009;
+                convert_text_array_to_postgres_binary(ptr, valueArray, nRecords, batch->schema->columns[i].type);
+                sqlCache->paramTypes[cParam] = get_array_oid_by_type_oid(batch->schema->columns[i].type);
                 sqlCache->paramFormats[cParam] = 1;
+                params[cParam] = ptr;
+                sqlCache->paramLengths[cParam++] = length;
+                FREE(valueArray);
+                break;
+            case 3:
+                // text转成text写入，参考pg jdbc的拼法
+                length = 2; // {和\0
+                for (int i = 0; i < nRecords; i++) {
+                    if (valueArray[i] == NULL) {
+                        continue;
+                    }
+                    for (int j = 0; j < strlen(valueArray[i]); j++) {
+                        if (valueArray[i][j] == '"' || valueArray[i][j] == '\\') {
+                            length += 1; // 转义
+                        }
+                    }
+                    length += 3; // '',或''}
+                    length += strlen(valueArray[i]);
+                }
+                ptr = MALLOC(length, char);
+                int idx = 0;
+                ptr[idx++] = '{';
+                for (int i = 0; i <nRecords; i++) {
+                    if (valueArray[i] == NULL){
+                        LOG_WARN("Value is NULL in text array values.");
+                        continue;
+                    }
+                    ptr[idx++] = '"';
+                    for (int j = 0; j < strlen(valueArray[i]); j++) {
+                        if (valueArray[i][j] == '"' || valueArray[i][j] == '\\') {
+                            ptr[idx++] = '\\';
+                        }
+                        ptr[idx++] = valueArray[i][j];
+                    }
+                    ptr[idx++] = '"';
+                    if (i < nRecords - 1) {
+                        ptr[idx++] = ',';
+                    }
+                }
+                ptr[idx++] = '}';
+                ptr[idx] = '\0';
+                sqlCache->paramTypes[cParam] = get_array_oid_by_type_oid(batch->schema->columns[i].type);
+                sqlCache->paramFormats[cParam] = 0;
+                params[cParam] = ptr;
+                sqlCache->paramLengths[cParam++] = length;
+                FREE(valueArray);
                 break;
             default:
-                LOG_ERROR("Generate value array failed for unnest, type is %d.", batch->schema->columns[i].type);
+                LOG_ERROR("Unknown convertMode in unnest");
                 break;
             }
-            params[cParam] = ptr;
-            sqlCache->paramLengths[cParam++] = length;
-            FREE(valueArray);
         }
     } else {
         nParams = nRecords * batch->nValues;
@@ -615,21 +715,39 @@ ActionStatus exec_batch(ConnectionHolder* connHolder, Batch* batch, dlist_node**
         }
     }
 
-    PGresult* res;
-    char* errorMsg;
+    PGresult* res = NULL;
     res = connection_holder_exec_params_with_retry(connHolder, sqlCache->command, nParams, sqlCache->paramTypes, (const char* const*)params, sqlCache->paramLengths, sqlCache->paramFormats, 0);
     if (res == NULL || PQresultStatus(res) != PGRES_COMMAND_OK){
         LOG_ERROR("Mutate into table \"%s\" as batch failed.", batch->schema->tableName->tableName);
-        LOG_ERROR("Retrying one by one...");
+
+        ActionStatus rc = SUCCESS;
+        if (batch->isSupportUnnest && nRecords > 1 && nRecords * batch->nValues <= MAX_PARAM_NUM) {
+            LOG_ERROR("Retrying once without unnest...");
+            batch->isSupportUnnest = false;
+            rc = exec_batch(connHolder, batch, current, nRecords);
+            if (res != NULL) PQclear(res);
+            for (int i = 0; i < nParams; i++) {
+                FREE(params[i]);
+            }
+            FREE(params);
+            return rc;
+        }
+        if (res != NULL && is_dirty_data_error(get_errcode_from_pg_res(res))) {
+            LOG_ERROR("Retrying one by one...");
+            //脏数据类型的异常，需要拆成一条一条重试
+            rc = exec_batch_one_by_one(connHolder, batch, current, nRecords);
+        } else {
+            //对于不one by one的情况，也要回调做异常处理，但是不提供record，只给出errMsg。用户可以通过record指针是否为NULL自行设计逻辑
+            connHolder->handleExceptionByUser(NULL, PQresultErrorMessage(res), connHolder->exceptionHandlerParam);
+        }
         if (res != NULL) PQclear(res);
-        exec_batch_one_by_one(connHolder, batch, current, nRecords);
         if (batch->isSupportUnnest && nRecords > 1) {
             for (int i = 0; i < nParams; i++) {
                 FREE(params[i]);
             }
         }
         FREE(params);
-        return FAILURE_NOT_NEED_RETRY;
+        return rc;
     }
     metrics_meter_mark(connHolder->metrics->rps, nRecords);
     metrics_meter_mark(connHolder->metrics->qps, 1);
@@ -654,8 +772,7 @@ ActionStatus exec_batch_one_by_one(ConnectionHolder* connHolder, Batch* batch, d
     if (nRecords == 0) nRecords = batch->nRecords;
     SqlCache* sqlCache = connection_holder_get_or_create_sql_cache_with_batch(connHolder, batch, 1);
 
-    PGresult* res;
-    char* errorMsg;
+    PGresult* res = NULL;
     char** params = MALLOC(batch->nValues, char*);
     dlist_mutable_iter miter;
     RecordItem* recordItem;
@@ -671,18 +788,17 @@ ActionStatus exec_batch_one_by_one(ConnectionHolder* connHolder, Batch* batch, d
         }
         res = connection_holder_exec_params_with_retry(connHolder, sqlCache->command, batch->nValues, sqlCache->paramTypes, (const char* const*)params, sqlCache->paramLengths, sqlCache->paramFormats, 0);
         count = -1;
-        for (int i = 0;i < batch->schema->nColumns;i++){
-            if (!batch->valuesSet[i]) continue;
-        }
         if (res == NULL || PQresultStatus(res) != PGRES_COMMAND_OK){
             LOG_ERROR("Mutate into table \"%s\" failed.", batch->schema->tableName->tableName);
-            connHolder->handleExceptionByUser(recordItem->record, PQresultErrorMessage(res));
+            connHolder->handleExceptionByUser(recordItem->record, PQresultErrorMessage(res), connHolder->exceptionHandlerParam);
             rc = FAILURE_NOT_NEED_RETRY;
         }
-        if (res !=NULL) PQclear(res);
+        if (res != NULL) PQclear(res);
         cRecords++;
     }
 
+    metrics_meter_mark(connHolder->metrics->rps, nRecords);
+    metrics_meter_mark(connHolder->metrics->qps, 1);
     FREE(params);
     *current = miter.cur;
 
@@ -694,7 +810,7 @@ ActionStatus handle_sql(ConnectionHolder* connHolder, SqlFunction sqlFunction, v
     return SUCCESS;
 }
 
-int res_tuple_hashcode(PGresult* res, int n, TableSchema* schema, int size) {
+int res_tuple_hashcode(PGresult* res, int n, HoloTableSchema* schema, int size) {
     unsigned raw = 0;
     bool first = true;
     for (int i = 0;i < schema->nPrimaryKeys;i++){
@@ -721,7 +837,7 @@ int res_tuple_hashcode(PGresult* res, int n, TableSchema* schema, int size) {
     return index;
 }
 
-bool res_tuple_equals(PGresult* res, int n1, int n2, TableSchema* schema) {
+bool res_tuple_equals(PGresult* res, int n1, int n2, HoloTableSchema* schema) {
     for (int i = 0;i < schema->nPrimaryKeys;i++){
         int index = schema->primaryKeys[i];
         char* v1 = PQgetvalue(res, n1, index);
@@ -731,7 +847,7 @@ bool res_tuple_equals(PGresult* res, int n1, int n2, TableSchema* schema) {
     return true;
 }
 
-void res_tuple_to_map(PGresult* res, int n, TableSchema* schema, LPMap* map, int maxSize) {
+void res_tuple_to_map(PGresult* res, int n, HoloTableSchema* schema, LPMap* map, int maxSize) {
     int index = res_tuple_hashcode(res, n, schema, maxSize);
     int M = maxSize;
     for(int i = 0; i < M; i++) {
@@ -747,9 +863,7 @@ void res_tuple_to_map(PGresult* res, int n, TableSchema* schema, LPMap* map, int
     }
 }
 
-
-
-ActionStatus handle_gets(ConnectionHolder* connHolder, TableSchema* schema, dlist_head* gets, int nRecords) {
+ActionStatus handle_gets(ConnectionHolder* connHolder, HoloTableSchema* schema, dlist_head* gets, int nRecords) {
     SqlCache* sqlCache = connection_holder_get_or_create_get_sql_cache(connHolder, schema, nRecords);
     int nParams = nRecords * schema->nPrimaryKeys;
     char** params = MALLOC(nParams, char*);
@@ -766,7 +880,7 @@ ActionStatus handle_gets(ConnectionHolder* connHolder, TableSchema* schema, dlis
         }
     }
 
-    PGresult* res;
+    PGresult* res = NULL;
     res = connection_holder_exec_params_with_retry(connHolder, sqlCache->command, nParams, sqlCache->paramTypes, (const char* const*)params, sqlCache->paramLengths, sqlCache->paramFormats, 0);
     if (res == NULL || PQresultStatus(res) != PGRES_TUPLES_OK){
         LOG_ERROR("Get from table \"%s\" as batch failed.", schema->tableName->tableName);
@@ -812,12 +926,12 @@ ActionStatus handle_gets(ConnectionHolder* connHolder, TableSchema* schema, dlis
         if (resNum == -1) {
             complete_future(getItem->get->future, NULL);
         } else {
-            Record* resRecord = holo_client_new_record(schema);
+            HoloRecord* resRecord = holo_client_new_record(schema);
             for (int n = 0; n < schema->nColumns; n++) {
                 char* value = PQgetvalue(res, resNum, n);
                 int len = strlen(value);
                 char* ptr = (char*)new_record_val(resRecord, len + 1);
-                deep_copy_string_to(value, ptr);
+                deep_copy_string_to(value, ptr, len + 1);
                 set_record_val(resRecord, n, ptr, 0, len + 1);
             }
             complete_future(getItem->get->future, resRecord);

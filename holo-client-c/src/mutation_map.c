@@ -6,7 +6,7 @@ MutationMap* holo_client_new_mutation_map(int size) {
     map->maxSize = size * 2;
     map->size = 0;
     map->byteSize = 0;
-    map->mutations = MALLOC(map->maxSize, Mutation);
+    map->mutations = MALLOC(map->maxSize, HoloMutation);
     for (int i = 0; i < map->maxSize; i++) {
         map->mutations[i] = NULL;
     }
@@ -19,11 +19,11 @@ void holo_client_destroy_mutation_map(MutationMap* map) {
     map = NULL;
 } 
 
-int mutation_hash_code(Mutation mutation, int size) {
+int mutation_hash_code(HoloMutation mutation, int size) {
     return record_pk_hash_code(mutation->record, size);
 }
 
-void mutation_map_add(MutationMap* map, Mutation mutation, bool hasPK) {
+void mutation_map_add(MutationMap* map, HoloMutation mutation, bool hasPK) {
     int M = map->maxSize;
     int index;
     if (!hasPK) {
@@ -50,7 +50,7 @@ void mutation_map_add(MutationMap* map, Mutation mutation, bool hasPK) {
     }
 }
 
-Mutation mutation_map_find_origin(MutationMap* map, Mutation mutation) {
+HoloMutation mutation_map_find_origin(MutationMap* map, HoloMutation mutation) {
     int index = mutation_hash_code(mutation, map->maxSize);
     int M = map->maxSize;
     for(int i = 0; i < map->maxSize; i++) {
