@@ -23,22 +23,28 @@
 
 ### 自行编译
 
+connector依赖父项目的pom文件，在本项目根目录执行以下命令进行install
+
+```
+mvn clean install -N
+```
+
 #### build base jar 并 install 到本地maven仓库
 
 - -P指定相关版本参数
 - 为了精简代码，Flink1.14的connector依赖了Flink1.13的connector，需要先编译安装1.13的connector至本地
 
-  ```
-  mvn install -pl hologres-connector-flink-base clean package -DskipTests -Pflink-1.13
-  mvn install -pl hologres-connector-flink-1.13 clean package -DskipTests
-  mvn install -pl hologres-connector-flink-base clean package -DskipTests -Pflink-1.14
-  ```
+```
+mvn install -pl hologres-connector-flink-base clean package -DskipTests -Pflink-1.13
+mvn install -pl hologres-connector-flink-1.13 clean package -DskipTests
+mvn install -pl hologres-connector-flink-base clean package -DskipTests -Pflink-1.14
+```
 
 #### build jar
 
-  ```
-    mvn install -pl hologres-connector-flink-1.14 clean package -DskipTests
-  ```
+```
+mvn install -pl hologres-connector-flink-1.14 clean package -DskipTests
+```
 
 ## 使用示例
 

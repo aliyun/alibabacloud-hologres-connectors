@@ -21,9 +21,16 @@
 
 ### 自行编译
 
+connector依赖父项目的pom文件，在本项目根目录执行以下命令进行install
+
+```
+mvn clean install -N
+```
+
 #### build base jar 并 install 到本地maven仓库
 
 - -P指定相关版本参数，本项目使用scala2.12以及spark3.0，详情请查看hologres-connector-spark-base子项目README
+
 
   ```
   mvn install -pl hologres-connector-spark-base clean package -DskipTests -Pscala-2.12 -Pspark-3

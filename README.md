@@ -89,5 +89,8 @@ Connectors for Hologres
 也可以在 GitHub Releases 中可以下载最新SNAPSHOT版本已经编译好的jar包
 
 # 编译
-在根目录执行
-```mvn install -DskipTests``` 即可，各模块的maven依赖，可参考各自的pom.xml文件
+各connector会依赖父项目的pom文件，在根目录执行以下命令进行install
+
+```
+mvn clean install -N
+```

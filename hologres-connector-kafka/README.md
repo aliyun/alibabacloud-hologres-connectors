@@ -23,6 +23,12 @@
 
 ### 自行编译
 
+connector依赖父项目的pom文件，在本项目根目录执行以下命令进行install
+
+```
+mvn clean install -N
+```
+
 #### build jar
 
   ```

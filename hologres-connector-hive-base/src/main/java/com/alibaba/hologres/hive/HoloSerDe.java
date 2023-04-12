@@ -292,11 +292,6 @@ public class HoloSerDe extends AbstractSerDe {
                             ((ListTypeInfo) hiveColumnTypes[i])
                                     .getListElementTypeInfo()
                                     .getTypeName();
-                    LOGGER.info(
-                            "yt_debug {} {} {}",
-                            arrayElementTypeName,
-                            value.toString(),
-                            value.getClass());
                     switch (arrayElementTypeName) {
                             // case "int":
                             //    break;
@@ -422,7 +417,6 @@ public class HoloSerDe extends AbstractSerDe {
                                         hiveColumnNames[i]));
                     }
 
-                    LOGGER.info("yt_debug {} {} ", rowData.toString(), rowData.getClass());
                     switch (arrayElementTypeName) {
                         case "int":
                             rowData = DataTypeUtils.castIntWritableArrayListToArray(rowData);
