@@ -2,6 +2,11 @@
 Connectors for Hologres
 
 # 模块介绍
+
+* [holo-chatbot](./holo-chatbot/)
+
+    使用Hologres向量引擎定制GPT大模型聊天机器人
+
 * [holo-client](./holo-client)
 
     holo-client源码以及使用holo-client读写Hologres的文档
