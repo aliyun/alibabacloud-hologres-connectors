@@ -1,6 +1,6 @@
 from langchain.chat_models import ChatOpenAI
 from langchain.document_loaders.csv_loader import CSVLoader
-from langchain.embeddings import HuggingFaceEmbeddings
+from langchain.embeddings import ModelScopeEmbeddings
 from langchain.schema import (
     BaseMessage,
     HumanMessage,
@@ -22,8 +22,8 @@ class Chatbot:
         with open(os.path.join(DIR_PATH, 'config', 'prompt.txt')) as f:
             self.prompt = f.read()
 
-        self.embeddings = HuggingFaceEmbeddings(
-            model_name='shibing624/text2vec-base-chinese')
+        self.embeddings = ModelScopeEmbeddings(
+            model_id='damo/nlp_corom_sentence-embedding_chinese-base')
         self.chat_history = [SystemMessage(content=self.prompt)]
         self.ai = ChatOpenAI(temperature=0.1)
         self.no_vector_store = no_vector_store
