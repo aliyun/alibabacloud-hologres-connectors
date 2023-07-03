@@ -26,10 +26,10 @@ ChatGPT带来了大模型的爆火，它是一种人工智能聊天机器人，�
 首先安装 [Anaconda](https://www.anaconda.com/download/) 或其他Python虚拟环境。
 
 ```bash
-conda create --name chatbot python=3.11
+conda create --name chatbot python=3.8
 conda activate chatbot
 
-pip install langchain psycopg2-binary openai sentence_transformers bottle
+pip install langchain psycopg2-binary openai torch transformers modelscope bottle
 ```
 
 ## 获取 openai 密钥
