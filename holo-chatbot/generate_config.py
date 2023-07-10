@@ -5,13 +5,12 @@ print('欢迎使用holo chatbot设置向导，请按提示输入所需密钥信�
 print('您也可以手动编辑 config/config.yaml 来修改设置')
 print()
 
-keys = ['OPENAI_API_KEY', 'HOLO_ENDPOINT', 'HOLO_PORT', 'HOLO_USER',
+keys = ['HOLO_ENDPOINT', 'HOLO_PORT', 'HOLO_USER',
         'HOLO_PASSWORD', 'HOLO_DATABASE', 'DINGDING_TOKEN', 'DINGDING_SECRET']
 
 config_file = 'config/config.yaml'
 
 data = {}
-data['OPENAI_API_BASE'] = 'https://api.openai-proxy.com/v1'
 
 if os.path.exists(config_file):
     with open(config_file, 'r') as f:

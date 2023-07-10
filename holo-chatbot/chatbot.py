@@ -1,4 +1,5 @@
 from langchain.chat_models import ChatOpenAI
+from langchain.chat_models.base import BaseChatModel
 from langchain.document_loaders.csv_loader import CSVLoader
 from langchain.embeddings import ModelScopeEmbeddings
 from langchain.schema import (
@@ -17,7 +18,7 @@ from utils import export_env, DIR_PATH
 
 
 class Chatbot:
-    def __init__(self, clear_db: bool = False, no_vector_store: bool = False) -> None:
+    def __init__(self, chat_model: BaseChatModel, clear_db: bool = False, no_vector_store: bool = False) -> None:
 
         with open(os.path.join(DIR_PATH, 'config', 'prompt.txt')) as f:
             self.prompt = f.read()
@@ -25,7 +26,7 @@ class Chatbot:
         self.embeddings = ModelScopeEmbeddings(
             model_id='damo/nlp_corom_sentence-embedding_chinese-base')
         self.chat_history = [SystemMessage(content=self.prompt)]
-        self.ai = ChatOpenAI(temperature=0.1)
+        self.chat_model = chat_model
         self.no_vector_store = no_vector_store
         if no_vector_store:
             print('当前正使用无向量引擎模式，不连接hologres')
@@ -78,7 +79,7 @@ class Chatbot:
         self.chat_history.append(HumanMessage(content=question))
         input_messages = self._generate_context(question) + self.chat_history
 
-        ai_response = self.ai(input_messages)
+        ai_response = self.chat_model(input_messages)
         self.chat_history.append(ai_response)
 
         return ai_response.content
@@ -104,7 +105,10 @@ if __name__ == '__main__':
     if args.clear:
         print('start with drop vector store')
 
-    bot = Chatbot(args.clear, args.no_vector_store)
+    chat_model = BaseChatModel() # Fix me: 在此处填入初始化的大模型
+    print('请换用具体的大模型')
+    assert False
+    bot = Chatbot(chat_model, args.clear, args.no_vector_store)
 
     if args.load:
         files = args.files
