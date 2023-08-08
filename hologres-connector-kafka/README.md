@@ -16,7 +16,7 @@
 <dependency>
     <groupId>com.alibaba.hologres</groupId>
     <artifactId>hologres-connector-kafka</artifactId>
-    <version>1.3.0</version>
+    <version>1.3.2</version>
     <classifier>jar-with-dependencies</classifier>
 </dependency>
 ```

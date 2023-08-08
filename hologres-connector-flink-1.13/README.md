@@ -16,7 +16,7 @@
 <dependency>
     <groupId>com.alibaba.hologres</groupId>
     <artifactId>hologres-connector-flink-1.13</artifactId>
-    <version>1.3.0</version>
+    <version>1.3.2</version>
     <classifier>jar-with-dependencies</classifier>
 </dependency>
 ```
@@ -89,7 +89,7 @@ mvn clean install -N
 | jdbcWriteFlushInterval |Hologres Sink节点数据攒批的最长Flush等待时间）|否 |默认值为10000，即10秒|
 | jdbcUseLegacyPutHandler|true时，写入sql格式为insert into xxx(c0,c1,...) values (?,?,...),... on conflict; false时优先使用sql格式为insert into xxx(c0,c1,...) select unnest(?),unnest(?),... on conflict|否 | 默认值：false | 
 | jdbcEnableDefaultForNotNullColumn|设置为true时，not null且未在表上设置default的字段传入null时，将以默认值写入. String 默认“”,Number 默认0,Date/timestamp/timestamptz 默认1970-01-01 00:00:00|    否|    默认值：true|
-| jdbcCopyWriteMode | 是否使用fixed copy方式写入 | 否 | 默认值false。fixed copy是hologres1.3新增的能力，相比insert方法，fixed copy方式可以更高的吞吐（因为是流模式），更低的数据延时，更低的客户端内存消耗（因为不攒批)，但不支持回撤。|
+| jdbcCopyWriteMode | 是否使用fixed copy方式写入 | 否 |                       默认值false。fixed copy是hologres1.3新增的能力，相比insert方法，fixed copy方式可以更高的吞吐（因为是流模式），更低的数据延时，更低的客户端内存消耗（因为不攒批)，但不支持回撤, 也不支持写入分区父表。                       |
 | jdbcCopyWriteFormat | 底层是否走二进制协议 | 否 | 默认为binary。表示使用二进制模式，二进制会更快，否则为文本模式。|
 | jdbcCopyWriteDirectConnect | copy模式是否直连 | 否 | 默认值为true。copy的瓶颈往往是VIP endpoint的网络吞吐，因此copy写入模式下会测试当前环境能否直连holo fe，支持的话默认使用直连。此参数设置为false则不进行直连。|
 

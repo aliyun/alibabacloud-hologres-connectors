@@ -72,8 +72,12 @@ public class HologresHiveReadWriteTest extends HologresHiveTestBase {
                 DriverManager.getConnection(hiveJdbcUrl, hiveUsername, hivePassword)) {
             try (Statement statement = connection.createStatement()) {
                 // hive中创建本地表并插入数据
-                statement.execute(prepareCreateTableSql.replace("TABLE_NAME", "customer_hive_local").replace("EXTERNAL", ""));
-                statement.execute(prepareInsertValuesSql.replace("TABLE_NAME", "customer_hive_local"));
+                statement.execute(
+                        prepareCreateTableSql
+                                .replace("TABLE_NAME", "customer_hive_local")
+                                .replace("EXTERNAL", ""));
+                statement.execute(
+                        prepareInsertValuesSql.replace("TABLE_NAME", "customer_hive_local"));
                 // hive 中创建holo外表
                 statement.execute(
                         String.format(
@@ -97,10 +101,7 @@ public class HologresHiveReadWriteTest extends HologresHiveTestBase {
         }
     }
 
-    /**
-     * insert into customer_to_holo select 111,222 ...
-     * 此方式Hive给到HoloSerDe的是XWritable类型
-     */
+    /** insert into customer_to_holo select 111,222 ... 此方式Hive给到HoloSerDe的是XWritable类型. */
     @Test
     public void holoWriteTest() throws SQLException {
         try (Connection connection =
@@ -114,18 +115,16 @@ public class HologresHiveReadWriteTest extends HologresHiveTestBase {
         checkResult();
     }
 
-
     /**
-     * insert into customer_to_holo select * from customer_hive_local;
-     * 此方式Hive给到HoloSerDe的是LazyX类型
+     * insert into customer_to_holo select * from customer_hive_local; 此方式Hive给到HoloSerDe的是LazyX类型.
      */
     @Test
     public void holoReadWriteTest() throws SQLException {
         try (Connection connection =
-                 DriverManager.getConnection(hiveJdbcUrl, hiveUsername, hivePassword)) {
+                DriverManager.getConnection(hiveJdbcUrl, hiveUsername, hivePassword)) {
             try (Statement statement = connection.createStatement()) {
                 System.out.println(
-                    prepareInsertValuesSql.replace("TABLE_NAME", "customer_to_holo"));
+                        prepareInsertValuesSql.replace("TABLE_NAME", "customer_to_holo"));
                 statement.execute(prepareInsertValuesSql.replace("TABLE_NAME", "customer_to_holo"));
             }
         }
@@ -149,17 +148,17 @@ public class HologresHiveReadWriteTest extends HologresHiveTestBase {
                     Assert.assertEquals(
                             Timestamp.valueOf("2021-05-21 16:00:45.123"), rs.getTimestamp(9));
                     Assert.assertEquals(Date.valueOf("2021-05-21"), rs.getDate(10));
+                    Assert.assertEquals(new BigDecimal("85.23000"), rs.getBigDecimal(11));
                     Assert.assertEquals(
-                        new BigDecimal("85.23000"),
-                            rs.getBigDecimal(11));
-                    Assert.assertEquals(
-                        Arrays.toString((new byte[] {120, 48, 51, 48, 52, 48, 53, 0, 0, 0})),
-                        Arrays.toString(rs.getBytes(12)));
+                            Arrays.toString((new byte[] {120, 48, 51, 48, 52, 48, 53, 0, 0, 0})),
+                            Arrays.toString(rs.getBytes(12)));
                     Assert.assertEquals("{1,2,3}", rs.getObject(13).toString());
                     Assert.assertEquals(
                             "{1000000000,2000000000,3000000000}", rs.getObject(14).toString());
                     Assert.assertEquals("{1.10000002,1.20000005}", rs.getObject(15).toString());
-                    Assert.assertEquals("{2.10000000000000009,2.20000000000000018}", rs.getObject(16).toString());
+                    Assert.assertEquals(
+                            "{2.10000000000000009,2.20000000000000018}",
+                            rs.getObject(16).toString());
                     Assert.assertEquals("{f,t,f}", rs.getObject(17).toString());
                     Assert.assertEquals("{a,b,c}", rs.getObject(18).toString());
                 } else {

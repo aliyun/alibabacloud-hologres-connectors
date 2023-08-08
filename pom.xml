@@ -6,11 +6,11 @@
 
     <groupId>com.alibaba.hologres</groupId>
     <artifactId>hologres-connector-parent</artifactId>
-    <version>1.3.1-SNAPSHOT</version>
+    <version>1.3.2-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <properties>
-        <hologres.client.version>2.2.7</hologres.client.version>
+        <hologres.client.version>2.2.10</hologres.client.version>
         <java.version>1.8</java.version>
         <maven.compiler.source>${java.version}</maven.compiler.source>
         <maven.compiler.target>${java.version}</maven.compiler.target>
