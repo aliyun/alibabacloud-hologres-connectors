@@ -1,12 +1,15 @@
 package com.alibaba.hologres.hive.utils;
 
+import com.google.common.primitives.Booleans;
+import com.google.common.primitives.Floats;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
 /** DataTypeUtils. */
 public class DataTypeUtils {
-    public static Integer[] castIntWritableArrayListToArray(Object obj) {
+    public static int[] castIntWritableArrayListToArray(Object obj) {
         List<Integer> result = new ArrayList<>();
         if (obj instanceof List<?>) {
             for (Object o : (List<?>) obj) {
@@ -15,12 +18,12 @@ public class DataTypeUtils {
                 }
                 result.add(Integer.valueOf(o.toString()));
             }
-            return result.toArray(new Integer[0]);
+            return result.stream().mapToInt(Integer::intValue).toArray();
         }
         return null;
     }
 
-    public static Long[] castLongWritableArrayListToArray(Object obj) {
+    public static long[] castLongWritableArrayListToArray(Object obj) {
         List<Long> result = new ArrayList<>();
         if (obj instanceof List<?>) {
             for (Object o : (List<?>) obj) {
@@ -29,12 +32,12 @@ public class DataTypeUtils {
                 }
                 result.add(Long.valueOf(o.toString()));
             }
-            return result.toArray(new Long[0]);
+            return result.stream().mapToLong(Long::longValue).toArray();
         }
         return null;
     }
 
-    public static Float[] castFloatWritableArrayListToArray(Object obj) {
+    public static float[] castFloatWritableArrayListToArray(Object obj) {
         List<Float> result = new ArrayList<>();
         if (obj instanceof List<?>) {
             for (Object o : (List<?>) obj) {
@@ -43,12 +46,12 @@ public class DataTypeUtils {
                 }
                 result.add(Float.valueOf(o.toString()));
             }
-            return result.toArray(new Float[0]);
+            return Floats.toArray(result);
         }
         return null;
     }
 
-    public static Double[] castDoubleWritableArrayListToArray(Object obj) {
+    public static double[] castDoubleWritableArrayListToArray(Object obj) {
         List<Double> result = new ArrayList<>();
         if (obj instanceof List<?>) {
             for (Object o : (List<?>) obj) {
@@ -57,12 +60,12 @@ public class DataTypeUtils {
                 }
                 result.add(Double.valueOf(o.toString()));
             }
-            return result.toArray(new Double[0]);
+            return result.stream().mapToDouble(Double::doubleValue).toArray();
         }
         return null;
     }
 
-    public static Boolean[] castBooleanWritableArrayListToArray(Object obj) {
+    public static boolean[] castBooleanWritableArrayListToArray(Object obj) {
         List<Boolean> result = new ArrayList<>();
         if (obj instanceof List<?>) {
             for (Object o : (List<?>) obj) {
@@ -71,7 +74,7 @@ public class DataTypeUtils {
                 }
                 result.add(Boolean.valueOf(o.toString()));
             }
-            return result.toArray(new Boolean[0]);
+            return Booleans.toArray(result);
         }
         return null;
     }

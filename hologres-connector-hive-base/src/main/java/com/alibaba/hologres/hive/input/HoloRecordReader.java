@@ -22,6 +22,8 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 
+import static com.alibaba.hologres.hive.utils.JDBCUtils.logErrorAndExceptionInConsole;
+
 /** HoloRecordReader. */
 public class HoloRecordReader implements RecordReader<LongWritable, MapWritable> {
 
@@ -68,6 +70,7 @@ public class HoloRecordReader implements RecordReader<LongWritable, MapWritable>
             resultSet = statement.executeQuery();
         } catch (SQLException e) {
             close();
+            logErrorAndExceptionInConsole("Error while create record reader.", e);
             throw new IOException(e);
         }
     }
@@ -126,6 +129,7 @@ public class HoloRecordReader implements RecordReader<LongWritable, MapWritable>
                 conn.close();
                 conn = null;
             } catch (SQLException e) {
+                logErrorAndExceptionInConsole("Error while close record reader.", e);
                 throw new RuntimeException(e);
             }
         }

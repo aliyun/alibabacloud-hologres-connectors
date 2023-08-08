@@ -14,6 +14,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.Arrays;
+
+import static com.alibaba.hologres.hive.utils.JDBCUtils.logErrorAndExceptionInConsole;
 
 /** HoloRecordWriter. */
 public class HoloRecordWriter implements FileSinkOperator.RecordWriter {
@@ -40,9 +43,15 @@ public class HoloRecordWriter implements FileSinkOperator.RecordWriter {
             Put put = new Put(schema);
             record.write(put);
             clientProvider.createOrGetClient().put(put);
-        } catch (HiveHoloStorageException | HoloClientException throwables) {
+        } catch (HiveHoloStorageException | HoloClientException e) {
+            logErrorAndExceptionInConsole(
+                    String.format(
+                            "failed while write values %s, because:",
+                            Arrays.toString(record.getColumnValues())),
+                    e);
+            throw new IOException(e);
+        } finally {
             clientProvider.closeClient();
-            throw new IOException(throwables);
         }
     }
 

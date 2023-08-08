@@ -26,7 +26,9 @@ import org.apache.hadoop.hive.serde2.SerDeException;
 import org.apache.hadoop.hive.serde2.SerDeStats;
 import org.apache.hadoop.hive.serde2.io.HiveDecimalWritable;
 import org.apache.hadoop.hive.serde2.lazy.LazyArray;
+import org.apache.hadoop.hive.serde2.lazy.LazyBinary;
 import org.apache.hadoop.hive.serde2.lazybinary.LazyBinaryArray;
+import org.apache.hadoop.hive.serde2.lazybinary.LazyBinaryBinary;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector.Category;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspectorFactory;
@@ -51,6 +53,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Properties;
+
+import static com.alibaba.hologres.hive.utils.JDBCUtils.logErrorAndExceptionInConsole;
 
 /** HoloSerDe. */
 public class HoloSerDe extends AbstractSerDe {
@@ -130,8 +134,8 @@ public class HoloSerDe extends AbstractSerDe {
 
             dbRecordWritable = new HoloRecordWritable(hiveColumnCount, hiveColumnNames);
         } catch (Exception e) {
-            LOGGER.error("Caught exception while initializing the SqlSerDe", e);
-            throw new SerDeException(e);
+            logErrorAndExceptionInConsole("Caught exception while initializing the SqlSerDe", e);
+            throw new RuntimeException(e);
         } finally {
             clientProvider.closeClient();
         }
@@ -491,12 +495,16 @@ public class HoloSerDe extends AbstractSerDe {
                             break;
                         case BINARY:
                             if (rowData instanceof BytesWritable) {
-                                BytesWritable a = (BytesWritable) rowData;
                                 rowData = ((BytesWritable) rowData).getBytes();
+                            } else if (rowData instanceof LazyBinary) {
+                                rowData = ((LazyBinary) rowData).getWritableObject().getBytes();
+                            } else if (rowData instanceof LazyBinaryBinary) {
+                                rowData =
+                                        ((LazyBinaryBinary) rowData).getWritableObject().getBytes();
                             } else {
                                 throw new SerDeException(
                                         String.format(
-                                                "hologres connector SerDe need binary field instance BytesWritable but is was %s",
+                                                "hologres connector SerDe need binary field instance BytesWritable/LazyBinary/LazyBinaryBinary but is was %s",
                                                 rowData.getClass()));
                             }
                             break;

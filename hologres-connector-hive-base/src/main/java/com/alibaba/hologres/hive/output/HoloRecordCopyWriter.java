@@ -29,6 +29,7 @@ import java.io.IOException;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
+import java.util.Arrays;
 import java.util.Properties;
 import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
@@ -40,6 +41,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.alibaba.hologres.client.model.WriteMode.INSERT_OR_IGNORE;
 import static com.alibaba.hologres.client.model.WriteMode.INSERT_OR_UPDATE;
+import static com.alibaba.hologres.hive.utils.JDBCUtils.logErrorAndExceptionInConsole;
 
 /** HoloRecordWriter. */
 public class HoloRecordCopyWriter implements FileSinkOperator.RecordWriter {
@@ -100,6 +102,11 @@ public class HoloRecordCopyWriter implements FileSinkOperator.RecordWriter {
                 try {
                     RecordChecker.check(record);
                 } catch (HoloClientException e) {
+                    logErrorAndExceptionInConsole(
+                            String.format(
+                                    "failed to copy because dirty data, the error record is %s.",
+                                    record),
+                            e);
                     throw new IOException(
                             String.format(
                                     "failed to copy because dirty data, the error record is %s.",
@@ -111,6 +118,11 @@ public class HoloRecordCopyWriter implements FileSinkOperator.RecordWriter {
             writeWithCopyContext(
                     record, copyContexts.get((int) (count % nextCopyContextIndex.get())));
         } catch (HiveHoloStorageException e) {
+            logErrorAndExceptionInConsole(
+                    String.format(
+                            "failed while write values %s, because:",
+                            Arrays.toString(recordWritable.getColumnValues())),
+                    e);
             if (copyContexts != null) {
                 for (CopyContext copyContext : copyContexts.values()) {
                     if (copyContext != null) {
@@ -153,6 +165,9 @@ public class HoloRecordCopyWriter implements FileSinkOperator.RecordWriter {
 
             copyContext.os.putRecord(record);
         } catch (SQLException e) {
+            logErrorAndExceptionInConsole(
+                    String.format("failed while writeWithCopyContext record %s, because:", record),
+                    e);
             copyContext.close();
             throw new IOException(e);
         }
@@ -258,7 +273,8 @@ public class HoloRecordCopyWriter implements FileSinkOperator.RecordWriter {
                 try {
                     os.close();
                 } catch (IOException e) {
-                    logger.warn("close fail", e);
+                    logErrorAndExceptionInConsole("close RecordOutputStream fail", e);
+                    throw new RuntimeException(e);
                 } finally {
                     os = null;
                 }
@@ -268,6 +284,7 @@ public class HoloRecordCopyWriter implements FileSinkOperator.RecordWriter {
                 try {
                     pgConn.close();
                 } catch (SQLException e) {
+                    logErrorAndExceptionInConsole("close pg Conn fail", e);
                     throw new RuntimeException(e);
                 }
                 pgConn = null;

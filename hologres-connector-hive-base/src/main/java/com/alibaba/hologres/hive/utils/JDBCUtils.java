@@ -12,6 +12,7 @@ import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.Properties;
@@ -122,6 +123,8 @@ public class JDBCUtils {
             return DriverManager.getConnection(
                     param.getUrl(), param.getUsername(), param.getPassword());
         } catch (SQLException e) {
+            logErrorAndExceptionInConsole(
+                    String.format("Failed getting connection to %s because:", param.getUrl()), e);
             throw new RuntimeException(
                     String.format(
                             "Failed getting connection to %s because %s",
@@ -150,6 +153,7 @@ public class JDBCUtils {
                 logger.warn("Failed to get hologres frontends number.", e);
                 return 0;
             }
+            logErrorAndExceptionInConsole("Failed to get hologres frontends number.", e);
             throw new RuntimeException("Failed to get hologres frontends number.", e);
         }
     }
@@ -165,5 +169,10 @@ public class JDBCUtils {
 
     public static String quoteIdentifier(String identifier) {
         return "\"" + identifier + "\"";
+    }
+
+    public static void logErrorAndExceptionInConsole(String error, Exception e) {
+        System.out.println(LocalDateTime.now() + " [ERROR] " + error);
+        e.printStackTrace(System.out);
     }
 }

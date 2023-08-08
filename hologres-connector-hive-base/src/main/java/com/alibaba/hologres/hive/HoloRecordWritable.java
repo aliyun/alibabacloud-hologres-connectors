@@ -43,4 +43,12 @@ public class HoloRecordWritable implements Writable {
 
     @Override
     public void readFields(DataInput dataInput) throws IOException {}
+
+    public Object[] getColumnValues() {
+        return columnValues;
+    }
+
+    public String[] getColumnNames() {
+        return columnNames;
+    }
 }

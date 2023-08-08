@@ -7,6 +7,8 @@ import com.alibaba.hologres.client.model.TableName;
 import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.hive.conf.HoloClientParam;
 
+import static com.alibaba.hologres.hive.utils.JDBCUtils.logErrorAndExceptionInConsole;
+
 /** HoloClient factory which supports create holo client. */
 public class HoloClientProvider {
 
@@ -24,6 +26,7 @@ public class HoloClientProvider {
         try {
             client.flush();
         } catch (HoloClientException e) {
+            logErrorAndExceptionInConsole("Failed to close client", e);
             throw new RuntimeException("Failed to close client", e);
         } finally {
             client.close();
@@ -38,6 +41,7 @@ public class HoloClientProvider {
             try {
                 client = new HoloClient(holoConfig);
             } catch (HoloClientException e) {
+                logErrorAndExceptionInConsole("create holo client failed", e);
                 throw new RuntimeException("create holo client failed", e);
             }
         }
@@ -51,6 +55,8 @@ public class HoloClientProvider {
         try {
             return client.getTableSchema(TableName.valueOf(param.getTableName()));
         } catch (HoloClientException e) {
+            logErrorAndExceptionInConsole(
+                    String.format("get table %s schema failed", param.getTableName()), e);
             throw new RuntimeException(
                     String.format("get table %s schema failed", param.getTableName()), e);
         }

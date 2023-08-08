@@ -40,6 +40,8 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.util.Properties;
 
+import static com.alibaba.hologres.hive.utils.JDBCUtils.logErrorAndExceptionInConsole;
+
 /** HoloOutputFormat. */
 public class HoloOutputFormat
         implements OutputFormat<NullWritable, MapWritable>,
@@ -69,6 +71,7 @@ public class HoloOutputFormat
                                 .sql(ConnectionUtil::getHoloVersion)
                                 .get();
             } catch (Exception e) {
+                logErrorAndExceptionInConsole("Failed to get holo version", e);
                 throw new IOException("Failed to get holo version", e);
             }
             boolean supportCopy = holoVersion.compareTo(new HoloVersion(1, 3, 24)) > 0;
@@ -85,7 +88,8 @@ public class HoloOutputFormat
                                     .sql(JDBCUtils::getFrontendsNumber)
                                     .get());
                 } catch (Exception e) {
-                    throw new IOException("Failed to get holo version", e);
+                    logErrorAndExceptionInConsole("Failed to get frontend number", e);
+                    throw new IOException("Failed to get frontend number", e);
                 }
                 if (param.isDirectConnect()) {
                     // 尝试直连，无法直连则各个tasks内的copy writer不需要进行尝试

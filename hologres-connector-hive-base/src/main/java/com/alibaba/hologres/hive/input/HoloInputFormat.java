@@ -18,6 +18,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 
 import static com.alibaba.hologres.client.Command.getShardCount;
+import static com.alibaba.hologres.hive.utils.JDBCUtils.logErrorAndExceptionInConsole;
 
 /** HoloInputFormat. */
 public class HoloInputFormat extends HiveInputFormat<LongWritable, MapWritable> {
@@ -69,6 +70,7 @@ public class HoloInputFormat extends HiveInputFormat<LongWritable, MapWritable> 
             }
 
         } catch (Exception e) {
+            logErrorAndExceptionInConsole("Error while splitting input data.", e);
             LOGGER.info("Error while splitting input data.", e);
             throw new IOException(e);
         }
