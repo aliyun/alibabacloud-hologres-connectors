@@ -5,6 +5,7 @@ import com.alibaba.hologres.client.impl.util.ConnectionUtil
 import com.alibaba.hologres.client.model.HoloVersion
 import com.alibaba.hologres.org.postgresql.PGProperty
 import com.alibaba.hologres.spark.config.HologresConfigs
+import org.apache.commons.lang3.exception.ExceptionUtils
 import org.slf4j.LoggerFactory
 
 import java.sql.{Connection, DriverManager, SQLException}
@@ -100,6 +101,24 @@ object JDBCUtil {
   object getHoloVersion extends FunctionWithSQLException[Connection, HoloVersion] {
     override def apply(conn: Connection): HoloVersion = {
       ConnectionUtil.getHoloVersion(conn)
+    }
+  }
+
+  def getSimpleSelectFromStatement(table: String, selectFields: Array[String]): String = {
+    val selectExpressions: String = selectFields.mkString(", ")
+    "SELECT " + selectExpressions + " FROM " + table
+  }
+
+  def createConnection(hologresConfigs: HologresConfigs): Connection = {
+    try Class.forName("com.alibaba.hologres.org.postgresql.Driver")
+    catch {
+      case e: ClassNotFoundException =>
+        throw new RuntimeException(e)
+    }
+    try DriverManager.getConnection(hologresConfigs.jdbcUrl, hologresConfigs.username, hologresConfigs.password)
+    catch {
+      case e: SQLException =>
+        throw new RuntimeException(String.format("Failed getting connection to %s because %s", hologresConfigs.jdbcUrl, ExceptionUtils.getStackTrace(e)))
     }
   }
 }

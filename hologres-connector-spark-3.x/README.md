@@ -49,7 +49,8 @@ mvn clean install -N
 hologres spark connector在进行读写时，会使用一定的jdbc连接数。可能受到如下因素影响：
 
 1. spark的并发，在作业运行时于spark UI处可以看到的同步执行的task数量
-2. connector每个并发使用的连接数：fixed copy方式写入，每个并发仅使用一个jdbc连接。insert 方式写入，每个并发会使用write_thread_size个jdbc连接。
+2. connector每个并发使用的连接数：fixed copy方式写入，每个并发仅使用一个jdbc连接。insert
+   方式写入，每个并发会使用write_thread_size个jdbc连接。读取时每个并发使用一个jdbc连接。
 3. 其他方面可能使用的连接数：作业启动时，会有schema获取等操作，可能短暂的建立1个连接
 
 因此作业使用的总的连接数可以通过如下公示计算：
@@ -146,7 +147,6 @@ df.write.format("hologres") //必须配置为hologres
 .option("database", "test_database") //Hologres的数据库名称,示例为test_database。
 .option("table", "tb008") //Hologres用于接收数据的表名称，示例为tb008。
 .option("write_mode", "insert_or_update") //写入Holo的类型，具体见下方参数介绍
-.option("input_data_schema_ddl", df.schema.toDDL) //输入DataFrame对应的DDL信息
 .mode(SaveMode.Append) // spark DataFrameWriter接口的SaveMode, 必须为Append；注意与WRITE_MODE不是同一个参数
 .save()
 ```
@@ -216,7 +216,6 @@ df.write
 .option("endpoint", "hologres_endpoint")
 .option("database", "test_database")
 .option("table", table)
-.option("input_data_schema_ddl", df.schema.toDDL) //输入DataFrame对应的DDL信息
 .mode(SaveMode.Append) // spark DataFrameWriter接口的SaveMode, 必须为Append；注意与WRITE_MODE不是同一个参数
 .save()
 ```
@@ -244,50 +243,56 @@ df2.write.format("hologres").option(
 
 ## 参数说明
 
-| 参数名 | 默认值 | 是否必填 | 说明 |
-| :---: | :---: | :---: |:---: |
-| username | 无 | 是 | 阿里云账号的AccessKey ID |
-| password | 无 | 是 | 阿里云账号的Accesskey SECRET |
-| table | 无 | 是 | Hologres用于接收数据的表名称 |
-| endpoint | 无 | 与jdbcUrl二选一| Hologres实时数据API的Ip和Port |
-| database | 无 | 与jdbcUrl二选一| Hologres接收数据的表所在数据库名称 |
-| jdbcurl | 无 | 与endpoint+database组合设置二选一| Hologres实时数据API的jdbcUrl |
-| input_data_schema_ddl | 无 | 使用spark3.x版本的connector必填，值为<your_DataFrame>.schema.toDDL | 组成DataFrame的schema对应的DDL，<br> 使用"your_df.schema.toDDL"输入即可 |
-| copy_write_mode | true | 否 | 是否使用fixed copy方式写入，fixed copy是hologres1.3新增的能力，相比insert方法，fixed copy方式可以更高的吞吐（因为是流模式），更低的数据延时，更低的客户端内存消耗（因为不攒批) <br> 注：需要connector版本>=1.3.0，hologres引擎版本>=r1.3.34|
-| copy_write_format | binary | 否 | 底层是否走二进制协议，二进制会更快，否则为文本模式|
-| copy_write_dirty_data_check | false | 否 | 是否进行脏数据校验，打开之后如果有脏数据，可以定位到写入失败的具体行，RecordChecker会对写入性能造成一定影响，非排查环节不建议开启.|
-| copy_write_direct_connect | 对于可以直连的环境会默认使用直连 | 否 | copy的瓶颈往往是VIP endpoint的网络吞吐，因此我们会测试当前环境能否直连holo fe，支持的话默认使用直连。此参数设置为false则不进行直连。|
-| write_mode | INSERT_OR_REPLACE | 否 | 当INSERT目标表为有主键的表时采用不同策略:<br>INSERT_OR_IGNORE 当主键冲突时，不写入<br>INSERT_OR_UPDATE 当主键冲突时，更新相应列<br>INSERT_OR_REPLACE 当主键冲突时，更新所有列|
-| write_batch_size | 512 | 否 | 每个写入线程的最大批次大小，<br>在经过WriteMode合并后的Put数量达到writeBatchSize时进行一次批量提交 |
-| write_batch_byte_size | 2097152（2 * 1024 * 1024） | 否 | 每个写入线程的最大批次bytes大小，单位为Byte，默认2MB，<br>在经过WriteMode合并后的Put数据字节数达到writeBatchByteSize时进行一次批量提交 |
-| use_legacy_put_handler| false | 否 |true时，写入sql格式为insert into xxx(c0,c1,...) values (?,?,...),... on conflict; false时优先使用sql格式为insert into xxx(c0,c1,...) select unnest(?),unnest(?),... on conflict|
-| write_max_interval_ms | 10000 | 否 | 距离上次提交超过writeMaxIntervalMs会触发一次批量提交 |
-| write_fail_strategy | TYR_ONE_BY_ONE | 否 | 当发生写失败时的重试策略:<br>TYR_ONE_BY_ONE 当某一批次提交失败时，会将批次内的记录逐条提交（保序），其中某单条提交失败的记录将会跟随异常被抛出<br> NONE 直接抛出异常 |
-| write_thread_size | 1 | 否 | 写入并发线程数（每个并发占用1个数据库连接） |
-| retry_count | 3 | 否 | 当连接故障时，写入和查询的重试次数 |
-| retry_sleep_init_ms | 1000 | 否 | 每次重试的等待时间=retrySleepInitMs+retry*retrySleepStepMs |
-| retry_sleep_step_ms | 10000 | 否 | 每次重试的等待时间=retrySleepInitMs+retry*retrySleepStepMs|
-| connection_max_idle_ms| 60000 | 否 | 写入线程和点查线程数据库连接的最大Idle时间，超过连接将被释放|
-| dynamic_partition| false|    否 |若为true，写入分区表父表时，当分区不存在时自动创建分区 |
-| fixed_connection_mode| false|   否| 非copy write 模式（insert默认）下，写入和点查不占用连接数（beta功能，需要connector版本>=1.2.0，hologres引擎版本>=1.3）|
+|             参数名             |           默认值            |           是否必填            |                                                                                说明                                                                                 |
+|:---------------------------:|:------------------------:|:-------------------------:|:-----------------------------------------------------------------------------------------------------------------------------------------------------------------:|
+|          username           |            无             |             是             |                                                                        阿里云账号的AccessKey ID                                                                         |
+|          password           |            无             |             是             |                                                                      阿里云账号的Accesskey SECRET                                                                       |
+|            table            |            无             |             是             |                                                                        Hologres用于接收数据的表名称                                                                         |
+|          endpoint           |            无             |        与jdbcUrl二选一        |                                                                      Hologres实时数据API的Ip和Port                                                                      |
+|          database           |            无             |        与jdbcUrl二选一        |                                                                       Hologres接收数据的表所在数据库名称                                                                       |
+|           jdbcurl           |            无             | 与endpoint+database组合设置二选一 |                                                                      Hologres实时数据API的jdbcUrl                                                                      |
+|       copy_write_mode       |           true           |             否             | 是否使用fixed copy方式写入，fixed copy是hologres1.3新增的能力，相比insert方法，fixed copy方式可以更高的吞吐（因为是流模式），更低的数据延时，更低的客户端内存消耗（因为不攒批) <br> 注：需要connector版本>=1.3.0，hologres引擎版本>=r1.3.34 |
+|      copy_write_format      |          binary          |             否             |                                                                     底层是否走二进制协议，二进制会更快，否则为文本模式                                                                     |
+| copy_write_dirty_data_check |          false           |             否             |                                             是否进行脏数据校验，打开之后如果有脏数据，可以定位到写入失败的具体行，RecordChecker会对写入性能造成一定影响，非排查环节不建议开启.                                              |
+|  copy_write_direct_connect  |     对于可以直连的环境会默认使用直连     |             否             |                                         copy的瓶颈往往是VIP endpoint的网络吞吐，因此我们会测试当前环境能否直连holo fe，支持的话默认使用直连。此参数设置为false则不进行直连。                                          |
+|         write_mode          |    INSERT_OR_REPLACE     |             否             |                    当INSERT目标表为有主键的表时采用不同策略:<br>INSERT_OR_IGNORE 当主键冲突时，不写入<br>INSERT_OR_UPDATE 当主键冲突时，更新相应列<br>INSERT_OR_REPLACE 当主键冲突时，更新所有列                     |
+|      write_batch_size       |           512            |             否             |                                                 每个写入线程的最大批次大小，<br>在经过WriteMode合并后的Put数量达到writeBatchSize时进行一次批量提交                                                  |
+|    write_batch_byte_size    | 2097152（2 * 1024 * 1024） |             否             |                                    每个写入线程的最大批次bytes大小，单位为Byte，默认2MB，<br>在经过WriteMode合并后的Put数据字节数达到writeBatchByteSize时进行一次批量提交                                     |
+|   use_legacy_put_handler    |          false           |             否             | true时，写入sql格式为insert into xxx(c0,c1,...) values (?,?,...),... on conflict; false时优先使用sql格式为insert into xxx(c0,c1,...) select unnest(?),unnest(?),... on conflict  |
+|    write_max_interval_ms    |          10000           |             否             |                                                                距离上次提交超过writeMaxIntervalMs会触发一次批量提交                                                                |
+|     write_fail_strategy     |      TYR_ONE_BY_ONE      |             否             |                                 当发生写失败时的重试策略:<br>TYR_ONE_BY_ONE 当某一批次提交失败时，会将批次内的记录逐条提交（保序），其中某单条提交失败的记录将会跟随异常被抛出<br> NONE 直接抛出异常                                 |
+|      write_thread_size      |            1             |             否             |                                                                      写入并发线程数（每个并发占用1个数据库连接）                                                                       |
+|         retry_count         |            3             |             否             |                                                                         当连接故障时，写入和查询的重试次数                                                                         |
+|     retry_sleep_init_ms     |           1000           |             否             |                                                         每次重试的等待时间=retrySleepInitMs+retry*retrySleepStepMs                                                         |
+|     retry_sleep_step_ms     |          10000           |             否             |                                                         每次重试的等待时间=retrySleepInitMs+retry*retrySleepStepMs                                                         |
+|   connection_max_idle_ms    |          60000           |             否             |                                                                 写入线程和点查线程数据库连接的最大Idle时间，超过连接将被释放                                                                  |
+|      dynamic_partition      |          false           |             否             |                                                                   若为true，写入分区表父表时，当分区不存在时自动创建分区                                                                   |
+|    fixed_connection_mode    |          false           |             否             |                                       非copy write 模式（insert默认）下，写入和点查不占用连接数（beta功能，需要connector版本>=1.2.0，hologres引擎版本>=1.3）                                        |
+|       scan_batch_size       |           256            |             否             |                                                                   读取Hologres时Scan操作一次fetch的行数                                                                    |
+|    scan_timeout_seconds     |            60            |             否             |                                                                      读取Hologres时scan操作的超时时间                                                                      |
+|      scan_parallelism       |            10            |             否             |                                                              读取Hologres时的默认并发数，最大为holo表的shardcount                                                               |
 
 ## 类型映射
 
-|spark|holo|
-|:---:|:---:|
-| IntegerType | INT |
-| LongType | BIGINT |
-| StringType | TEXT |
-| DecimalType | NUMERIC(38, 18) |
-| BooleanType | BOOL |
-| DoubleType | DOUBLE PRECISION |
-| FloatType | FLOAT |
-| TimestampType | TIMESTAMPTZ |
-| DateType | DATE |
-| BinaryType | BYTEA |
-| ArrayType(IntegerType) | int4[] |
-| ArrayType(LongType) | int8[] |
-| ArrayType(FloatType | float4[] |
-| ArrayType(DoubleType) | float8[] |
-| ArrayType(BooleanType) | boolean[] |
-| ArrayType(StringType) | text[] |
+|         spark          |       holo       |
+|:----------------------:|:----------------:|
+|       ShortType        |     SMALLINT     |
+|      IntegerType       |       INT        |
+|        LongType        |      BIGINT      |
+|       StringType       |       TEXT       |
+|       StringType       |       JSON       |
+|       StringType       |      JSONB       |
+|      DecimalType       | NUMERIC(38, 18)  |
+|      BooleanType       |       BOOL       |
+|       DoubleType       | DOUBLE PRECISION |
+|       FloatType        |      FLOAT       |
+|     TimestampType      |   TIMESTAMPTZ    |
+|        DateType        |       DATE       |
+|       BinaryType       |      BYTEA       |
+|       BinaryType       |  ROARINGBITMAP   |
+| ArrayType(IntegerType) |      int4[]      |
+|  ArrayType(LongType)   |      int8[]      |
+|  ArrayType(FloatType   |     float4[]     |
+| ArrayType(DoubleType)  |     float8[]     |
+| ArrayType(BooleanType) |    boolean[]     |
+| ArrayType(StringType)  |      text[]      |

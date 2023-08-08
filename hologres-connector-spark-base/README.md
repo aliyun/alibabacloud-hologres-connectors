@@ -8,10 +8,10 @@
 
 - 支持版本如下表
 
-|参数|支持版本|
-|:---:|:---:|
-|scala版本|scala-2.11 <br> scala-2.12 <br> scala-2.13|
-|spark版本|spark-2 <br> spark-3|
+|   参数    |                    支持版本                    |
+|:-------:|:------------------------------------------:|
+| scala版本 | scala-2.11 <br> scala-2.12 <br> scala-2.13 |
+| spark版本 |            spark-2 <br> spark-3            |
 
 例如使用的是scala2.11编译的spark2.4，可以使用如下命令：
 

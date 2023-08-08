@@ -1,5 +1,10 @@
 package com.alibaba.hologres.spark.example;
 
+import java.math.BigDecimal;
+import java.sql.Timestamp;
+import java.util.Arrays;
+import java.util.List;
+
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.DefaultParser;
@@ -13,13 +18,8 @@ import org.apache.spark.sql.types.DecimalType;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 
-import java.math.BigDecimal;
-import java.sql.Timestamp;
-import java.util.Arrays;
-import java.util.List;
-
-/** A Spark DataFrame example write to Hologres. */
-public class SparkDataFrameToHoloExample {
+/** A Spark DataFrame example read from Hologres. */
+public class SparkHoloToDataFrameExample {
 
     /**
      * Hologres DDL. create table sink_table(user_id bigint, user_name text, price decimal(38,
@@ -51,39 +51,28 @@ public class SparkDataFrameToHoloExample {
                         .config("spark.default.parallelism", 1)
                         .getOrCreate();
 
-        List<Row> data =
-                Arrays.asList(
-                        RowFactory.create(
-                                123L,
-                                "Adam",
-                                new BigDecimal("123.11"),
-                                new Timestamp(System.currentTimeMillis())),
-                        RowFactory.create(
-                                234L,
-                                "Bob",
-                                new BigDecimal("000.11"),
-                                new Timestamp(System.currentTimeMillis())));
 
         List<StructField> asList =
-                Arrays.asList(
-                        DataTypes.createStructField("user_id", DataTypes.LongType, true),
-                        DataTypes.createStructField("user_name", DataTypes.StringType, true),
-                        DataTypes.createStructField("price", new DecimalType(38, 12), true),
-                        DataTypes.createStructField(
-                                "sale_timestamp", DataTypes.TimestampType, true));
+            Arrays.asList(
+                DataTypes.createStructField("user_id", DataTypes.LongType, true),
+                DataTypes.createStructField("user_name", DataTypes.StringType, true),
+                DataTypes.createStructField("price", new DecimalType(38, 12), true),
+                DataTypes.createStructField(
+                    "sale_timestamp", DataTypes.TimestampType, true));
 
         StructType schema = DataTypes.createStructType(asList);
 
-        Dataset<Row> df = sparkSession.createDataFrame(data, schema);
-
-        df.write()
+        Dataset<Row> df = sparkSession.read()
             .format("hologres")
+            .schema(schema)
             .option("username", userName)
             .option("password", password)
             .option("endpoint", endPoint)
             .option("database", database)
             .option("table", tableName)
-            .save();
+            .load();
+
+        df.show();
 
         sparkSession.stop();
     }

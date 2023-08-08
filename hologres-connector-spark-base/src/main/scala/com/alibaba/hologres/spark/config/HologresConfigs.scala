@@ -22,6 +22,8 @@ class HologresConfigs(sourceOptions: Map[String, String]) extends Serializable {
     throw new IllegalArgumentException("If jdbcUrl is not provided, please provide parameter 'endpoint'."))
   val jdbcUrl: String = JDBCUtil.formatUrlWithHologres(sourceOptions.getOrElse("jdbcurl", getDbUrl(endpoint, database)))
   holoConfig.setJdbcUrl(jdbcUrl)
+  val table: String = sourceOptions.getOrElse("table",
+    throw new IllegalArgumentException("Missing necessary parameter 'table'."))
 
   val writeMode: String = sourceOptions.getOrElse("write_mode", "insertOrIgnore").toLowerCase
   val wMode: WriteMode = writeMode match {
@@ -52,6 +54,9 @@ class HologresConfigs(sourceOptions: Map[String, String]) extends Serializable {
   sourceOptions.get("retry_sleep_step_ms").map(v => holoConfig.setRetrySleepStepMs(v.toLong))
   sourceOptions.get("connection_max_idle_ms").map(v => holoConfig.setConnectionMaxIdleMs(v.toLong))
   sourceOptions.get("fixed_connection_mode").map(v => holoConfig.setUseFixedFe(v.toBoolean))
+  val scan_batch_size: Int = sourceOptions.getOrElse("scan_batch_size", "256").toInt
+  val scan_timeout_seconds: Int = sourceOptions.getOrElse("scan_timeout_seconds", "60").toInt
+  val scan_parallelism: Int = sourceOptions.getOrElse("scan_parallelism", "10").toInt
 
   var copy_write_mode: Boolean = sourceOptions.getOrElse("copy_write_mode", "true").toBoolean
   val copy_write_format: String = sourceOptions.getOrElse("copy_write_format", "binary")

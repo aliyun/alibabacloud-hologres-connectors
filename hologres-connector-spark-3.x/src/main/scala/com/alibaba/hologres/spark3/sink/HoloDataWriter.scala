@@ -10,7 +10,7 @@ import org.apache.spark.sql.types._
 /** HoloDataWriter. */
 class HoloDataWriter(
                       hologresConfigs: HologresConfigs,
-                      sparkSchema: Option[StructType],
+                      sparkSchema: StructType,
                       holoSchema: TableSchema)
   extends BaseHoloDataWriter(hologresConfigs, sparkSchema, holoSchema)
     with DataWriter[InternalRow]

@@ -33,9 +33,11 @@ abstract class SparkHoloSuiteBase extends QueryTest with SharedSparkSession {
   TimeZone.setDefault(TimeZone.getTimeZone("Asia/Shanghai"))
 
   val defaultSchema = StructType(Array(
+    StructField("pk", LongType, nullable = false),
+    StructField("st", ShortType),
     StructField("id", LongType),
     StructField("count", IntegerType),
-    StructField("name", StringType, false), //false表示此Field不允许为null
+    StructField("name", StringType),
     StructField("price", DecimalType(38, 12)),
     StructField("out_of_stock", BooleanType),
     StructField("weight", DoubleType),
@@ -48,6 +50,32 @@ abstract class SparkHoloSuiteBase extends QueryTest with SharedSparkSession {
     StructField("floata", ArrayType(FloatType)),
     StructField("doublea", ArrayType(DoubleType)),
     StructField("boola", ArrayType(BooleanType)),
-    StructField("stringa", ArrayType(StringType))
+    StructField("stringa", ArrayType(StringType)),
+    StructField("json_column", StringType),
+    StructField("jsonb_column", StringType),
+    StructField("rb_column", BinaryType)
   ))
+
+  val defaultCreateHoloTableDDL = "create table TABLE_NAME (" +
+    "    pk bigint primary key," +
+    "    st smallint," +
+    "    id bigint," +
+    "    count int," +
+    "    name text," +
+    "    price numeric(38, 12)," +
+    "    out_of_stock bool," +
+    "    weight double precision," +
+    "    thick float4," +
+    "    time timestamptz," +
+    "    dt date," +
+    "    by bytea," +
+    "    inta int4[]," +
+    "    longa int8[]," +
+    "    floata float4[]," +
+    "    doublea float8[]," +
+    "    boola boolean[]," +
+    "    stringa text[]," +
+    "    json_column json," +
+    "    jsonb_column jsonb," +
+    "    rb_column roaringbitmap);"
 }
