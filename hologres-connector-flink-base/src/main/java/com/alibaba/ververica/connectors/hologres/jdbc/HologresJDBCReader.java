@@ -7,6 +7,7 @@ import org.apache.flink.table.data.RowData;
 import com.alibaba.hologres.client.Get;
 import com.alibaba.hologres.client.Put;
 import com.alibaba.hologres.client.Scan;
+import com.alibaba.hologres.client.SortKeys;
 import com.alibaba.hologres.client.exception.HoloClientException;
 import com.alibaba.hologres.client.model.Record;
 import com.alibaba.ververica.connectors.hologres.api.HologresReader;
@@ -147,7 +148,9 @@ public class HologresJDBCReader<T> extends HologresReader<T> {
         CompletableFuture<List<T>> scanResult = new CompletableFuture<>();
         Record record = recordConverter.convertToPrimaryKey(in);
         Scan.Builder scanBuilder =
-                new Scan.Builder(record.getSchema()).withSelectedColumns(fieldNames);
+                new Scan.Builder(record.getSchema())
+                        .withSelectedColumns(fieldNames)
+                        .setSortKeys(SortKeys.NONE);
         for (String primaryKeys : primaryKeys) {
             scanBuilder.addEqualFilter(primaryKeys, record.getObject(primaryKeys));
         }

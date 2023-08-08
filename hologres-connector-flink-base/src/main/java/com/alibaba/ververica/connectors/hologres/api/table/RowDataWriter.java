@@ -108,26 +108,41 @@ public interface RowDataWriter<T> extends Serializable {
                         };
                 break;
             case Types.TIMESTAMP:
-                if (hologresTypeName.equals(PostgresTypeUtil.PG_TIMESTAMPTZ)) {
-                    fieldWriter =
-                            (obj) -> {
-                                rowDataWriter.writeTimestampTz(
-                                        (TimestampData) obj, columnIndexInHologresTable);
-                            };
-                } else {
-                    fieldWriter =
-                            (obj) -> {
-                                rowDataWriter.writeTimestamp(
-                                        (TimestampData) obj, columnIndexInHologresTable);
-                            };
-                }
-                break;
             case Types.TIMESTAMP_WITH_TIMEZONE:
-                fieldWriter =
-                        (obj) -> {
-                            rowDataWriter.writeTimestampTz(
-                                    (TimestampData) obj, columnIndexInHologresTable);
-                        };
+                boolean isFlinkLTZ =
+                        fieldType
+                                .getTypeRoot()
+                                .equals(LogicalTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE);
+                if (hologresTypeName.equals(PostgresTypeUtil.PG_TIMESTAMPTZ)) {
+                    if (isFlinkLTZ) {
+                        // flink TIMESTAMP_LTZ -> holo TIMESTAMPTZ
+                        fieldWriter =
+                                (obj) -> {
+                                    rowDataWriter.writeLTZAsTimestampTz(
+                                            (TimestampData) obj, columnIndexInHologresTable);
+                                };
+                    } else {
+                        // flink TIMESTAMP -> holo TIMESTAMPTZ
+                        fieldWriter =
+                                (obj) -> {
+                                    rowDataWriter.writeTimestampTz(
+                                            (TimestampData) obj, columnIndexInHologresTable);
+                                };
+                    }
+                } else {
+                    if (isFlinkLTZ) {
+                        // flink TIMESTAMP_LTZ -> holo TIMESTAMP
+                        throw new UnsupportedOperationException(
+                                "The hologres connector does not support writing flink timestamp_ltz type to hologres timestamp type, please use hologres timestamp with timezone instead.");
+                    } else {
+                        // flink TIMESTAMP -> holo TIMESTAMP
+                        fieldWriter =
+                                (obj) -> {
+                                    rowDataWriter.writeTimestamp(
+                                            (TimestampData) obj, columnIndexInHologresTable);
+                                };
+                    }
+                }
                 break;
             case Types.ARRAY:
                 if (fieldType.getTypeRoot().equals(LogicalTypeRoot.VARCHAR)) {
@@ -237,6 +252,8 @@ public interface RowDataWriter<T> extends Serializable {
     void writeString(StringData value, int columnIndexInHologresTable);
 
     void writeDate(Integer value, int columnIndexInHologresTable);
+
+    void writeLTZAsTimestampTz(TimestampData value, int columnIndexInHologresTable);
 
     void writeTimestampTz(TimestampData value, int columnIndexInHologresTable);
 

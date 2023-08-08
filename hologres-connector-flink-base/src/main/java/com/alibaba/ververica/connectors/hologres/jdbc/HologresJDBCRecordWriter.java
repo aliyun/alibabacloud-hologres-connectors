@@ -86,13 +86,23 @@ public class HologresJDBCRecordWriter implements RowDataWriter<Record> {
     }
 
     @Override
+    public void writeLTZAsTimestampTz(TimestampData value, int columnIndexInHologresTable) {
+        // flink TIMESTAMP_LTZ -> holo TIMESTAMPTZ
+        this.record.setObject(columnIndexInHologresTable, Timestamp.from(value.toInstant()));
+    }
+
+    @Override
     public void writeTimestampTz(TimestampData value, int columnIndexInHologresTable) {
-        this.record.setObject(columnIndexInHologresTable, value.toTimestamp());
+        // flink TIMESTAMP -> holo TIMESTAMPTZ
+        this.record.setObject(
+                columnIndexInHologresTable, Timestamp.valueOf(value.toLocalDateTime()));
     }
 
     @Override
     public void writeTimestamp(TimestampData value, int columnIndexInHologresTable) {
-        this.record.setObject(columnIndexInHologresTable, new Timestamp(value.getMillisecond()));
+        // flink TIMESTAMP -> holo TIMESTAMP
+        this.record.setObject(
+                columnIndexInHologresTable, Timestamp.valueOf(value.toLocalDateTime()));
     }
 
     @Override

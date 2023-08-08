@@ -89,10 +89,21 @@ public class HologresJDBCRecordReader implements RowDataReader<Record> {
     }
 
     @Override
+    public TimestampData readTimestamptzAsLTZ(Record record, int index) {
+        if (record.getObject(flinkColumnToHologresColumn.get(index)) == null) {
+            return null;
+        }
+        // hologres TIMESTAMPTZ -> flink TIMESTAMP_LTZ
+        return TimestampData.fromInstant(
+                ((Timestamp) record.getObject(flinkColumnToHologresColumn.get(index))).toInstant());
+    }
+
+    @Override
     public TimestampData readTimestamptz(Record record, int index) {
         if (record.getObject(flinkColumnToHologresColumn.get(index)) == null) {
             return null;
         }
+        // hologres TIMESTAMPTZ -> flink TIMESTAMP
         return TimestampData.fromTimestamp(
                 (Timestamp) record.getObject(flinkColumnToHologresColumn.get(index)));
     }
@@ -102,6 +113,7 @@ public class HologresJDBCRecordReader implements RowDataReader<Record> {
         if (record.getObject(flinkColumnToHologresColumn.get(index)) == null) {
             return null;
         }
+        // hologres TIMESTAMP -> flink TIMESTAMP
         return TimestampData.fromTimestamp(
                 (Timestamp) record.getObject(flinkColumnToHologresColumn.get(index)));
     }

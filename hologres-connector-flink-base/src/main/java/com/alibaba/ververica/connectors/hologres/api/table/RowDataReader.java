@@ -5,6 +5,7 @@ import org.apache.flink.table.data.GenericArrayData;
 import org.apache.flink.table.data.StringData;
 import org.apache.flink.table.data.TimestampData;
 import org.apache.flink.table.types.logical.LogicalType;
+import org.apache.flink.table.types.logical.LogicalTypeRoot;
 import org.apache.flink.table.types.logical.utils.LogicalTypeChecks;
 
 import com.alibaba.ververica.connectors.hologres.utils.PostgresTypeUtil;
@@ -52,13 +53,29 @@ public interface RowDataReader<T> extends Serializable {
             case Types.DOUBLE:
                 return (obj) -> rowDataReader.readDouble(obj, index);
             case Types.TIMESTAMP:
-                if (hologresTypeName.equals(PostgresTypeUtil.PG_TIMESTAMPTZ)) {
-                    return (obj) -> rowDataReader.readTimestamptz(obj, index);
-                } else {
-                    return (obj) -> rowDataReader.readTimestamptz(obj, index);
-                }
             case Types.TIMESTAMP_WITH_TIMEZONE:
-                return (obj) -> rowDataReader.readTimestamptz(obj, index);
+                boolean isFlinkLTZ =
+                        fieldType
+                                .getTypeRoot()
+                                .equals(LogicalTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE);
+                if (hologresTypeName.equals(PostgresTypeUtil.PG_TIMESTAMPTZ)) {
+                    if (isFlinkLTZ) {
+                        // hologres timestamptz -> flink timestamp_ltz
+                        return (obj) -> rowDataReader.readTimestamptzAsLTZ(obj, index);
+                    } else {
+                        // hologres timestamptz -> flink timestamp
+                        return (obj) -> rowDataReader.readTimestamptz(obj, index);
+                    }
+                } else {
+                    if (isFlinkLTZ) {
+                        // hologres timestamp -> flink timestamp_ltz
+                        throw new UnsupportedOperationException(
+                                "The hologres connector doesn't support reading the hologres timestamp type as the flink timestamp_ltz type, please use hologres timestamp with timezone instead.");
+                    } else {
+                        // hologres timestamp -> flink timestamp
+                        return (obj) -> rowDataReader.readTimestamp(obj, index);
+                    }
+                }
             case Types.ARRAY:
                 return createArrayFieldReader(fieldType, hologresTypeName, rowDataReader, index);
             case Types.OTHER:
@@ -114,6 +131,8 @@ public interface RowDataReader<T> extends Serializable {
     Integer readDate(T record, int index);
 
     Long readLong(T record, int index);
+
+    TimestampData readTimestamptzAsLTZ(T record, int index);
 
     TimestampData readTimestamptz(T record, int index);
 
