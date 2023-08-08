@@ -394,9 +394,9 @@ public class HoloConfig implements Serializable {
 	boolean refreshMetaBeforeGetTableSchema = true;
 
 	/**
-	 * 是否直连fe.
-	 * 当弹内用户的vip带宽不能满足需求，需要通过绕过vip直接连接fe时可打开该开关
-	 * 如果是公有云或其他与部署holo机器网络不通环境上的用户请勿打开，否则无法连接
+	 * 是否直连holo frontend.
+	 * 开启此参数会尝试绕过vip直接连接fe, 用于用户的vip带宽不能满足需求的场景.
+	 * 如果网络环境不支持直连，会抛出异常.
 	 *
 	 * @HasGetter
 	 * @HasSetter
@@ -567,10 +567,12 @@ public class HoloConfig implements Serializable {
 		this.writeMaxIntervalMs = writeMaxIntervalMs;
 	}
 
+	@Deprecated
 	public WriteFailStrategy getWriteFailStrategy() {
 		return writeFailStrategy;
 	}
 
+	@Deprecated
 	public void setWriteFailStrategy(WriteFailStrategy writeFailStrategy) {
 		this.writeFailStrategy = writeFailStrategy;
 	}

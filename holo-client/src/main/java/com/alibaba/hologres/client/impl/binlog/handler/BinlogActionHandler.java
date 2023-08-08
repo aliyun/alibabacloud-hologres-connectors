@@ -13,6 +13,7 @@ import com.alibaba.hologres.client.impl.binlog.BinlogRecordCollector;
 import com.alibaba.hologres.client.impl.binlog.HoloBinlogDecoder;
 import com.alibaba.hologres.client.impl.binlog.action.BinlogAction;
 import com.alibaba.hologres.client.impl.handler.ActionHandler;
+import com.alibaba.hologres.client.impl.util.ConnectionUtil;
 import com.alibaba.hologres.client.model.binlog.BinlogHeartBeatRecord;
 import com.alibaba.hologres.client.model.binlog.BinlogRecord;
 import com.alibaba.hologres.client.utils.Tuple;
@@ -42,11 +43,12 @@ public class BinlogActionHandler extends ActionHandler<BinlogAction> {
 	public static final Logger LOG = LoggerFactory.getLogger(BinlogActionHandler.class);
 
 	final Properties info;
-	final String url;
+	final String originalUrl;
 	final int binlogReadBatchSize;
 	final int maxRetryCount;
 	final boolean binlogIgnoreBeforeUpdate;
 	final boolean binlogIgnoreDelete;
+	final boolean isEnableDirectConnection;
 	final long binlogHeartBeatIntervalMs;
 	final AtomicBoolean started;
 	final ArrayBuffer<BinlogRecord> binlogRecordArray;
@@ -68,13 +70,14 @@ public class BinlogActionHandler extends ActionHandler<BinlogAction> {
 				jdbcUrl = "jdbc:hologres:" + jdbcUrl.substring("jdbc:postgresql:".length());
 			}
 		}
-		this.url = jdbcUrl;
+		this.originalUrl = jdbcUrl;
 		this.binlogReadBatchSize = config.getBinlogReadBatchSize();
 		this.maxRetryCount = config.getRetryCount();
 		this.binlogIgnoreBeforeUpdate = config.getBinlogIgnoreBeforeUpdate();
 		this.binlogIgnoreDelete = config.getBinlogIgnoreDelete();
 		this.binlogHeartBeatIntervalMs = config.getBinlogHeartBeatIntervalMs();
 		this.binlogRecordArray = new ArrayBuffer<>(binlogReadBatchSize, BinlogRecord[].class);
+		this.isEnableDirectConnection = config.isEnableDirectConnection();
 	}
 
 	@Override
@@ -113,6 +116,10 @@ public class BinlogActionHandler extends ActionHandler<BinlogAction> {
 
 		public void init() throws SQLException {
 			try {
+				String url = originalUrl;
+				if (isEnableDirectConnection) {
+					url = ConnectionUtil.getDirectConnectionJdbcUrl(originalUrl, info);
+				}
 				this.conn = DriverManager.getConnection(url, info).unwrap(PgConnection.class);
 				ChainedLogicalStreamBuilder logicalStreamBuilder = this.conn
 						.getReplicationAPI()

@@ -223,7 +223,7 @@ public class HoloClientTypesTest extends HoloClientTestBase {
 				}
 				client.flush();
 
-				for (int i = 1; i < 10; i++) {
+				for (int i = 0; i < 10; i++) {
 					Record r = client.get(Get.newBuilder(schema).setPrimaryKey("pk", i).build()).get();
 					if (i == nullPkId) {
 						Assert.assertNull(r.getObject(0));

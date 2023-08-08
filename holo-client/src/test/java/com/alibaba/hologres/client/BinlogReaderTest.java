@@ -7,16 +7,20 @@ package com.alibaba.hologres.client;
 import com.alibaba.hologres.client.impl.binlog.BinlogOffset;
 import com.alibaba.hologres.client.impl.binlog.HoloBinlogDecoder;
 import com.alibaba.hologres.client.model.HoloVersion;
+import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.model.WriteMode;
 import com.alibaba.hologres.client.model.binlog.BinlogRecord;
+import com.alibaba.hologres.client.utils.DataTypeTestUtil;
 import org.postgresql.PGProperty;
+import org.postgresql.core.BaseConnection;
 import org.postgresql.jdbc.PgConnection;
 import org.postgresql.replication.LogSequenceNumber;
 import org.postgresql.replication.PGReplicationStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.Assert;
+import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
 import java.nio.ByteBuffer;
@@ -35,6 +39,8 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+
+import static com.alibaba.hologres.client.utils.DataTypeTestUtil.FIXED_PLAN_TYPE_DATA_WITH_RECORD;
 
 /**
  * Binlog Decoder 测试.
@@ -82,11 +88,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
 
 			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
-			try {
-				execute(conn, new String[]{dropSql2, dropSql3});
-			} catch (SQLException e) {
-				LOG.info(slotName + " not exists.");
-			}
+			tryExecute(conn, new String[]{dropSql2, dropSql3});
 			execute(conn, new String[]{createSql1, "begin;", createSql2, "commit;", createSql3});
 			execute(conn, new String[]{createSql4});
 
@@ -194,11 +196,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
 
 			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
-			try {
-				execute(conn, new String[]{dropSql2, dropSql3});
-			} catch (SQLException e) {
-				LOG.info(slotName + " not exists.");
-			}
+			tryExecute(conn, new String[]{dropSql2, dropSql3});
 			execute(conn, new String[]{createSql1, "begin;", createSql2, "commit;", createSql3});
 			execute(conn, new String[]{createSql4});
 
@@ -283,11 +281,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
 
 			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
-			try {
-				execute(conn, new String[]{dropSql2, dropSql3});
-			} catch (SQLException e) {
-				LOG.info(slotName + " not exists.");
-			}
+			tryExecute(conn, new String[]{dropSql2, dropSql3});
 			execute(conn, new String[]{createSql1, "begin;", createSql2, "commit;", createSql3});
 			execute(conn, new String[]{createSql4});
 
@@ -388,54 +382,21 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String publicationName = "holo_client_binlog_reader_005_publication_test";
 			String slotName = "holo_client_binlog_reader_005_slot_1";
 
-			String dropSql1 = "drop table if exists " + tableName + "; drop publication if exists " + publicationName + ";\n";
-			String dropSql2 = "delete from hologres.hg_replication_progress where slot_name='" + slotName + "';\n";
-			String dropSql3 = "call hg_drop_logical_replication_slot('" + slotName + "');";
-			String createSql1 = "create extension if not exists hg_binlog;\n";
-			String createSql2 = "create table " + tableName
-					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id));\n "
-					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
-					+ "call set_table_property('" + tableName + "', 'shard_count', '10');\n";
-			String createSql3 = "create publication " + publicationName + " for table " + tableName + ";\n";
-			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
-
-			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
-			try {
-				execute(conn, new String[]{dropSql2, dropSql3});
-			} catch (SQLException e) {
-				LOG.info(slotName + " not exists.");
-			}
-			execute(conn, new String[]{createSql1, "begin;", createSql2, "commit;", createSql3});
-			execute(conn, new String[]{createSql4});
-
 			BinlogShardGroupReader reader = null;
 
 			try {
 				TableSchema schema = client.getTableSchema(tableName, true);
 
-				for (int i = 0; i < 100000; ++i) {
-					Put put2 = new Put(schema);
-					put2.setObject("id", i);
-					put2.setObject("amount", "16.211");
-					put2.setObject("t", "abc,d");
-					if (i == 2) {
-						put2.setObject("t", null);
-					} else if (i == 3) {
-						put2.setObject("t", "NULL");
-					}
-					put2.setObject("ts", "2021-04-12 12:12:12");
-					put2.setObject("ba", new byte[]{(byte) (i % 128)});
-					put2.setObject("t_a", new String[]{"a", "b,c"});
-					put2.setObject("i_a", new int[]{1, 2, 3, 4, 5});
-					client.put(put2);
-				}
-				client.flush();
-
 				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName, slotName).build());
 
 				long start = System.nanoTime();
 				int count = 0;
-				while (reader.getBinlogRecord() != null) {
+				BinlogRecord a;
+				while ((a = reader.getBinlogRecord()) != null) {
+					if (count % 1000 == 0) {
+						System.out.println(a);
+						Thread.sleep(20000);
+					}
 					count++;
 					if (count == 100000) {
 						reader.cancel();
@@ -450,10 +411,10 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				Assert.assertEquals(count, 100000);
 
 			} finally {
-				if (reader != null) {
-					reader.cancel();
-				}
-				execute(conn, new String[]{dropSql1, dropSql2, dropSql3});
+//				if (reader != null) {
+//					reader.cancel();
+//				}
+				// execute(conn, new String[]{dropSql1, dropSql2, dropSql3});
 			}
 		}
 	}
@@ -488,11 +449,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
 
 			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
-			try {
-				execute(conn, new String[]{dropSql2, dropSql3});
-			} catch (SQLException e) {
-				LOG.info(slotName + " not exists.");
-			}
+			tryExecute(conn, new String[]{dropSql2, dropSql3});
 			execute(conn, new String[]{createSql1, "begin;", createSql2, "commit;", createSql3});
 			execute(conn, new String[]{createSql4});
 
@@ -599,11 +556,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
 
 			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
-			try {
-				execute(conn, new String[]{dropSql2, dropSql3});
-			} catch (SQLException e) {
-				LOG.info(slotName + " not exists.");
-			}
+			tryExecute(conn, new String[]{dropSql2, dropSql3});
 			execute(conn, new String[]{createSql1, "begin;", createSql2, "commit;", createSql3});
 			execute(conn, new String[]{createSql4});
 
@@ -707,11 +660,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String deleteSql = "delete from " + tableName + ";\n";
 
 			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
-			try {
-				execute(conn, new String[]{dropSql2, dropSql3});
-			} catch (SQLException e) {
-				LOG.info(slotName + " not exists.");
-			}
+			tryExecute(conn, new String[]{dropSql2, dropSql3});
 			execute(conn, new String[]{createSql1, "begin;", createSql2, "commit;", createSql3});
 			execute(conn, new String[]{createSql4});
 
@@ -797,11 +746,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String deleteSql = "delete from " + tableName + ";\n";
 
 			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
-			try {
-				execute(conn, new String[]{dropSql2, dropSql3});
-			} catch (SQLException e) {
-				LOG.info(slotName + " not exists.");
-			}
+			tryExecute(conn, new String[]{dropSql2, dropSql3});
 			execute(conn, new String[]{createSql1, "begin;", createSql2, "commit;", createSql3});
 			execute(conn, new String[]{createSql4});
 
@@ -889,11 +834,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String alterSql = "ALTER TABLE IF EXISTS " + tableName + " ADD COLUMN new_column_1 int;\n";
 
 			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
-			try {
-				execute(conn, new String[]{dropSql2, dropSql3});
-			} catch (SQLException e) {
-				LOG.info(slotName + " not exists.");
-			}
+			tryExecute(conn, new String[]{dropSql2, dropSql3});
 			execute(conn, new String[]{createSql1, "begin;", createSql2, "commit;", createSql3});
 			execute(conn, new String[]{createSql4});
 
@@ -955,8 +896,8 @@ public class BinlogReaderTest extends HoloClientTestBase {
 								Assert.assertNull(record.getObject(7));
 							}
 						} else {
-							Assert.assertEquals(8, record.getSchema().getColumnSchema().length);
-							Assert.assertEquals(id, (int) record.getObject(7));
+							Assert.assertEquals(record.getSchema().getColumnSchema().length, 8, record.getObject(0) + ":" + record.getClass().getName());
+							Assert.assertEquals((int) record.getObject(7), id);
 						}
 
 						//shard count不超过100
@@ -1019,11 +960,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 					+ "ALTER TABLE IF EXISTS " + tableName + " DROP COLUMN ba;\n";
 
 			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
-			try {
-				execute(conn, new String[]{dropSql2, dropSql3});
-			} catch (SQLException e) {
-				LOG.info(slotName + " not exists.");
-			}
+			tryExecute(conn, new String[]{dropSql2, dropSql3});
 			execute(conn, new String[]{createSql1, "begin;", createSql2, "commit;", createSql3});
 			execute(conn, new String[]{createSql4});
 
@@ -1129,11 +1066,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
 
 			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
-			try {
-				execute(conn, new String[]{dropSql2, dropSql3});
-			} catch (SQLException e) {
-				LOG.info(slotName + " not exists.");
-			}
+			tryExecute(conn, new String[]{dropSql2, dropSql3});
 			execute(conn, new String[]{createSql1, "begin;", createSql2, "commit;", createSql3});
 			execute(conn, new String[]{createSql4});
 
@@ -1253,11 +1186,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 					+ publicationName + "');\n";
 
 			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
-			try {
-				execute(conn, new String[]{dropSql2, dropSql3});
-			} catch (SQLException e) {
-				LOG.info(slotName + " not exists.");
-			}
+			tryExecute(conn, new String[]{dropSql2, dropSql3});
 			execute(conn, new String[]{createSql1, "begin;", createSql2, "commit;", createSql3});
 			execute(conn, new String[]{createSql4});
 
@@ -1380,11 +1309,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
 
 			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
-			try {
-				execute(conn, new String[]{dropSql2, dropSql3});
-			} catch (SQLException e) {
-				LOG.info(slotName + " not exists.");
-			}
+			tryExecute(conn, new String[]{dropSql2, dropSql3});
 			execute(conn, new String[]{createSql1, "begin;", createSql2, "commit;", createSql3});
 			execute(conn, new String[]{createSql4});
 
@@ -1503,11 +1428,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
 
 			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
-			try {
-				execute(conn, new String[]{dropSql2, dropSql3});
-			} catch (SQLException e) {
-				LOG.info(slotName + " not exists.");
-			}
+			tryExecute(conn, new String[]{dropSql2, dropSql3});
 			execute(conn, new String[]{createSql1, "begin;", createSql2, "commit;", createSql3});
 			execute(conn, new String[]{createSql4});
 
@@ -1630,11 +1551,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
 
 			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
-			try {
-				execute(conn, new String[]{dropSql2, dropSql3});
-			} catch (SQLException e) {
-				LOG.info(slotName + " not exists.");
-			}
+			tryExecute(conn, new String[]{dropSql2, dropSql3});
 			execute(conn, new String[]{createSchema, createSql1, "begin;", createSql2, "commit;", createSql3});
 			execute(conn, new String[]{createSql4});
 
@@ -1720,11 +1637,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
 
 			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
-			try {
-				execute(conn, new String[]{dropSql2, dropSql3});
-			} catch (SQLException e) {
-				LOG.info(slotName + " not exists.");
-			}
+			tryExecute(conn, new String[]{dropSql2, dropSql3});
 			execute(conn, new String[]{createSql1, "begin;", createSql2, "commit;", createSql3});
 			execute(conn, new String[]{createSql4});
 
@@ -1839,11 +1752,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
 
 			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
-			try {
-				execute(conn, new String[]{dropSql2, dropSql3});
-			} catch (SQLException e) {
-				LOG.info(slotName + " not exists.");
-			}
+			tryExecute(conn, new String[]{dropSql2, dropSql3});
 			execute(conn, new String[]{createSql1, "begin;", createSql2, "commit;", createSql3});
 			execute(conn, new String[]{createSql4});
 
@@ -1910,4 +1819,118 @@ public class BinlogReaderTest extends HoloClientTestBase {
 		}
 	}
 
+	@DataProvider(name = "typeCaseDataWithRecord")
+	public Object[][] createDataForReadBinlog() {
+		HoloConfig config = buildConfig();
+		DataTypeTestUtil.TypeCaseDataWithRecord[] typeToTest = FIXED_PLAN_TYPE_DATA_WITH_RECORD;
+		// 只测试fixed plan支持的类型
+		Object[][] ret = new Object[typeToTest.length][];
+		for (int i = 0; i < typeToTest.length; ++i) {
+			ret[i] = new Object[]{typeToTest[i]};
+		}
+		return ret;
+	}
+
+	/**
+	 * binlog reader data type test.
+	 */
+	@Test(dataProvider = "typeCaseDataWithRecord")
+	public void binlogReaderDataTypeTest(DataTypeTestUtil.TypeCaseDataWithRecord typeCaseData) throws Exception {
+		if (properties == null || holoVersion.compareTo(needVersion) < 0) {
+			return;
+		}
+		HoloConfig config = buildConfig();
+		config.setUseFixedFe(false);
+		config.setWriteMode(WriteMode.INSERT_OR_REPLACE);
+		config.setBinlogReadBatchSize(128);
+
+		final int totalCount = 10;
+		final int nullPkId = 5;
+		String typeName = typeCaseData.getName();
+
+		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
+			if (typeName.equals("jsonb")) {
+				// set "alter database xx set hg_experimental_enable_binlog_jsonb = on" in test instance to support jsonb.
+				try (Statement st = conn.createStatement()) {
+					ResultSet rt = st.executeQuery("show hg_experimental_enable_binlog_jsonb");
+					if (rt.next() && rt.getObject(1).equals("off")) {
+						return;
+					}
+				}
+			}
+			String tableName = "holo_client_type_binlog_reader_" + typeName;
+			String publicationName = tableName + "_publication_test";
+			String slotName = tableName + "_slot_1";
+
+			String dropSql1 = "drop table if exists " + tableName + "; drop publication if exists " + publicationName + ";\n";
+			String dropSql2 = "delete from hologres.hg_replication_progress where slot_name='" + slotName + "';\n";
+			String dropSql3 = "call hg_drop_logical_replication_slot('" + slotName + "');";
+			String createSql1 = "create extension if not exists hg_binlog;\n";
+			String createSql2 = "create extension if not exists roaringbitmap;\n";
+			String createSql3 = "create table " + tableName
+					+ "(id " + typeCaseData.getColumnType() + ", pk int primary key);\n"
+					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
+					+ "call set_table_property('" + tableName + "', 'shard_count', '1');\n";
+			String createSql4 = "create publication " + publicationName + " for table " + tableName + ";\n";
+			String createSql5 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
+
+			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
+			try {
+				execute(conn, new String[]{dropSql2});
+			} catch (SQLException e) {
+				LOG.info(slotName + " not exists.");
+			}
+			try {
+				execute(conn, new String[]{dropSql3});
+			} catch (SQLException e) {
+				LOG.info(slotName + " not exists.");
+			}
+			execute(conn, new String[]{createSql1, createSql2, "begin;", createSql3, "commit;", createSql4});
+			execute(conn, new String[]{createSql5});
+
+			BinlogShardGroupReader reader = null;
+
+			try {
+				TableSchema schema = client.getTableSchema(tableName, true);
+
+				for (int i = 0; i < totalCount; ++i) {
+					Record record = Record.build(schema);
+					if (i == nullPkId) {
+						record.setObject(0, null);
+					} else {
+						record.setObject(0, typeCaseData.getSupplier().apply(i, conn.unwrap(BaseConnection.class)));
+					}
+					record.setObject(1, i);
+					client.put(new Put(record));
+				}
+				client.flush();
+
+				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName, slotName).build());
+
+				int count = 0;
+				BinlogRecord record;
+				LOG.info("begin to getBinlogRecord");
+				while ((record = reader.getBinlogRecord()) != null) {
+					System.out.println(record);
+					int pk = (int) record.getObject(1);
+					if (pk == nullPkId) {
+						Assert.assertNull(record.getObject(0));
+					} else {
+						typeCaseData.getPredicate().run(pk, record);
+					}
+					count++;
+					if (count == totalCount) {
+						reader.cancel();
+						break;
+					}
+				}
+				LOG.info("reader cancel");
+			} finally {
+				if (reader != null) {
+					reader.cancel();
+				}
+				execute(conn, new String[]{dropSql1, dropSql2, dropSql3});
+			}
+		}
+	}
 }

@@ -52,17 +52,20 @@ public class CopyActionHandler extends ActionHandler<CopyAction> {
 				to.write(buf);
 			}
 			return cp.getHandledRowCount();
-		} catch (IOException ioEX) {
-			// if not handled this way the close call will hang, at least in 8.2
-			copyContext.cancel();
-			try { // read until exhausted or operation cancelled SQLException
-				while ((buf = cp.readFromCopy()) != null) {
-				}
+		} catch (Exception e) {
+			try {
+				copyContext.cancel();
 			} catch (SQLException sqlEx) {
-			} // typically after several kB
-			throw ioEX;
-		} finally { // see to it that we do not leave the connection locked
-			copyContext.cancel();
+				LOGGER.error("copy out cancel failed", sqlEx);
+			}
+			if (e instanceof IOException) {
+				try { // read until exhausted or operation cancelled SQLException
+					while ((buf = cp.readFromCopy()) != null) {
+					}
+				} catch (SQLException sqlEx) {
+				} // typically after several kB
+			}
+			throw e;
 		}
 	}
 
@@ -71,6 +74,7 @@ public class CopyActionHandler extends ActionHandler<CopyAction> {
 		final CopyIn cp = (CopyIn) copyContext.getCopyOperation();
 		byte[] buf = new byte[bufferSize];
 		int len;
+		boolean hasException = false;
 		try {
 			while ((len = from.read(buf)) >= 0) {
 				if (len > 0) {
@@ -78,11 +82,26 @@ public class CopyActionHandler extends ActionHandler<CopyAction> {
 				}
 			}
 			return cp.endCopy();
-		} finally { // see to it that we do not leave the connection locked
-			if (from instanceof PipedInputStream) {
-				from.close();
+		} catch (Exception e) {
+			hasException = true;
+			try {
+				copyContext.cancel();
+			} catch (SQLException sqlEx) {
+				LOGGER.error("copy in cancel failed", sqlEx);
 			}
-			copyContext.cancel();
+			throw e;
+		} finally {
+			try {
+				if (from instanceof PipedInputStream) {
+					from.close();
+				}
+			} catch (IOException ioEx) {
+				if (hasException) {
+					LOGGER.error("close piped input stream failed", ioEx);
+				} else {
+					throw ioEx;
+				}
+			}
 		}
 	}
 
@@ -132,6 +151,7 @@ public class CopyActionHandler extends ActionHandler<CopyAction> {
 							}
 							break;
 						case IN: {
+							boolean hasException = false;
 							try {
 								if (action.getStartShardId() > -1 && action.getEndShardId() > -1) {
 									StringBuilder sql = new StringBuilder("set hg_experimental_target_shard_list='");
@@ -161,12 +181,19 @@ public class CopyActionHandler extends ActionHandler<CopyAction> {
 								action.getReadyToStart().complete(copyContext);
 								ret = doCopyIn(copyContext, action.getIs(), action.getBufferSize() > -1 ? action.getBufferSize() : config.getCopyInBufferSize());
 							} catch (Exception e) {
+								hasException = true;
 								action.getReadyToStart().completeExceptionally(e);
 								throw e;
 							} finally {
 								if (action.getStartShardId() > -1 && action.getEndShardId() > -1) {
 									try (Statement stat = pgConn.createStatement()) {
 										stat.execute("reset hg_experimental_target_shard_list");
+									} catch (SQLException e) {
+										if (hasException) {
+											LOGGER.error("reset hg_experimental_target_shard_list failed", e);
+										} else {
+											throw e;
+										}
 									}
 								}
 							}

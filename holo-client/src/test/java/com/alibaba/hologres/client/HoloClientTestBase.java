@@ -9,6 +9,7 @@ import com.alibaba.hologres.client.exception.HoloClientException;
 import com.alibaba.hologres.client.impl.util.ConnectionUtil;
 import com.alibaba.hologres.client.model.HoloVersion;
 import com.alibaba.hologres.client.model.TableSchema;
+import org.postgresql.PGProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.annotations.AfterMethod;
@@ -137,7 +138,27 @@ public class HoloClientTestBase {
 		}
 	}
 
+	protected void tryExecute(Connection conn, String[] sqls) {
+		for (String sql : sqls) {
+			try (Statement stat = conn.createStatement()) {
+				LOG.info("try execute {}", sql);
+				stat.execute(sql);
+			} catch (SQLException e) {
+				LOG.info("sql " + sql  + " execute failed because: " + e.getMessage());
+			}
+		}
+	}
+
 	protected static Connection buildConnection() throws SQLException {
+		return buildConnection(false);
+	}
+
+	protected static Connection buildConnection(boolean fixed) throws SQLException {
+		if (fixed) {
+			properties.setProperty(PGProperty.OPTIONS.getName(), "type=fixed");
+		} else {
+			properties.remove(PGProperty.OPTIONS.getName());
+		}
 		return DriverManager.getConnection(properties.getProperty("url"), properties);
 	}
 

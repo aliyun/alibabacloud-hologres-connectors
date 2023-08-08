@@ -15,11 +15,14 @@ import org.testng.Assert;
 import org.testng.annotations.Ignore;
 import org.testng.annotations.Test;
 
+import java.io.IOException;
 import java.io.PipedInputStream;
 import java.io.PipedOutputStream;
 import java.sql.Connection;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.concurrent.ExecutionException;
 
 /**
  * 批量导出测试.
@@ -613,6 +616,93 @@ public class BulkScanTest extends HoloClientTestBase {
 				}
 
 				//execute(conn, new String[]{dropSql});
+			}
+		}
+	}
+
+	/**
+	 * bulkScan kill connection.
+	 * Method: put(Put put).
+	 */
+	@Test
+	public void bulkScan009() throws Exception {
+		if (properties == null) {
+			return;
+		}
+		HoloConfig config = buildConfig();
+		config.setWriteMode(WriteMode.INSERT_OR_REPLACE);
+		config.setWriteThreadSize(5);
+		config.setUseFixedFe(false);
+		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
+			String tableName = "test_schema.\"holO_client_bulkscan_009\"";
+			String createSchema = "create schema if not exists test_schema";
+			String dropSql = "drop table if exists " + tableName;
+			String createSql = "create table " + tableName + "(id int not null, col int)";
+
+			execute(conn, new String[]{createSchema, dropSql, createSql});
+
+			//杀copy 连接
+			Runnable pgTerminateCopyInTask = new Runnable() {
+				@Override
+				public void run() {
+					try {
+						try (Connection conn = buildConnection()) {
+							try (Statement statement = conn.createStatement()) {
+								String sql = "select pid from pg_stat_activity where backend_type = 'client backend' and query like '%COPY%holO_client_bulkscan_009%FROM%' and application_name like '%holo-client%'";
+								Integer pid;
+								while (true) {
+									try (ResultSet rs = statement.executeQuery(sql)) {
+										if (rs.next()) {
+											pid = rs.getInt(1);
+											break;
+										}
+									}
+								}
+								statement.execute("select pg_terminate_backend(" + pid + ")");
+							}
+						}
+					} catch (SQLException e) {
+						e.printStackTrace();
+					}
+				}
+			};
+			Thread thread1 = new Thread(pgTerminateCopyInTask);
+			thread1.start();
+
+			try {
+				TableSchema schema = client.getTableSchema(tableName);
+				ImportContext importContext = null;
+				try (PipedOutputStream os = new PipedOutputStream();) {
+					PipedInputStream is = new PipedInputStream(os);
+					importContext = client.importData(Importer.newBuilder(schema).setInputStream(is).build());
+					Assert.assertThrows(IOException.class, () -> {
+						try {
+							while (true) {
+								os.write((0 + ",12\n").getBytes());
+								os.flush();
+							}
+						} catch (Exception e) {
+							LOG.error("catch exception", e);
+							Assert.assertTrue(e.getMessage().contains("Pipe closed"));
+							throw e;
+						}
+					});
+				}
+
+				ImportContext finalImportContext = importContext;
+				Assert.assertThrows(ExecutionException.class, () -> {
+					try {
+						finalImportContext.getRowCount().get();
+					} catch (ExecutionException e) {
+						LOG.error("catch exception", e);
+						Assert.assertTrue(e.getMessage().contains("Database connection failed when ending copy") || e.getMessage().contains("Database connection failed when writing to copy"));
+						throw e;
+					}
+				});
+			} catch (Exception e) {
+				LOG.error("", e);
+			} finally {
+				execute(conn, new String[]{dropSql});
 			}
 		}
 	}

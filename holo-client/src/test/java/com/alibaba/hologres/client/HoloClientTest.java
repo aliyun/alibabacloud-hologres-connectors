@@ -2385,6 +2385,8 @@ public class HoloClientTest extends HoloClientTestBase {
 		config.setWriteMode(WriteMode.INSERT_OR_UPDATE);
 		config.setDynamicPartition(true);
 		config.setConnectionMaxIdleMs(10000L);
+		config.setEnableDirectConnection(true);
+
 		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
 			String tableName = "test_schema.\"holO_client_put_040\"";
 			String createSchema = "create schema if not exists test_schema";
@@ -3388,6 +3390,101 @@ public class HoloClientTest extends HoloClientTestBase {
 				}
 			} finally {
 				execute(conn, new String[]{dropSql});
+			}
+		}
+	}
+
+	/**
+	 * 测试bg flush的异常会在下次flush时触发.
+	 * Method: put(Put put).
+	 */
+	@Test
+	public void testPutPut059() throws Exception {
+		if (properties == null) {
+			return;
+		}
+		HoloConfig config = buildConfig();
+		config.setWriteMode(WriteMode.INSERT_OR_REPLACE);
+		config.setDynamicPartition(true);
+		config.setWriteMaxIntervalMs(100L);
+		config.setAppName("testPutPut059");
+		try (HoloClient client = new HoloClient(config)) {
+			String tableName = "test_schema.\"holO_client_put_026\"";
+			String createSchema = "create schema if not exists test_schema";
+			String dropSql = "drop table if exists " + tableName;
+			String createSql = "create table " + tableName + "(id int not null,c varchar(2) not null,d text,primary key(id))";
+
+			client.sql(conn -> {
+				execute(conn, new String[]{createSchema, dropSql, createSql});
+				return null;
+			}).get();
+
+			try {
+				TableSchema schema = client.getTableSchema(tableName, true);
+
+				{
+					Put put2 = new Put(schema);
+					put2.setObject("id", 0);
+					put2.setObject("c", "abcde");
+					put2.setObject("d", "aaa");
+					client.put(put2);
+
+					Thread.sleep(5000L);
+					//引擎的bug，这种不会被识别成脏数据
+					Assert.expectThrows(HoloClientWithDetailsException.class, () -> {
+						try {
+							client.flush();
+						} catch (HoloClientWithDetailsException e) {
+							Assert.assertEquals(e.size(), 1);
+							throw e;
+						}
+					});
+				}
+				{
+					Put put1 = new Put(schema);
+					put1.setObject("id", 0);
+					put1.setObject("c", "abcde");
+					put1.setObject("d", "aaa");
+					client.put(put1);
+
+					Thread.sleep(5000L);
+
+					final Put put2 = new Put(schema);
+					put2.setObject("id", 0);
+					put2.setObject("c", "aa");
+					put2.setObject("d", "aaa");
+
+					Assert.expectThrows(HoloClientWithDetailsException.class, () -> {
+						try {
+							client.put(put2);
+						} catch (HoloClientWithDetailsException e) {
+							Assert.assertEquals(e.size(), 1);
+							throw e;
+						}
+					});
+				}
+				{
+					Put put2 = new Put(schema);
+					put2.setObject("id", 1);
+					put2.setObject("c", "ab");
+					put2.setObject("d", "123");
+					client.put(put2);
+				}
+				client.flush();
+
+				Record r = client.get(Get.newBuilder(schema).setPrimaryKey("id", "0").build()).get();
+				Assert.assertEquals(r.getObject("c"), "aa");
+
+				r = client.get(Get.newBuilder(schema).setPrimaryKey("id", "1").build()).get();
+				Assert.assertEquals(r.getObject("c"), "ab");
+			} catch (Exception e) {
+				LOG.error("", e);
+				throw e;
+			} finally {
+				client.sql(conn -> {
+					execute(conn, new String[]{dropSql});
+					return null;
+				}).get();
 			}
 		}
 	}

@@ -32,20 +32,31 @@ public enum ExceptionCode {
 	NOT_SUPPORTED(302),
 
 	/* 不重试，脏数据 */
-	TABLE_NOT_FOUND(200),
-	CONSTRAINT_VIOLATION(202),
-	DATA_TYPE_ERROR(203),
-	DATA_VALUE_ERROR(204),
+	TABLE_NOT_FOUND(200, true),
+	CONSTRAINT_VIOLATION(202, true),
+	DATA_TYPE_ERROR(203, true),
+	DATA_VALUE_ERROR(204, true),
 
 	UNKNOWN_ERROR(500);
 
 	private final int code;
 
+	private final boolean dirtyDataException;
+
 	ExceptionCode(int code) {
+		this(code, false);
+	}
+
+	ExceptionCode(int code, boolean dirtyDataException) {
 		this.code = code;
+		this.dirtyDataException = dirtyDataException;
 	}
 
 	public int getCode() {
 		return this.code;
+	}
+
+	public boolean isDirtyDataException() {
+		return dirtyDataException;
 	}
 }

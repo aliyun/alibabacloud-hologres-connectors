@@ -53,13 +53,13 @@ select count(*) from pg_stat_activity where backend_type='client backend';
 <dependency>
   <groupId>com.alibaba.hologres</groupId>
   <artifactId>holo-client</artifactId>
-  <version>2.2.6</version>
+  <version>2.2.10</version>
 </dependency>
 ```
 
 - Gradle
 ```
-implementation 'com.alibaba.hologres:holo-client:2.2.6'
+implementation 'com.alibaba.hologres:holo-client:2.2.10'
 ```
 
 ## 连接数说明
@@ -358,57 +358,109 @@ try (HoloClient client = new HoloClient(config)) {
 Hologres V1.1版本之后，支持使用holo-client进行表的Binlog消费。
 Binlog相关知识可以参考文档 [订阅Hologres Binlog](https://help.aliyun.com/document_detail/201024.html) , 使用Holo-client消费Binlog的建表、权限等准备工作和注意事项可以参考 [通过JDBC消费Hologres Binlog](https://help.aliyun.com/document_detail/321431.html) 
 ```java
-// 配置参数,url格式为 jdbc:postgresql://host:port/db
-HoloConfig config = new HoloConfig();
-config.setJdbcUrl(url);
-config.setUsername(username);
-config.setPassword(password);
-config.setBinlogReadBatchSize(128);
-config.setBinlogIgnoreDelete(true);
-config.setBinlogIgnoreBeforeUpdate(true);
-config.setBinlogHeartBeatIntervalMs(5000L);
+import com.alibaba.hologres.client.BinlogShardGroupReader;
+import com.alibaba.hologres.client.Command;
+import com.alibaba.hologres.client.HoloClient;
+import com.alibaba.hologres.client.HoloConfig;
+import com.alibaba.hologres.client.Subscribe;
+import com.alibaba.hologres.client.exception.HoloClientException;
+import com.alibaba.hologres.client.impl.binlog.BinlogOffset;
+import com.alibaba.hologres.client.model.binlog.BinlogHeartBeatRecord;
+import com.alibaba.hologres.client.model.binlog.BinlogRecord;
 
-HoloClient client = new HoloClient(holoConfig);
+import java.util.HashMap;
+import java.util.Map;
 
-// 消费binlog的请求，tableName和slotname为必要参数，Subscribe有StartTimeBuilder和OffsetBuilder两种，此处以前者为例
-Subscribe subscribe = Subscribe.newStartTimeBuilder(tableName, slotName)
-        .setBinlogReadStartTime("2021-01-01 12:00:00")
-        .build();
+public class HoloBinlogExample {
 
-// 创建binlog reader
-BinlogShardGroupReader reader = client.binlogSubscribe(subscribe);
+  public static BinlogShardGroupReader reader;
 
-BinlogRecord record;
-long count = 0;
-while ((record = reader.getBinlogRecord()) != null) {
-    // 消费到最新
-    if (record instanceof BinlogHeartBeatRecord) {
-        // do something
-        continue;
+  public static void main(String[] args) throws Exception {
+    String username = "";
+    String password = "";
+    String url = "jdbc:postgresql://ip:port/database";
+    String tableName = "test_message_src";
+    String slotName = "hg_replication_slot_1";
+
+    // 创建client的参数
+    HoloConfig holoConfig = new HoloConfig();
+    holoConfig.setJdbcUrl(url);
+    holoConfig.setUsername(username);
+    holoConfig.setPassword(password);
+    holoConfig.setBinlogReadBatchSize(128);
+    holoConfig.setBinlogIgnoreDelete(true);
+    holoConfig.setBinlogIgnoreBeforeUpdate(true);
+    holoConfig.setBinlogHeartBeatIntervalMs(5000L);
+    HoloClient client = new HoloClient(holoConfig);
+
+    // 获取表的shard数
+    int shardCount = Command.getShardCount(client, client.getTableSchema(tableName));
+
+    // 使用map保存每个shard的消费进度, 初始化为0
+    Map<Integer, Long> shardIdToLsn = new HashMap<>(shardCount);
+    for (int i = 0; i < shardCount; i++) {
+      shardIdToLsn.put(i, 0L);
     }
 
-    // 每1000条数据保存一次消费点位，可以自行选择条件，比如按时间周期等等
-    if (count % 1000 == 0) {
-        // 保存消费点位，参数表示超时时间，单位为ms
-        reader.commit(5000L);
+    // 消费binlog的请求，tableName和slotname为必要参数，Subscribe有StartTimeBuilder和OffsetBuilder两种，此处以前者为例
+    Subscribe subscribe = Subscribe.newStartTimeBuilder(tableName, slotName)
+            .setBinlogReadStartTime("2021-01-01 12:00:00")
+            .build();
+    // 创建binlog reader
+    reader = client.binlogSubscribe(subscribe);
+
+    BinlogRecord record;
+
+    int retryCount = 0;
+    long count = 0;
+    while(true) {
+      try {
+        if (reader.isCanceled()) {
+          // 根据保存的消费点位重新创建reader
+          reader = client.binlogSubscribe(subscribe);
+        }
+        while ((record = reader.getBinlogRecord()) != null) {
+          // 消费到最新
+          if (record instanceof BinlogHeartBeatRecord) {
+            // do something
+            continue;
+          }
+
+          // 处理读取到的binlog record，这里只做打印
+          System.out.println(record);
+
+          // 处理之后保存消费点位，异常时可以从此点位恢复
+          shardIdToLsn.put(record.getShardId(), record.getBinlogLsn());
+          count++;
+
+          // 读取成功，重置重试次数
+          retryCount = 0;
+        }
+      } catch (HoloClientException e) {
+        if (++retryCount > 10) {
+          throw new RuntimeException(e);
+        }
+        // 发生异常时推荐打印warn级别日志
+        System.out.println(String.format("binlog read failed because %s and retry %s times", e.getMessage(), retryCount));
+
+        // 重试期间进行一定时间的等待
+        Thread.sleep(5000L * retryCount);
+
+        // 用OffsetBuilder创建Subscribe，从而为每个shard指定起始消费点位
+        Subscribe.OffsetBuilder subscribeBuilder = Subscribe.newOffsetBuilder(tableName, slotName);
+        for (int i = 0; i < shardCount; i++) {
+          // BinlogOffset通过setSequence指定lsn，通过setTimestamp指定时间，两者同时指定lsn优先级大于时间戳
+          // 这里根据shardIdToLsn这个Map中保存的消费进度进行恢复
+          subscribeBuilder.addShardStartOffset(i, new BinlogOffset().setSequence(shardIdToLsn.get(i)));
+        }
+        subscribe = subscribeBuilder.build();
+        // 关闭reader
+        reader.cancel();
+      }
     }
-
-    //handle record
-    count++;
+  }
 }
 
-```
-(可选)如需要，可以用OffsetBuilder创建Subscribe，从而为每个shard指定起始消费点位
-```java
-// 此处shardCount为示例，请替换为所消费表对应的实际数量
-int shardCount = 10;
-Subscribe.OffsetBuilder subscribeBuilder = Subscribe.newOffsetBuilder(tableName, slotName);
-for (int i = 0; i < shardCount; i++) {
-    // BinlogOffset通过setSequence指定lsn，通过setTimestamp指定时间，两者同时指定lsn优先级大于时间戳
-    subscribeBuilder.addShardStartOffset(i, new BinlogOffset().setSequence(0).setTimestamp("2021-01-01 12:00:00+08"));
-}
-Subscribe subscribe = subscribeBuilder.build();
-BinlogShardGroupReader reader = client.binlogSubscribe(subscribe);
 ```
 
 ## 异常处理
@@ -498,7 +550,8 @@ unnest格式相比multi values有如下优点:
 - binlog消费调用commit方法时，尚未消费到数据的shard会错误的将已消费lsn更新为-1 bug引入版本2.1.0，bug修复版本2.1.5
 - 调用Put方法时表发生增减列，导致写入失败 bug引入版本1.X， bug修复版本2.1.5
 - 当readWriteThread和writeThreadSize都为1时，getTableSchema可能触发死锁 bug引入版本1.X, bug修复版本2.2.0
-  
+- binlog消费时，存在内存泄露问题，bug引入版本2.1.0，bug修复版本2.2.10
+
 ## 附录
 ### HoloConfig参数说明
 #### 基础配置
@@ -564,7 +617,6 @@ unnest格式相比multi values有如下优点:
 | binlogHeartBeatIntervalMs | -1 | binlogRead 发送BinlogHeartBeatRecord的间隔.<br>-1表示不发送,<br>当binlog没有新数据，每间隔binlogHeartBeatIntervalMs会下发一条BinlogHeartBeatRecord，此record的timestamp表示截止到这个时间的数据都已经消费完成.| 2.1.0 |
 | binlogIgnoreDelete |false| 是否忽略消费Delete类型的binlog | 1.2.16.5 |
 | binlogIgnoreBeforeUpdate | false | 是否忽略消费BeforeUpdate类型的binlog | 1.2.16.5 |
-| retryCount | 3 | 消费失败时的重试次数，成功消费时重试次数会被重置 | 2.1.5 |
 
 ### 参数详解
 #### writeMode

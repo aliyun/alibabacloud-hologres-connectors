@@ -40,6 +40,7 @@ import java.io.OutputStream;
 import java.io.PipedInputStream;
 import java.io.PipedOutputStream;
 import java.sql.Connection;
+import java.sql.DriverManager;
 import java.sql.Types;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -67,6 +68,18 @@ public class HoloClient implements Closeable {
 		LOGGER.info("revision:{}", com.alibaba.hologres.client.Version.revision);
 		LOGGER.info("date:{}", com.alibaba.hologres.client.Version.date);
 		LOGGER.info("======================================");
+	}
+
+	static {
+		// Load DriverManager first to avoid deadlock between DriverManager's
+		// static initialization block and specific driver class's static
+		// initialization block when two different driver classes are loading
+		// concurrently using Class.forName while DriverManager is uninitialized
+		// before.
+		//
+		// This could happen in JDK 8 but not above as driver loading has been
+		// moved out of DriverManager's static initialization block since JDK 9.
+		DriverManager.getDrivers();
 	}
 
 	private ActionCollector collector;
@@ -102,12 +115,13 @@ public class HoloClient implements Closeable {
 	boolean isEmbeddedFixedPool = false;
 
 	public HoloClient(HoloConfig config) throws HoloClientException {
-		String url = config.getJdbcUrl();
 		try {
+			DriverManager.getDrivers();
 			Class.forName("com.alibaba.hologres.org.postgresql.Driver");
 			isShadingEnv = true;
 		} catch (Exception e) {
 			try {
+				DriverManager.getDrivers();
 				Class.forName("org.postgresql.Driver");
 			} catch (Exception e2) {
 				throw new HoloClientException(ExceptionCode.INTERNAL_ERROR, "load driver fail", e);
@@ -169,9 +183,9 @@ public class HoloClient implements Closeable {
 		}
 	}
 
-	private void checkPut(Put put) throws HoloClientWithDetailsException {
+	private void checkPut(Put put) throws HoloClientException {
 		if (put == null) {
-			throw new HoloClientWithDetailsException(ExceptionCode.CONSTRAINT_VIOLATION, "Put cannot be null", put.getRecord());
+			throw new HoloClientException(ExceptionCode.CONSTRAINT_VIOLATION, "Put cannot be null");
 		}
 		for (int index : put.getRecord().getKeyIndex()) {
 			if ((!put.getRecord().isSet(index) || null == put.getRecord().getObject(index)) && put.getRecord().getSchema().getColumn(index).getDefaultValue() == null) {

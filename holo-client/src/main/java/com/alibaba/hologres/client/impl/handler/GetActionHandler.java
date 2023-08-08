@@ -15,6 +15,8 @@ import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.utils.IdentifierUtil;
 import com.alibaba.hologres.client.utils.Metrics;
 import com.codahale.metrics.MetricRegistry;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -28,6 +30,8 @@ import java.util.PrimitiveIterator;
  * GetAction处理类.
  */
 public class GetActionHandler extends ActionHandler<GetAction> {
+
+	public static final Logger LOGGER = LoggerFactory.getLogger(GetActionHandler.class);
 
 	private static final String NAME = "get";
 
@@ -83,6 +87,7 @@ public class GetActionHandler extends ActionHandler<GetAction> {
 
 		}
 		String sql = sb.toString();
+		LOGGER.debug("Get sql:{}", sql);
 		try {
 			Map<RecordKey, Record> resultRecordMap = (Map<RecordKey, Record>) connectionHolder.retryExecute((conn) -> {
 				Map<RecordKey, Record> resultMap = new HashMap<>();

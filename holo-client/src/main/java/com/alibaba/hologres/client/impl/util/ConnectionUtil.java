@@ -10,11 +10,14 @@ import com.alibaba.hologres.client.model.Partition;
 import com.alibaba.hologres.client.model.TableName;
 import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.utils.IdentifierUtil;
+import org.postgresql.PGProperty;
+import org.postgresql.jdbc.PgConnection;
 import org.postgresql.util.PSQLState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.sql.Connection;
+import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -23,6 +26,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -363,7 +367,7 @@ public class ConnectionUtil {
 
 		String sql =
 				"select property_key,property_value from hologres.hg_table_properties where table_namespace=? and table_name=? and property_key in "
-						+ "('distribution_key','table_id','schema_version','orientation','clustering_key','segment_key','bitmap_columns','dictionary_encoding_columns','time_to_live_in_seconds')";
+						+ "('distribution_key','table_id','schema_version','orientation','clustering_key','segment_key','bitmap_columns','dictionary_encoding_columns','time_to_live_in_seconds','binlog.level')";
 		String[] distributionKeys = null;
 		String tableId = null;
 		String schemaVersion = null;
@@ -426,6 +430,9 @@ public class ConnectionUtil {
 				case "time_to_live_in_seconds":
 					builder.setLifecycle(Long.parseLong(value));
 					break;
+				case "binlog.level":
+					builder.setBinlogLevel(value);
+					break;
 				default:
 			}
 		}
@@ -440,6 +447,34 @@ public class ConnectionUtil {
 			ret = rs.getString(1);
 		}
 		return ret;
+	}
+
+	/**
+	 * 返回直连fe的jdbc url，如果网络连通可以不走vip.
+	 *
+	 * @return 直连fe的jdbc url
+	 * @throws SQLException
+	 */
+	public static String getDirectConnectionJdbcUrl(String originalJdbcUrl, Properties info) throws SQLException {
+		LOGGER.info("Try to connect {} for getting fe endpoint", originalJdbcUrl);
+		String endpoint = "";
+
+		// 由于消费binlog的info中可能设置REPLICATION参数，无法支持select，因此直接使用username和password创建连接
+		String username = info.getProperty(PGProperty.USER.getName());
+		String password = info.getProperty(PGProperty.PASSWORD.getName());
+		try (PgConnection conn = DriverManager.getConnection(originalJdbcUrl, username, password).unwrap(PgConnection.class)) {
+			String sql = "select inet_server_addr(), inet_server_port()";
+			try (Statement stat = conn.createStatement()) {
+				try (ResultSet rs = stat.executeQuery(sql)) {
+					while (rs.next()) {
+						endpoint = rs.getString(1) + ":" + rs.getString(2);
+					}
+				}
+			}
+		}
+		String directConnectionJdbcUrl = ConnectionUtil.replaceJdbcUrlEndpoint(originalJdbcUrl, endpoint);
+		LOGGER.info("Get the direct connection jdbc url {}", directConnectionJdbcUrl);
+		return directConnectionJdbcUrl;
 	}
 
 	public static String replaceJdbcUrlEndpoint(String originalUrl, String newEndpoint) {

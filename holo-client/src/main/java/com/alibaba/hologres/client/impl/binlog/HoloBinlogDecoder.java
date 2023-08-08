@@ -151,9 +151,17 @@ public class HoloBinlogDecoder {
 		}
 		switch (column.getType()) {
 			case Types.CHAR:
+				currentRecord.setObject(index, String.format("%-" + column.getPrecision() + "s", currentRow.getString(offsetIndex)));
+				break;
 			case Types.VARCHAR:
-			case Types.OTHER:
 				currentRecord.setObject(index, currentRow.getString(offsetIndex));
+				break;
+			case Types.OTHER:
+				if ("roaringbitmap".equals(column.getTypeName())) {
+					currentRecord.setObject(index, currentRow.getByteArray(offsetIndex));
+				} else {
+					currentRecord.setObject(index, currentRow.getString(offsetIndex));
+				}
 				break;
 			case Types.DATE:
 				currentRecord.setObject(index, new Date(currentRow.getLong(offsetIndex) * ONE_DAY_IN_MILLIES));
@@ -225,6 +233,7 @@ public class HoloBinlogDecoder {
 						currentRecord.setObject(index, currentRow.getArray(offsetIndex).toBooleanArray());
 						break;
 					case "_text":
+					case "_varchar":
 						BinaryArray binaryArray = currentRow.getArray(offsetIndex);
 						String[] stringArrays = new String[binaryArray.numElements()];
 						for (int i = 0; i < binaryArray.numElements(); i++) {
@@ -233,6 +242,7 @@ public class HoloBinlogDecoder {
 						currentRecord.setObject(index, stringArrays);
 						break;
 					default:
+						throw new HoloClientException(ExceptionCode.DATA_TYPE_ERROR, "unsupported array type " + column.getType() + " type name:" + column.getTypeName());
 				}
 				break;
 			case Types.BOOLEAN:
@@ -305,7 +315,14 @@ public class HoloBinlogDecoder {
 				continue;
 			}
 			for (int index = 0; index < columnCount; ++index) {
-				convertBinaryRowToRecord(columns[index], currentRow, currentRecord, index);
+				try {
+					convertBinaryRowToRecord(columns[index], currentRow, currentRecord, index);
+				} catch (Exception e) {
+					throw new HoloClientException(ExceptionCode.DATA_VALUE_ERROR, String.format(
+							"convert binlog BinaryRow to holo-client Record failed, \nthe original BinaryRow is %s , \ncurrent Record is %s",
+							currentRow, currentRecord), e);
+
+				}
 			}
 			array.add(currentRecord);
 		}

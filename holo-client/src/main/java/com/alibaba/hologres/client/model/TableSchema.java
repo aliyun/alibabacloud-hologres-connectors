@@ -4,6 +4,7 @@
 
 package com.alibaba.hologres.client.model;
 
+import com.alibaba.hologres.client.impl.binlog.BinlogLevel;
 import com.alibaba.hologres.client.utils.IdentifierUtil;
 
 import java.io.Serializable;
@@ -94,6 +95,14 @@ public class TableSchema implements Serializable {
 			tableSchema.orientation = orientation;
 		}
 
+		public void setBinlogLevel(String binlogLevel) {
+			if ("replica".equals(binlogLevel)) {
+				tableSchema.binlogLevel = BinlogLevel.REPLICA;
+			} else {
+				tableSchema.binlogLevel = BinlogLevel.NONE;
+			}
+		}
+
 		public void setNotExist(Boolean notExist) {
 			tableSchema.isNotExist = notExist;
 		}
@@ -159,6 +168,12 @@ public class TableSchema implements Serializable {
 	private String orientation = "column";
 
 	private String comment;
+
+	/**
+	 * 是否开启binlog.
+	 */
+	private BinlogLevel binlogLevel = BinlogLevel.NONE;
+
 
 	//--------------misc---------------
 	private Boolean isNotExist = true;
@@ -375,6 +390,10 @@ public class TableSchema implements Serializable {
 
 	public String getComment() {
 		return comment;
+	}
+
+	public BinlogLevel getBinlogLevel() {
+		return binlogLevel;
 	}
 
 	public boolean isPrimaryKey(String columnName) {

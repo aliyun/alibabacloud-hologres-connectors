@@ -7,8 +7,8 @@ package com.alibaba.hologres.client.impl.collector;
 import com.alibaba.hologres.client.Get;
 import com.alibaba.hologres.client.HoloConfig;
 import com.alibaba.hologres.client.exception.HoloClientException;
-import com.alibaba.hologres.client.exception.HoloClientWithDetailsException;
 import com.alibaba.hologres.client.impl.ExecutionPool;
+import com.alibaba.hologres.client.impl.util.ExceptionUtil;
 import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.model.TableName;
 import org.slf4j.Logger;
@@ -106,23 +106,23 @@ public class ActionCollector {
 		}
 	}
 
-	AtomicReference<HoloClientWithDetailsException> lastException = new AtomicReference<>(null);
+	AtomicReference<HoloClientException> lastException = new AtomicReference<>(null);
 
-	public void tryFlush() throws HoloClientException {
+	/**
+	 * 该函数仅由ExecutionPool后台线程调用，因此不能抛出任何异常，要在后续的flush(internal=false)、append时再抛出.
+	 *
+	 * @throws HoloClientException
+	 */
+	public void tryFlush() {
 		flushLock.readLock().lock();
 		try {
 			for (Iterator<Map.Entry<TableName, TableCollector>> iter = map.entrySet().iterator(); iter.hasNext(); ) {
 				TableCollector array = iter.next().getValue();
 				try {
 					array.flush(false);
-				} catch (HoloClientWithDetailsException e) {
-					lastException.accumulateAndGet(e, (lastOne, newOne) -> {
-						if (lastOne == null) {
-							return newOne;
-						} else {
-							return lastOne.merge(newOne);
-						}
-					});
+				} catch (HoloClientException e) {
+					LOGGER.error("try flush fail", e);
+					lastException.accumulateAndGet(e, (lastOne, newOne) -> ExceptionUtil.merge(lastOne, newOne));
 				}
 			}
 		} finally {
@@ -133,7 +133,7 @@ public class ActionCollector {
 	public void flush(boolean internal) throws HoloClientException {
 		flushLock.writeLock().lock();
 		try {
-			HoloClientWithDetailsException exception = null;
+			HoloClientException exception = null;
 			int doneCount = 0;
 			AtomicInteger uncommittedActionCount = new AtomicInteger(0);
 			boolean async = true;
@@ -146,14 +146,8 @@ public class ActionCollector {
 						if (array.flush(true, async, uncommittedActionCount)) {
 							++doneCount;
 						}
-					} catch (HoloClientWithDetailsException e) {
-						if (null == exception) {
-							exception = e;
-						} else {
-							exception.merge(e);
-						}
 					} catch (HoloClientException e) {
-						throw e;
+						exception = ExceptionUtil.merge(exception, e);
 					}
 				}
 				if (doneCount == map.size()) {
@@ -166,21 +160,12 @@ public class ActionCollector {
 			//此时所有的TableCollector的buffer都已经是空的了，根据统计信息尝试resize shard数
 			resize();
 			if (exception != null) {
-				if (internal) {
-					lastException.accumulateAndGet(exception, (lastOne, newOne) -> {
-						if (lastOne == null) {
-							return newOne;
-						} else {
-							return lastOne.merge(newOne);
-						}
-					});
-				} else {
-					HoloClientWithDetailsException last = lastException.getAndSet(null);
-					if (null == last) {
-						last = exception;
-					} else {
-						last.merge(exception);
-					}
+				lastException.accumulateAndGet(exception, (lastOne, newOne) -> ExceptionUtil.merge(lastOne, newOne));
+			}
+
+			if (!internal) {
+				HoloClientException last = lastException.getAndSet(null);
+				if (last != null) {
 					throw last;
 				}
 			}

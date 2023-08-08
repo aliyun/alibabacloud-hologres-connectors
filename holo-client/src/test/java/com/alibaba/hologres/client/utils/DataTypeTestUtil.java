@@ -16,6 +16,7 @@ import java.text.DateFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.time.LocalDate;
+import java.util.Arrays;
 import java.util.UUID;
 import java.util.function.BiFunction;
 
@@ -85,13 +86,13 @@ public class DataTypeTestUtil {
 			new TypeCaseDataWithRecord("char", "char(5)", (i, conn) -> i.toString(), (i, r) -> Assert.assertEquals(r.getObject(0).toString(), (i + "         ").substring(0, 5))),
 			new TypeCaseDataWithRecord("varchar", "varchar(20)", (i, conn) -> i.toString(), (i, r) -> Assert.assertEquals(r.getObject(0).toString(), String.valueOf(i))),
 			new TypeCaseDataWithRecord("text", (i, conn) -> i.toString(), (i, r) -> Assert.assertEquals(r.getObject(0).toString(), String.valueOf(i))),
-			new TypeCaseDataWithRecord("_int", "int[]", (i, conn) -> new int[]{i, i + 1}, (i, r) -> Assert.assertEquals((Integer[]) (((PgArray) r.getObject(0)).getArray()), new Integer[]{i, i + 1})),
-			new TypeCaseDataWithRecord("_int8", "int8[]", (i, conn) -> new long[]{i, i + 1}, (i, r) -> Assert.assertEquals((Long[]) (((PgArray) r.getObject(0)).getArray()), new Long[]{(long) i, (long) (i + 1)})),
-			new TypeCaseDataWithRecord("_float4", "float4[]", (i, conn) -> new float[]{i, i + 1}, (i, r) -> Assert.assertEquals((Float[]) (((PgArray) r.getObject(0)).getArray()), new Float[]{(float) i, (float) (i + 1)})),
-			new TypeCaseDataWithRecord("_float8", "float8[]", (i, conn) -> new double[]{i, i + 1}, (i, r) -> Assert.assertEquals((Double[]) (((PgArray) r.getObject(0)).getArray()), new Double[]{(double) i, (double) (i + 1)})),
-			new TypeCaseDataWithRecord("_bool", "bool[]", (i, conn) -> new boolean[]{i % 2 == 0, i % 2 != 0}, (i, r) -> Assert.assertEquals((Boolean[]) (((PgArray) r.getObject(0)).getArray()), new Boolean[]{i % 2 == 0, i % 2 != 0})),
-			new TypeCaseDataWithRecord("_text", "text[]", (i, conn) -> new String[]{i.toString(), String.valueOf(i + 1)}, (i, r) -> Assert.assertEquals((String[]) (((PgArray) r.getObject(0)).getArray()), new String[]{String.valueOf(i), String.valueOf(i + 1)})),
-			new TypeCaseDataWithRecord("_varchar", "varchar[]", (i, conn) -> new String[]{String.valueOf(i), String.valueOf(i + 1)}, (i, r) -> Assert.assertEquals((String[]) (((PgArray) r.getObject(0)).getArray()), new String[]{String.valueOf(i), String.valueOf(i + 1)})),
+			new TypeCaseDataWithRecord("_int", "int[]", (i, conn) -> new int[]{i, i + 1}, (i, r) -> Assert.assertEquals((int[]) unPickPgArray(r.getObject(0)), new int[]{i, i + 1})),
+			new TypeCaseDataWithRecord("_int8", "int8[]", (i, conn) -> new long[]{i, i + 1}, (i, r) -> Assert.assertEquals((long[]) unPickPgArray(r.getObject(0)), new long[]{(long) i, (long) (i + 1)})),
+			new TypeCaseDataWithRecord("_float4", "float4[]", (i, conn) -> new float[]{i, i + 1}, (i, r) -> Assert.assertEquals((float[]) unPickPgArray(r.getObject(0)), new float[]{(float) i, (float) (i + 1)})),
+			new TypeCaseDataWithRecord("_float8", "float8[]", (i, conn) -> new double[]{i, i + 1}, (i, r) -> Assert.assertEquals((double[]) unPickPgArray(r.getObject(0)), new double[]{(double) i, (double) (i + 1)})),
+			new TypeCaseDataWithRecord("_bool", "bool[]", (i, conn) -> new boolean[]{i % 2 == 0, i % 2 != 0}, (i, r) -> Assert.assertEquals((boolean[]) unPickPgArray(r.getObject(0)), new boolean[]{i % 2 == 0, i % 2 != 0})),
+			new TypeCaseDataWithRecord("_text", "text[]", (i, conn) -> new String[]{i.toString(), String.valueOf(i + 1)}, (i, r) -> Assert.assertEquals((String[]) unPickPgArray(r.getObject(0)), new String[]{String.valueOf(i), String.valueOf(i + 1)})),
+			new TypeCaseDataWithRecord("_varchar", "varchar[]", (i, conn) -> new String[]{String.valueOf(i), String.valueOf(i + 1)}, (i, r) -> Assert.assertEquals((String[]) unPickPgArray(r.getObject(0)), new String[]{String.valueOf(i), String.valueOf(i + 1)})),
 			new TypeCaseDataWithRecord("roaringbitmap", (i, conn) -> new byte[]{58, 48, 0, 0, 1, 0, 0, 0, 0, 0, 2, 0, 16, 0, 0, 0, 1, 0, 4, 0, 5, 0} /*{1,4,5}*/, (i, r) -> Assert.assertEquals(r.getObject(0), new byte[]{58, 48, 0, 0, 1, 0, 0, 0, 0, 0, 2, 0, 16, 0, 0, 0, 1, 0, 4, 0, 5, 0}))
 	};
 
@@ -225,5 +226,48 @@ public class DataTypeTestUtil {
 			throw new SQLException(e);
 		}
 		return intervalDF.format(new java.util.Date(intervalBase + i * 3600000L));
+	}
+
+	// 将pgArray转为基本类型数组，方便Get测试和读Binlog测试可以复用TypeCaseDataWithRecord
+	private static Object unPickPgArray(Object object) throws SQLException {
+		if (object instanceof PgArray) {
+			object = ((PgArray) object).getArray();
+			if (object instanceof Integer[]) {
+				return Arrays.stream((Integer[]) object)
+						.map(v -> v == null ? 0 : v)
+						.mapToInt(Integer::intValue)
+						.toArray();
+			}
+			if (object instanceof Long[]) {
+				return Arrays.stream((Long[]) object)
+						.map(v -> v == null ? 0 : v)
+						.mapToLong(Long::longValue)
+						.toArray();
+			}
+			if (object instanceof Float[]) {
+				Float[] in = (Float[]) object;
+				float[] out = new float[in.length];
+				for (int i = 0; i < in.length; i++) {
+					out[i] = (in[i] == null) ? 0 : in[i];
+				}
+				return out;
+			}
+			if (object instanceof Double[]) {
+				return Arrays.stream((Double[]) object)
+						.map(v -> v == null ? 0 : v)
+						.mapToDouble(Double::doubleValue)
+						.toArray();
+			}
+			if (object instanceof Boolean[]) {
+				Boolean[] in = (Boolean[]) object;
+				boolean[] out = new boolean[in.length];
+				for (int i = 0; i < in.length; i++) {
+					out[i] = in[i] != null && in[i];
+				}
+				return out;
+			}
+		}
+
+		return object;
 	}
 }

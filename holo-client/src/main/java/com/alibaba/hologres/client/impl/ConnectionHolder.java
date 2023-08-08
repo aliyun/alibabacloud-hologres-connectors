@@ -147,8 +147,8 @@ public class ConnectionHolder implements Closeable {
 
 	private PgConnection buildConnection() throws SQLException {
 		long start = System.nanoTime();
-		if (isEnableDirectConnection) {
-			this.connWithVersion.jdbcUrl = getDirectConnectionJdbcUrl();
+		if (isEnableDirectConnection && !isFixed) {
+			this.connWithVersion.jdbcUrl = ConnectionUtil.getDirectConnectionJdbcUrl(this.originalJdbcUrl, info);
 		}
 		LOGGER.info("Try to connect {}, owner:{}", this.connWithVersion.jdbcUrl, owner);
 		PgConnection conn = null;
@@ -195,27 +195,6 @@ public class ConnectionHolder implements Closeable {
 		return conn;
 	}
 
-	/**
-	 * 返回直连fe的jdbc url，用于弹内用户流量不走vip的场景.
-	 *
-	 * @return 直连fe的jdbc url
-	 * @throws SQLException
-	 */
-	private String getDirectConnectionJdbcUrl() throws SQLException {
-		LOGGER.info("Try to connect {} for getting fe endpoint, owner:{}", this.originalJdbcUrl, owner);
-		String endpoint = "";
-		try (PgConnection conn = DriverManager.getConnection(this.originalJdbcUrl, info).unwrap(PgConnection.class)) {
-			String sql = "select inet_server_addr(), inet_server_port()";
-			try (Statement stat = conn.createStatement()) {
-				try (ResultSet rs = stat.executeQuery(sql)) {
-					while (rs.next()) {
-						endpoint = rs.getString(1) + ":" + rs.getString(2);
-					}
-				}
-			}
-		}
-		return ConnectionUtil.replaceJdbcUrlEndpoint(this.originalJdbcUrl, endpoint);
-	}
 
 	/**
 	 * 返回连接是否可用.

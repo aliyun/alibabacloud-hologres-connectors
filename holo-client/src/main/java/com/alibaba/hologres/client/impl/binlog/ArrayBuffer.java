@@ -51,7 +51,10 @@ public class ArrayBuffer<T> {
 
 	public T pop() {
 		if (remain() > 0) {
-			return buffer[position++];
+			T ret = buffer[position];
+			buffer[position] = null;
+			position++;
+			return ret;
 		}
 		return null;
 	}
@@ -64,8 +67,8 @@ public class ArrayBuffer<T> {
 	}
 
 	public void add(T r) {
-		if (remain() > 0) {
-			buffer = Arrays.copyOf(buffer, Math.min(buffer.length + 1, buffer.length * 3 / 2), arrayClass);
+		if (remain() == 0) {
+			buffer = Arrays.copyOf(buffer, Math.max(buffer.length + 1, buffer.length * 3 / 2), arrayClass);
 			size = buffer.length;
 		}
 		buffer[position++] = r;

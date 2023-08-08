@@ -10,6 +10,8 @@ import org.testng.Assert;
 import org.testng.annotations.Test;
 
 import java.sql.Connection;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * HoloClientPrefixScanTest.
@@ -313,4 +315,64 @@ public class HoloClientPrefixScanTest extends HoloClientTestBase {
 		}
 	}
 
+	/**
+	 * prefix scan and fetchsize < expected rows count.
+	 * Method: Scan.
+	 */
+	@Test
+	public void testPrefixScan006() throws Exception {
+		if (properties == null) {
+			return;
+		}
+
+		HoloConfig config = buildConfig();
+		config.setScanFetchSize(5);
+		config.setUseFixedFe(false);
+		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
+			String tableName = "test_schema.test_prefix_scan_with_fetch_size";
+			String createSchema = "create schema if not exists test_schema";
+			String dropSql = "drop table if exists " + tableName;
+			String createSql = "create table " + tableName
+					+ "(pk1 text, pk2 int, name text not null, address text, primary key(pk1, pk2)); "
+					+ "call set_table_property('" + tableName + "', 'distribution_key', 'pk1');"
+					+ "call set_table_property('" + tableName + "', 'orientation', 'row,column');";
+
+			execute(conn, new String[]{createSchema, dropSql, createSql});
+
+			try {
+				TableSchema schema = client.getTableSchema(tableName);
+				Set<Integer> sets = new HashSet<>();
+				for (int i = 0; i < 12; i++) {
+					Put put = new Put(schema);
+					put.setObject(0, "123456");
+					put.setObject(1, i);
+					sets.add(i);
+					put.setObject(2, "name0");
+					put.setObject(3, "address0");
+					client.put(put);
+				}
+				client.flush();
+
+				try (RecordScanner scanner = client.scan(Scan.newBuilder(schema).setSortKeys(SortKeys.NONE)
+						.addEqualFilter("pk1", "123456").build())) {
+					int count = 0;
+					while (scanner.next()) {
+						Record r = scanner.getRecord();
+						Assert.assertEquals(r.getObject("pk1"), "123456");
+						sets.remove((Integer) r.getObject("pk2"));
+						Assert.assertEquals(r.getObject("name"), "name0");
+						Assert.assertEquals(r.getObject("address"), "address0");
+						++count;
+						if (count > 12) {
+							throw new RuntimeException(String.format("the number of records %s is incorrect, exceeds the real number %s", count, 12));
+						}
+					}
+					Assert.assertTrue(sets.isEmpty());
+					Assert.assertEquals(count, 12);
+				}
+			} finally {
+				execute(conn, new String[]{dropSql});
+			}
+		}
+	}
 }
