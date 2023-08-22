@@ -1,0 +1,19 @@
+{
+    "eas_config": {
+        "url": "http://xxxxxx.pai-eas.aliyuncs.com/",
+        "token": "xxxxxx"
+    },
+    "holo_config": {
+        "HOLO_ENDPOINT": "xxxxxx.hologres.aliyuncs.com",
+        "HOLO_PORT": 80,
+        "HOLO_DATABASE":"xxxxxx",
+        "HOLO_USER": "xxxxxx",
+        "HOLO_PASSWORD": "xxxxxx"
+    },
+    "embedding": {
+        "model_id": "damo/nlp_corom_sentence-embedding_english-base",
+        "model_dimension": 768
+    },
+    "query_topk": 4,
+    "prompt_template": "Use the following pieces of information to answer the user's question.\n If you don't know the answer, just say that you don't know, don't try to make up an answer.\n Context: {context}\nQuestion: {question}\n Only return the helpful answer below and nothing else.\nHelpful answer:"
+}
