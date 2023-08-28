@@ -33,6 +33,7 @@ class LLMChatbot:
             connection_string=connection_string,
             embedding_function=self.embeddings,
             ndims=768,
+            table_name='langchain_embedding',
             pre_delete_table=clear_db)
         return vectorstore
 

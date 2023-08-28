@@ -42,7 +42,7 @@ class Chatbot:
                 HOLO_ENDPOINT, int(HOLO_PORT), HOLO_DATABASE, HOLO_USER, HOLO_PASSWORD)
 
             self.vectorstore = Hologres(connection_string=connection_string,
-                                        embedding_function=self.embeddings, ndims=768, pre_delete_table=clear_db)
+                                        embedding_function=self.embeddings, ndims=768, table_name='langchain_embedding', pre_delete_table=clear_db)
 
     def load_db(self, files: List[str]) -> None:
         # read docs
