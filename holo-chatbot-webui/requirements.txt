@@ -1,0 +1,14 @@
+cffi
+langchain
+pandas
+datasets
+sentence-transformers
+transformers
+accelerate
+tokenizers
+unstructured
+loguru
+hologres-vector
+uvicorn
+fastapi
+gradio

@@ -5,7 +5,11 @@ Connectors for Hologres
 
 * [holo-chatbot](./holo-chatbot/)
 
-    使用Hologres向量引擎定制GPT大模型聊天机器人
+    使用Hologres向量引擎定制GPT大模型聊天机器人，钉钉机器人版
+
+* [holo-chatbot-webui](./holo-chatbot-webui/)
+
+    使用Hologres+PAI定制大模型聊天机器人，网页版
     
 * [holo-llm](./holo-llm/)
     使用Hologres向量引擎和PAI-LLM服务搭建聊天机器人
