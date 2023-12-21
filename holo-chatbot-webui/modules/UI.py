@@ -101,6 +101,8 @@ def create_ui(service,_global_args,_global_cfg):
             / \N{rocket} [通义千问](https://modelscope.cn/models/qwen/Qwen-7B-Chat/summary)
 
             \N{fire} 请加入[钉钉群聊](https://help.aliyun.com/zh/hologres/support/obtain-online-support-for-hologres)获取更多在线支持
+
+            \N{whale} [通过API调用](/docs)
                 
             """
         
