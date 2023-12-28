@@ -260,22 +260,23 @@ insert into test_copy_to_holo select 1, 'aaaaabbbbb';
 
 写参数
 
-| 参数名 | 默认值 | 是否必填 | 说明 |
-| :---: | :---: | :---: |:---: |
-| copy_write_mode | 实例版本>=1.3.24，默认true，否则false | 否 | 是否使用fixed copy方式写入，fixed copy是hologres1.3新增的能力，相比insert方法，fixed copy方式可以更高的吞吐（因为是流模式），更低的数据延时，更低的客户端内存消耗（因为不攒批)|
-| copy_write_format | binary | 否 | 底层是否走二进制协议，二进制会更快，否则为文本模式|
-| dirty_data_check | false | 否 | 是否进行脏数据校验，打开之后如果有脏数据，可以定位到写入失败的具体行，RecordChecker会对写入性能造成一定影响，非排查环节不建议开启。|
-| direct_connect | 对于可以直连的环境会默认使用直连 | 否 | copy的瓶颈往往是VIP endpoint的网络吞吐，因此我们会测试当前环境能否直连holo fe，支持的话默认使用直连。此参数设置为false则不进行直连。|
-| max_writer_number | 20 | 否 | copy write模式下hive job可以使用的最大连接数。<br>任务执行过程中，发现当前job使用的总连接数小于此参数时，task会创建更多的连接（copy writer）提高写入性能，每个task上限通过max_writer_number_per_task配置。<br>此参数在一定程度上可以避免长尾问题。参数设置为0或者比作业本身的并发task数量就小时，不进行此优化 |
-| max_writer_number_per_task | 3 | 否 | copy write模式下每个task创建的writer上限，默认为3。由于copy writer拥有比价好的吞吐，因此不建议设置的过大 |
-| write_mode | INSERT_OR_REPLACE | 否 | 当INSERT目标表为有主键的表时采用不同策略:<br>INSERT_OR_IGNORE 当主键冲突时，不写入<br>INSERT_OR_UPDATE 当主键冲突时，更新相应列<br>INSERT_OR_REPLACE 当主键冲突时，更新所有列|
-| write_batch_size | 512 | 否 | 每个写入线程的最大批次大小，<br>在经过WriteMode合并后的Put数量达到writeBatchSize时进行一次批量提交 |
-| write_batch_byte_size | 2097152（2 * 1024 * 1024） | 否 | 每个写入线程的最大批次bytes大小，单位为Byte，默认2MB，<br>在经过WriteMode合并后的Put数据字节数达到writeBatchByteSize时进行一次批量提交 |
-| use_legacy_put_handler| false | 否 |true时，写入sql格式为insert into xxx(c0,c1,...) values (?,?,...),... on conflict; false时优先使用sql格式为insert into xxx(c0,c1,...) select unnest(?),unnest(?),... on conflict|
-| write_max_interval_ms | 10000 | 否 | 距离上次提交超过writeMaxIntervalMs会触发一次批量提交，单位为ms |
-| write_fail_strategy | TYR_ONE_BY_ONE | 否 | 当发生写失败时的重试策略:<br>TYR_ONE_BY_ONE 当某一批次提交失败时，会将批次内的记录逐条提交（保序），其中某单条提交失败的记录将会跟随异常被抛出<br> NONE 直接抛出异常 |
-| write_thread_size | 1 | 否 | 写入并发线程数（每个并发占用1个数据库连接） |
-| dynamic_partition| false|	否 |若为true，写入分区表父表时，当分区不存在时自动创建分区 |
+|            参数名             |               默认值               | 是否必填 |                                                                                               说明                                                                                               |
+|:--------------------------:|:-------------------------------:| :---: |:----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------:|
+|      copy_write_mode       |   实例版本>=1.3.24，默认true，否则false   | 否 |                                    是否使用copy方式写入，默认走fixed copy。fixed copy是hologres1.3新增的能力，相比insert方法，fixed copy方式可以更高的吞吐（因为是流模式），更低的数据延时，更低的客户端内存消耗（因为不攒批)                                     |
+|     copy_write_format      |             binary              | 否 |                                                                                   底层是否走二进制协议，二进制会更快，否则为文本模式                                                                                    |
+|         bulk_load          | 实例版本>=2.1.0且无主键表，默认true，否则false |  否   |                                   是否使用bulk load方式写入，需要copy_write_mode设置为true，bulk load即批量copy，相比fixed copy，写入过程中hologres实例的资源负载更低。<br> 推荐Hologres2.1版本且写入无主键表时使用此参数。Hologres2.1优化了无主键表写入能力，无主键表批量写入不产生表锁，改为行锁，可以与Fixed Plan同时进行。<br> 注：需要connector版本>=1.4.0，hologres引擎版本>=r2.1.0                                    |
+|      dirty_data_check      |              false              | 否 |                                                            是否进行脏数据校验，打开之后如果有脏数据，可以定位到写入失败的具体行，RecordChecker会对写入性能造成一定影响，非排查环节不建议开启。                                                            |
+|       direct_connect       |        对于可以直连的环境会默认使用直连         | 否 |                                                        copy的瓶颈往往是VIP endpoint的网络吞吐，因此我们会测试当前环境能否直连holo fe，支持的话默认使用直连。此参数设置为false则不进行直连。                                                        |
+|     max_writer_number      |               20                | 否 | copy write模式下hive job可以使用的最大连接数。<br>任务执行过程中，发现当前job使用的总连接数小于此参数时，task会创建更多的连接（copy writer）提高写入性能，每个task上限通过max_writer_number_per_task配置。<br>此参数在一定程度上可以避免长尾问题。参数设置为0或者比作业本身的并发task数量就小时，不进行此优化 |
+| max_writer_number_per_task |                3                | 否 |                                                              copy write模式下每个task创建的writer上限，默认为3。由于copy writer拥有比价好的吞吐，因此不建议设置的过大                                                              |
+|         write_mode         |        INSERT_OR_REPLACE        | 否 |                                   当INSERT目标表为有主键的表时采用不同策略:<br>INSERT_OR_IGNORE 当主键冲突时，不写入<br>INSERT_OR_UPDATE 当主键冲突时，更新相应列<br>INSERT_OR_REPLACE 当主键冲突时，更新所有列                                   |
+|      write_batch_size      |               512               | 否 |                                                                每个写入线程的最大批次大小，<br>在经过WriteMode合并后的Put数量达到writeBatchSize时进行一次批量提交                                                                |
+|   write_batch_byte_size    |    2097152（2 * 1024 * 1024）     | 否 |                                                   每个写入线程的最大批次bytes大小，单位为Byte，默认2MB，<br>在经过WriteMode合并后的Put数据字节数达到writeBatchByteSize时进行一次批量提交                                                   |
+|   use_legacy_put_handler   |              false              | 否 |                true时，写入sql格式为insert into xxx(c0,c1,...) values (?,?,...),... on conflict; false时优先使用sql格式为insert into xxx(c0,c1,...) select unnest(?),unnest(?),... on conflict                |
+|   write_max_interval_ms    |              10000              | 否 |                                                                           距离上次提交超过writeMaxIntervalMs会触发一次批量提交，单位为ms                                                                            |
+|    write_fail_strategy     |         TYR_ONE_BY_ONE          | 否 |                                               当发生写失败时的重试策略:<br>TYR_ONE_BY_ONE 当某一批次提交失败时，会将批次内的记录逐条提交（保序），其中某单条提交失败的记录将会跟随异常被抛出<br> NONE 直接抛出异常                                                |
+|     write_thread_size      |                1                | 否 |                                                                                     写入并发线程数（每个并发占用1个数据库连接）                                                                                     |
+|     dynamic_partition      |              false              |	否 |                                                                                 若为true，写入分区表父表时，当分区不存在时自动创建分区                                                                                  |
 
 读参数
 

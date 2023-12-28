@@ -44,14 +44,15 @@ public class HoloRecordWriter implements FileSinkOperator.RecordWriter {
             record.write(put);
             clientProvider.createOrGetClient().put(put);
         } catch (HiveHoloStorageException | HoloClientException e) {
+            if (clientProvider != null) {
+                clientProvider.closeClient();
+            }
             logErrorAndExceptionInConsole(
                     String.format(
                             "failed while write values %s, because:",
                             Arrays.toString(record.getColumnValues())),
                     e);
             throw new IOException(e);
-        } finally {
-            clientProvider.closeClient();
         }
     }
 

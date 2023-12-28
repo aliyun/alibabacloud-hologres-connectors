@@ -48,13 +48,15 @@ public class HoloRecordCopyWriter implements FileSinkOperator.RecordWriter {
 
     private static final Logger logger = LoggerFactory.getLogger(HoloRecordCopyWriter.class);
     private final int maxWriterNumberPerTask;
-
+    private final int maxCellBufferSize;
     private ScheduledExecutorService backgroundExecutorService;
     private final AtomicInteger nextCopyContextIndex;
     private final transient ConcurrentMap<Integer, CopyContext> copyContexts;
     private final int maxWriterNumber;
 
     private final boolean binary;
+    private final boolean bulkLoad;
+
     private final HoloClientParam param;
     private final TableSchema schema;
     private final String appName;
@@ -66,6 +68,7 @@ public class HoloRecordCopyWriter implements FileSinkOperator.RecordWriter {
         this.maxWriterNumberPerTask = param.getMaxWriterNumberPerTask();
         this.param = param;
         this.binary = "binary".equals(param.getCopyWriteFormat());
+        this.bulkLoad = param.isBulkLoad();
         this.schema = schema;
         this.appName = String.format("hologres-connector-hive_copy_%s", context.getJobID());
         CopyContext copyContext = new CopyContext();
@@ -74,6 +77,7 @@ public class HoloRecordCopyWriter implements FileSinkOperator.RecordWriter {
         this.copyContexts = new ConcurrentHashMap<>(1);
         this.copyContexts.put(nextCopyContextIndex.getAndIncrement(), copyContext);
         this.maxWriterNumber = param.getMaxWriterNumber();
+        this.maxCellBufferSize = param.getMaxCellBufferSize();
         // 当此参数大于0时，会适当增加每个task的copy writer数量，每个task不超过5
         if (maxWriterNumber > 0) {
             this.backgroundExecutorService = Executors.newSingleThreadScheduledExecutor();
@@ -146,21 +150,23 @@ public class HoloRecordCopyWriter implements FileSinkOperator.RecordWriter {
                                 binary,
                                 param.getWriteMode() == INSERT_OR_IGNORE
                                         ? INSERT_OR_IGNORE
-                                        : INSERT_OR_UPDATE);
+                                        : INSERT_OR_UPDATE,
+                                !bulkLoad);
                 logger.info("copy sql :{}", sql);
                 CopyIn in = copyContext.manager.copyIn(sql);
+                // bulkLoad 目前只支持text方式
                 copyContext.os =
-                        binary
+                        (binary && !bulkLoad)
                                 ? new RecordBinaryOutputStream(
                                         new CopyInOutputStream(in),
                                         schema,
                                         copyContext.pgConn.unwrap(BaseConnection.class),
-                                        1024 * 1024 * 10)
+                                        maxCellBufferSize)
                                 : new RecordTextOutputStream(
                                         new CopyInOutputStream(in),
                                         schema,
                                         copyContext.pgConn.unwrap(BaseConnection.class),
-                                        1024 * 1024 * 10);
+                                        maxCellBufferSize);
             }
 
             copyContext.os.putRecord(record);

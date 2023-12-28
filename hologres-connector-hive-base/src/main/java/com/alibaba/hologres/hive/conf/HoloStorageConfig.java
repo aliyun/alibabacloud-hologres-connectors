@@ -9,11 +9,12 @@ public enum HoloStorageConfig {
 
     COPY_WRITE_MODE("copy_write_mode", false),
     COPY_WRITE_FORMAT("copy_write_format", false),
+    BULK_LOAD("bulk_load", false),
     DIRTY_DATA_CHECK("dirty_data_check", false),
     DIRECT_CONNECT("direct_connect", false),
     MAX_WRITER_NUMBER("max_writer_number", false),
     MAX_WRITER_NUMBER_PER_TASK("max_writer_number_per_task", false),
-
+    MAX_CELL_BUFFER_SIZE("max_cell_buffer_size", false),
     WRITE_MODE("write_mode", false),
     WRITE_BATCH_SIZE("write_batch_size", false),
     WRITE_BATCH_BYTE_SIZE("write_batch_byte_size", false),

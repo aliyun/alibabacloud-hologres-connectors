@@ -75,6 +75,9 @@ public class HoloOutputFormat
                 throw new IOException("Failed to get holo version", e);
             }
             boolean supportCopy = holoVersion.compareTo(new HoloVersion(1, 3, 24)) > 0;
+            boolean supportBulkLoad =
+                    holoVersion.compareTo(new HoloVersion(2, 1, 0)) > 0
+                            && schema.getPrimaryKeys().length == 0;
             if (!supportCopy) {
                 LOGGER.warn(
                         "The hologres instance version is {}, but only instances greater than 1.3.24 support copy write mode",
@@ -94,6 +97,9 @@ public class HoloOutputFormat
                 if (param.isDirectConnect()) {
                     // 尝试直连，无法直连则各个tasks内的copy writer不需要进行尝试
                     param.setDirectConnect(JDBCUtils.couldDirectConnect(param));
+                }
+                if (supportBulkLoad) {
+                    param.setBulkLoad(true);
                 }
                 return new HoloRecordCopyWriter(param, schema, taskAttemptContext);
             } else {

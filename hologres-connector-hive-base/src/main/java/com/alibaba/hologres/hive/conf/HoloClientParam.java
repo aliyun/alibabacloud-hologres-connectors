@@ -6,6 +6,7 @@ import com.alibaba.hologres.client.model.WriteMode;
 import com.alibaba.hologres.hive.utils.JDBCUtils;
 import org.apache.hadoop.conf.Configuration;
 
+import java.util.Map;
 import java.util.Properties;
 
 /** generate HoloClientParam from user config or default value. */
@@ -18,9 +19,11 @@ public class HoloClientParam {
 
     private final boolean copyWriteMode;
     private final String copyWriteFormat;
+    private boolean bulkLoad;
     private final boolean dirtyDataCheck;
     private boolean directConnect;
     private final int maxWriterNumber;
+    private int maxCellBufferSize;
     private final int maxWriterNumberPerTask;
     private int hologresFrontendsNumber = 0;
 
@@ -60,6 +63,16 @@ public class HoloClientParam {
         password = props.getProperty(HoloStorageConfig.PASSWORD.getPropertyName());
     }
 
+    public HoloClientParam(Configuration conf, Map<String, String> parameters) {
+        this(conf);
+        url = parameters.get(HoloStorageConfig.JDBC_URL.getPropertyName());
+        // the copyWriter just supports jdbc:hologres
+        if (url.startsWith("jdbc:postgresql:")) {
+            url = "jdbc:hologres:" + url.substring("jdbc:postgresql:".length());
+        }
+        tableName = parameters.get(HoloStorageConfig.TABLE.getPropertyName());
+    }
+
     public HoloClientParam(Configuration conf) {
         this.tableName = conf.get(HoloStorageConfig.TABLE.getPropertyName());
         this.url =
@@ -73,6 +86,7 @@ public class HoloClientParam {
                 conf.getBoolean(HoloStorageConfig.COPY_WRITE_MODE.getPropertyName(), true);
         this.copyWriteFormat =
                 conf.get(HoloStorageConfig.COPY_WRITE_FORMAT.getPropertyName(), "binary");
+        this.bulkLoad = conf.getBoolean(HoloStorageConfig.BULK_LOAD.getPropertyName(), false);
         this.dirtyDataCheck =
                 conf.getBoolean(HoloStorageConfig.DIRTY_DATA_CHECK.getPropertyName(), false);
         this.directConnect =
@@ -81,6 +95,9 @@ public class HoloClientParam {
                 conf.getInt(HoloStorageConfig.MAX_WRITER_NUMBER.getPropertyName(), 20);
         this.maxWriterNumberPerTask =
                 conf.getInt(HoloStorageConfig.MAX_WRITER_NUMBER_PER_TASK.getPropertyName(), 3);
+        this.maxCellBufferSize =
+                conf.getInt(
+                        HoloStorageConfig.MAX_CELL_BUFFER_SIZE.getPropertyName(), 1024 * 1024 * 20);
 
         // write options
         this.writeBatchSize =
@@ -226,6 +243,14 @@ public class HoloClientParam {
         return copyWriteMode;
     }
 
+    public boolean isBulkLoad() {
+        return bulkLoad;
+    }
+
+    public void setBulkLoad(boolean bulkLoad) {
+        this.bulkLoad = bulkLoad;
+    }
+
     public boolean isDirtyDataCheck() {
         return dirtyDataCheck;
     }
@@ -240,6 +265,10 @@ public class HoloClientParam {
 
     public int getMaxWriterNumber() {
         return maxWriterNumber;
+    }
+
+    public int getMaxCellBufferSize() {
+        return maxCellBufferSize;
     }
 
     public int getMaxWriterNumberPerTask() {
