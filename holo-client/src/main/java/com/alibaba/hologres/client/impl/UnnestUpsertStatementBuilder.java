@@ -594,6 +594,10 @@ public class UnnestUpsertStatementBuilder extends UpsertStatementBuilder {
 				}
 			}
 			throw e;
+		} finally {
+			if (insertCache.getSize() > 500) {
+				insertCache.clear();
+			}
 		}
 	}
 }

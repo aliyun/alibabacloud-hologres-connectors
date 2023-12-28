@@ -164,7 +164,7 @@ public class HoloBinlogDecoder {
 				}
 				break;
 			case Types.DATE:
-				currentRecord.setObject(index, new Date(currentRow.getLong(offsetIndex) * ONE_DAY_IN_MILLIES));
+				currentRecord.setObject(index, new Date(currentRow.getInt(offsetIndex) * ONE_DAY_IN_MILLIES));
 				break;
 			case Types.TIME:
 			case Types.TIME_WITH_TIMEZONE:

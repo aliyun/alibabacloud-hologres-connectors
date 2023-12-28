@@ -11,12 +11,14 @@ import com.alibaba.hologres.client.exception.HoloClientException;
 import com.alibaba.hologres.client.function.FunctionWithSQLException;
 import com.alibaba.hologres.client.impl.util.ConnectionUtil;
 import com.alibaba.hologres.client.model.HoloVersion;
+import com.alibaba.hologres.client.model.SSLMode;
 import org.postgresql.PGProperty;
 import org.postgresql.jdbc.PgConnection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.Closeable;
+import java.security.InvalidParameterException;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
@@ -45,12 +47,11 @@ public class ConnectionHolder implements Closeable {
 	final boolean refreshMetaAfterConnectionCreated;
 	final boolean isEnableDirectConnection;
 	final boolean isEnableAffectedRows;
+	final boolean isEnableGenerateBinlog;
 
 	long lastActiveTs;
 	private static List<String> preSqlList;
 	private static byte[] lock = new byte[]{};
-	private static String optionProperty = "options=";
-	private static String fixedOption = "type=fixed%20";
 
 	static {
 		preSqlList = new ArrayList<>();
@@ -108,7 +109,7 @@ public class ConnectionHolder implements Closeable {
 
 		this.isFixed = isFixed;
 		if (isFixed) {
-			url = generateFixedUrl(url);
+			url = ConnectionUtil.generateFixedUrl(url);
 			// set application_name in startup message.
 			PGProperty.ASSUME_MIN_SERVER_VERSION.set(info, "9.4");
 		}
@@ -131,6 +132,16 @@ public class ConnectionHolder implements Closeable {
 		PGProperty.PASSWORD.set(info, config.getPassword());
 		PGProperty.APPLICATION_NAME.set(info, Version.version + "_" + config.getAppName());
 		PGProperty.SOCKET_TIMEOUT.set(info, 360);
+		if (config.getSslMode() != SSLMode.DISABLE) {
+			PGProperty.SSL.set(info, true);
+			PGProperty.SSL_MODE.set(info, config.getSslMode().getPgPropertyValue());
+			if (config.getSslMode() == SSLMode.VERIFY_CA || config.getSslMode() == SSLMode.VERIFY_FULL) {
+				if (config.getSslRootCertLocation() == null) {
+					throw new InvalidParameterException("When SSL_MODE is set to VERIFY_CA or VERIFY_FULL, the location of the ssl root certificate must be configured.");
+				}
+				PGProperty.SSL_ROOT_CERT.set(info, config.getSslRootCertLocation());
+			}
+		}
 
 		this.tryCount = config.getRetryCount();
 		this.retrySleepInitMs = config.getRetrySleepInitMs();
@@ -139,6 +150,7 @@ public class ConnectionHolder implements Closeable {
 		this.refreshMetaAfterConnectionCreated = config.isRefreshMetaAfterConnectionCreated();
 		this.isEnableDirectConnection = config.isEnableDirectConnection();
 		this.isEnableAffectedRows = config.isEnableAffectedRows();
+		this.isEnableGenerateBinlog = config.isEnableGenerateBinlog();
 		lastActiveTs = System.currentTimeMillis();
 		this.owner = owner;
 		this.connWithVersion = new ConnectionWithVersion();
@@ -156,9 +168,15 @@ public class ConnectionHolder implements Closeable {
 			conn = DriverManager.getConnection(this.connWithVersion.jdbcUrl, info).unwrap(PgConnection.class);
 			conn.setAutoCommit(true);
 			if (!isFixed) {
+				if (refreshMetaAfterConnectionCreated && refreshMetaTimeout > 0) {
+					ConnectionUtil.refreshMeta(conn, refreshMetaTimeout);
+				}
 				List<String> pre = new ArrayList<>(preSqlList);
 				if (!this.isEnableAffectedRows) {
 					pre.add("set hg_experimental_enable_fixed_dispatcher_affected_rows = off");
+				}
+				if (!this.isEnableGenerateBinlog) {
+					pre.add("set hg_experimental_generate_binlog = off");
 				}
 				for (String sql : pre) {
 					try (Statement stat = conn.createStatement()) {
@@ -324,18 +342,6 @@ public class ConnectionHolder implements Closeable {
 					ConnectionUtil.getHoloVersion(conn));
 		}
 		return connWithVersion.version;
-	}
-
-	public String generateFixedUrl(String url) {
-		StringBuilder sb = new StringBuilder(url);
-		int index = sb.lastIndexOf(optionProperty);
-		if (index > -1) {
-			// In fact fixed fe will ignore url parameters, but we guarantee the correctness of the url here.
-			sb.insert(index + optionProperty.length(), fixedOption);
-		} else {
-			sb.append(url.contains("?") ? "&" : "?").append(optionProperty).append(fixedOption);
-		}
-		return sb.toString();
 	}
 
 	@Override

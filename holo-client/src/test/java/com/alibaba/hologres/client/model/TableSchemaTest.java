@@ -54,4 +54,53 @@ public class TableSchemaTest extends HoloClientTestBase {
 		}
 	}
 
+	@Test
+	public void testTableSchemaToString() throws Exception {
+		if (properties == null) {
+			return;
+		}
+		HoloConfig config = buildConfig();
+		config.setWriteMode(WriteMode.INSERT_OR_REPLACE);
+		config.setWriteThreadSize(10);
+		config.setBinlogReadBatchSize(20);
+
+		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
+			String tableName = "holo_client_table_schema_to_string";
+
+			String dropSql = "drop table if exists " + tableName;
+			String createSql = "create table " + tableName
+					+ "(id int not null, amount decimal(12,2), t text not null, ts timestamptz not null, ba bytea, t_a text[],i_a int[], primary key(id));\n "
+					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
+					+ "call set_table_property('" + tableName + "', 'clustering_key', 't');\n"
+					+ "call set_table_property('" + tableName + "', 'orientation', 'column,row');\n"
+					+ "call set_table_property('" + tableName + "', 'segment_key', 'ts');\n";
+			execute(conn, new String[]{dropSql, "begin;", createSql, "commit;"});
+
+			try {
+				TableSchema schema = client.getTableSchema(tableName, true);
+				Assert.assertEquals(schema.toString(), String.format("TableSchema{\n" +
+						"tableId='%s', \n" +
+						"schemaVersion='%S', \n" +
+						"tableName=\"public\".\"%s\", \n" +
+						"distributionKeys=[id], \n" +
+						"clusteringKey=[t:asc], \n" +
+						"segmentKey=[ts], \n" +
+						"partitionInfo='null', \n" +
+						"orientation='column,row', \n" +
+						"binlogLevel=REPLICA, \n" +
+						"columns=[\n" +
+						"Column{name='id', typeName='int4', allowNull=false, isPrimaryKey=true, defaultValue=null}, \n" +
+						"Column{name='amount', typeName='numeric', allowNull=true, isPrimaryKey=false, defaultValue=null}, \n" +
+						"Column{name='t', typeName='text', allowNull=false, isPrimaryKey=false, defaultValue=null}, \n" +
+						"Column{name='ts', typeName='timestamptz', allowNull=false, isPrimaryKey=false, defaultValue=null}, \n" +
+						"Column{name='ba', typeName='bytea', allowNull=true, isPrimaryKey=false, defaultValue=null}, \n" +
+						"Column{name='t_a', typeName='_text', allowNull=true, isPrimaryKey=false, defaultValue=null}, \n" +
+						"Column{name='i_a', typeName='_int4', allowNull=true, isPrimaryKey=false, defaultValue=null}]}",
+						schema.getTableId(), schema.getSchemaVersion(), tableName));
+			} finally {
+				execute(conn, new String[]{dropSql});
+			}
+		}
+	}
+
 }

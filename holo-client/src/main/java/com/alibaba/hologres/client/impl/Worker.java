@@ -49,13 +49,13 @@ public class Worker implements Runnable {
 	private final String name;
 	Map<Class, ActionHandler> handlerMap = new HashMap<>();
 
-	public Worker(HoloConfig config, AtomicBoolean started, int index, boolean isShardEnv) {
-		this(config, started, index, isShardEnv, false);
+	public Worker(HoloConfig config, AtomicBoolean started, int index, boolean isShadingEnv) {
+		this(config, started, index, isShadingEnv, false);
 	}
 
-	public Worker(HoloConfig config, AtomicBoolean started, int index, boolean isShardEnv, boolean isFixed) {
+	public Worker(HoloConfig config, AtomicBoolean started, int index, boolean isShadingEnv, boolean isFixed) {
 		this.config = config;
-		connectionHolder = new ConnectionHolder(config, this, isShardEnv, isFixed);
+		connectionHolder = new ConnectionHolder(config, this, isShadingEnv, isFixed);
 		this.started = started;
 		this.name = (isFixed ? "Fixed-" : "") + "Worker-" + index;
 		handlerMap.put(EmptyAction.class, new EmptyActionHandler(config));
@@ -65,7 +65,7 @@ public class Worker implements Runnable {
 		handlerMap.put(CopyAction.class, new CopyActionHandler(connectionHolder, config));
 		handlerMap.put(PutAction.class, new PutActionHandler(connectionHolder, config));
 		handlerMap.put(ScanAction.class, new ScanActionHandler(connectionHolder, config));
-		handlerMap.put(BinlogAction.class, new BinlogActionHandler(started, config, isShardEnv));
+		handlerMap.put(BinlogAction.class, new BinlogActionHandler(started, config, isShadingEnv, isFixed));
 	}
 
 	public boolean offer(AbstractAction action) throws HoloClientException {

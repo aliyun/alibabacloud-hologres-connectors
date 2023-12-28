@@ -6,6 +6,7 @@ import com.alibaba.hologres.client.exception.HoloClientWithDetailsException;
 import com.alibaba.hologres.client.impl.ExecutionPool;
 import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.model.RecordScanner;
+import com.alibaba.hologres.client.model.SSLMode;
 import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.model.WriteMode;
 import com.alibaba.hologres.client.utils.FutureUtil;
@@ -14,6 +15,7 @@ import org.testng.Assert;
 import org.testng.annotations.Test;
 
 import java.math.BigDecimal;
+import java.security.InvalidParameterException;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
@@ -2765,7 +2767,7 @@ public class HoloClientTest extends HoloClientTestBase {
 			String dropSql = "drop table if exists " + tableName;
 			String createSql = "create table " + tableName + "(id int8 not null,name text,primary key(id))";
 
-			String addUser = "CREATE USER \"BASIC$ttqs\" WITH PASSWORD 'ttqspw';";
+			String addUser = "CREATE USER \"BASIC$ttqs\" WITH PASSWORD 'ttqspw' superuser;";
 			String dropUser = "drop user if exists \"BASIC$ttqs\"";
 			execute(conn, new String[]{dropUser, dropSql, createSql, addUser});
 
@@ -3657,5 +3659,158 @@ public class HoloClientTest extends HoloClientTestBase {
 			}).get();
 		}
 
+	}
+
+
+	/**
+	 * HoloConfig 的enableGenerateBinlog参数设置测试.
+	 */
+	@Test
+	public void testDisableGenerateBinlog() throws Exception {
+		if (properties == null) {
+			return;
+		}
+		HoloConfig config = buildConfig();
+
+		try (Connection conn = buildConnection()) {
+			String tableName = "\"holO_client_put_disable_binlog\"";
+			String dropSql = "drop table if exists " + tableName;
+			String createSql = "create table " + tableName + "(id int not null,id2 int not null, name text, primary key(id,id2))";
+			String enableBinlog = "call set_table_property('" + tableName + "', 'binlog.level', 'replica')";
+			execute(conn, new String[]{dropSql, createSql, enableBinlog});
+
+			//default true
+			Assert.assertTrue(config.isEnableGenerateBinlog());
+
+			// 设置为false，不生成binlog
+			config.setEnableGenerateBinlog(false);
+			try (HoloClient client = new HoloClient(config)) {
+				TableSchema schema = client.getTableSchema(tableName);
+				for (int i = 0; i < 10; i++) {
+					Put put2 = new Put(schema);
+					put2.setObject("id", i);
+					put2.setObject("id2", 1);
+					put2.setObject("name", "aaa");
+					client.put(put2);
+				}
+				client.flush();
+
+				int count = 0;
+				try (Statement stat = conn.createStatement()) {
+					try (ResultSet rs = stat.executeQuery("select *,hg_binlog_lsn from " + tableName + " order by id")) {
+						while (rs.next()) {
+							Assert.assertEquals(count, rs.getInt(1));
+							Assert.assertEquals(1, rs.getInt(2));
+							Assert.assertEquals("aaa", rs.getString(3));
+							++count;
+						}
+					}
+				}
+				Assert.assertEquals(0, count);
+			}
+
+			// 设回true
+			config.setEnableGenerateBinlog(true);
+			try (HoloClient client = new HoloClient(config)) {
+				TableSchema schema = client.getTableSchema(tableName);
+				for (int i = 10; i < 20; i++) {
+					Put put2 = new Put(schema);
+					put2.setObject("id", i);
+					put2.setObject("id2", 1);
+					put2.setObject("name", "aaa");
+					client.put(put2);
+				}
+				client.flush();
+
+				int count = 0;
+				// 生成10条binlog
+				try (Statement stat = conn.createStatement()) {
+					try (ResultSet rs = stat.executeQuery("select *,hg_binlog_lsn from " + tableName + " order by id")) {
+						while (rs.next()) {
+							Assert.assertEquals(count + 10, rs.getInt(1));
+							Assert.assertEquals(1, rs.getInt(2));
+							Assert.assertEquals("aaa", rs.getString(3));
+							++count;
+						}
+					}
+				}
+				Assert.assertEquals(10, count);
+				// 总共20条数据
+				try (Statement stat = conn.createStatement()) {
+					try (ResultSet rs = stat.executeQuery("select count(*) from " + tableName)) {
+						while (rs.next()) {
+							Assert.assertEquals(20, rs.getInt(1));
+						}
+					}
+				}
+			}
+		}
+	}
+
+	/**
+	 * SSL MODE.
+	 * Method: put(Put put).
+	 */
+	@Test
+	public void testSSLMode() throws Exception {
+		if (properties == null) {
+			return;
+		}
+		try (Connection conn = buildConnection()) {
+			try (Statement st = conn.createStatement()) {
+				ResultSet rs = st.executeQuery("show ssl");
+				if (rs.next() && rs.getString(1).equals("off")) {
+					// 目前ssl开启是在gateway，所以不能通过guc判断实例是否开启了ssl，默认跳过，测试的时候手动注释掉return
+					return;
+				}
+			}
+		}
+
+		HoloConfig config = buildConfig();
+		config.setSslMode(SSLMode.VERIFY_FULL);
+		try (HoloClient client = new HoloClient(config)) {
+			// 未配置ssl root certificate路径
+		} catch (InvalidParameterException e) {
+			Assert.assertTrue(e.getMessage().contains("When SSL_MODE is set to VERIFY_CA or VERIFY_FULL, the location of the ssl root certificate must be configured."));
+		}
+
+		config.setSslMode(SSLMode.REQUIRE);
+		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
+			String tableName = "holo_client_ssl_mode_test";
+			String dropSql = "drop table if exists " + tableName;
+			String createSql = "create table " + tableName + "(id int not null,name text,address text,primary key(id))";
+
+			execute(conn, new String[]{dropSql, createSql});
+
+			TableSchema schema = client.getTableSchema(tableName);
+
+			Put put = new Put(schema);
+			put.setObject(0, 0);
+			put.setObject(1, "name0");
+			put.setObject(2, "address");
+			client.put(put);
+
+			put = new Put(schema);
+			put.setObject(0, 1);
+			put.setObject(1, "name1");
+			client.put(put);
+
+			put = new Put(schema);
+			put.setObject(0, 0);
+			put.setObject(1, "name3");
+			client.put(put);
+
+			client.flush();
+
+			Record r = client.get(new Get(schema, new Object[]{0})).get();
+			Assert.assertEquals("name3", r.getObject(1));
+			Assert.assertNull(r.getObject(2));
+
+			r = client.get(new Get(schema, new Object[]{1})).get();
+			Assert.assertEquals("name1", r.getObject(1));
+			Assert.assertNull(r.getObject(2));
+
+			execute(conn, new String[]{dropSql});
+		}
 	}
 }

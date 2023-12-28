@@ -433,8 +433,16 @@ public class TableSchema implements Serializable {
 	@Override
 	public String toString() {
 		return "TableSchema{" +
-				"tableName=" + tableName +
-				", columnNames=" + Arrays.toString(columnNames) +
+				"\ntableId='" + tableId + '\'' +
+				", \nschemaVersion='" + schemaVersion + '\'' +
+				", \ntableName=" + tableName +
+				", \ndistributionKeys=" + Arrays.toString(distributionKeys) +
+				", \nclusteringKey=" + Arrays.toString(clusteringKey) +
+				", \nsegmentKey=" + Arrays.toString(segmentKey) +
+				", \npartitionInfo='" + partitionInfo + '\'' +
+				", \norientation='" + orientation + '\'' +
+				", \nbinlogLevel=" + binlogLevel +
+				", \ncolumns=" + Arrays.toString(columns) +
 				'}';
 	}
 }

@@ -11,6 +11,7 @@ import com.alibaba.hologres.client.exception.HoloClientWithDetailsException;
 import com.alibaba.hologres.client.impl.ExecutionPool;
 import com.alibaba.hologres.client.impl.action.PutAction;
 import com.alibaba.hologres.client.model.Record;
+import com.alibaba.hologres.client.model.RecordKey;
 import com.alibaba.hologres.client.model.TableSchema;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,12 +41,14 @@ public class TableShardCollector {
 	private long activeActionByteSize = 0L;
 	private final ExecutionPool pool;
 	private final CollectorStatistics stat;
+	private final boolean enableDeduplication;
 
 	public TableShardCollector(HoloConfig config, ExecutionPool pool, CollectorStatistics stat, int size) {
 		buffer = new RecordCollector(config, pool, size);
 		activeAction = null;
 		this.pool = pool;
 		this.stat = stat;
+		this.enableDeduplication = config.isEnableDeduplication();
 	}
 
 	public synchronized void append(Record record) throws HoloClientException {
@@ -59,8 +62,13 @@ public class TableShardCollector {
 				exception = e;
 			}
 		}
-		boolean full = buffer.append(record);
-		if (full) {
+		// 配置不允许去重，发现record与buffer中的record主键重复时，先commit，再append
+		boolean keyExists = !enableDeduplication && buffer.isKeyExists(new RecordKey(record));
+		boolean full = false;
+		if (!keyExists) {
+			full = buffer.append(record);
+		}
+		if (full || keyExists) {
 			try {
 				waitActionDone();
 			} catch (HoloClientWithDetailsException e) {
@@ -89,6 +97,9 @@ public class TableShardCollector {
 		}
 		if (exception != null) {
 			throw exception;
+		}
+		if (keyExists) {
+			append(record);
 		}
 	}
 

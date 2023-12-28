@@ -53,13 +53,13 @@ select count(*) from pg_stat_activity where backend_type='client backend';
 <dependency>
   <groupId>com.alibaba.hologres</groupId>
   <artifactId>holo-client</artifactId>
-  <version>2.2.10</version>
+  <version>2.3.0</version>
 </dependency>
 ```
 
 - Gradle
 ```
-implementation 'com.alibaba.hologres:holo-client:2.2.10'
+implementation 'com.alibaba.hologres:holo-client:2.3.0'
 ```
 
 ## 连接数说明
@@ -551,6 +551,8 @@ unnest格式相比multi values有如下优点:
 - 调用Put方法时表发生增减列，导致写入失败 bug引入版本1.X， bug修复版本2.1.5
 - 当readWriteThread和writeThreadSize都为1时，getTableSchema可能触发死锁 bug引入版本1.X, bug修复版本2.2.0
 - binlog消费时，存在内存泄露问题，bug引入版本2.1.0，bug修复版本2.2.10
+- 分区表drop column之后，自动创建子分区时，可能拿到错误的分区值，bug引入版本1.X，bug修复版本2.2.11
+- 当用户表名中有下划线时，可能获取到错误的字段信息，bug引入版本1.X，bug修复版本2.2.12
 
 ## 附录
 ### HoloConfig参数说明
@@ -563,31 +565,36 @@ unnest格式相比multi values有如下优点:
 | appName | holo-client | jdbc的applicationName参数 | 1.2.9.1 |
 
 #### 通用配置
-| 参数名 | 默认值 | 说明 |引入版本| 
-| --- | --- | --- | --- |
-| dynamicPartition | false | 若为true，当分区不存在时自动创建分区 | 1.2.3 |
-| useFixedFe | false | 当hologres引擎版本>=1.3，开启FixedFe后，Get/Put将不消耗连接数（beta功能），连接池大小为writeThreadSize和readThreadSize | 2.2.0 |
-| connectionSizeWhenUseFixedFe | 1  | 仅useFixedFe=true时生效，表示除了Get/Put之外的调用使用的连接池大小 | 2.2.0 |
+
+| 参数名                          | 默认值     | 说明                                                                                                                                                                                       | 引入版本  | 
+|------------------------------|---------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------|
+| dynamicPartition             | false   | 若为true，当分区不存在时自动创建分区                                                                                                                                                                     | 1.2.3 |
+| useFixedFe                   | false   | 当hologres引擎版本>=1.3，开启FixedFe后，Get/Put将不消耗连接数（beta功能），连接池大小为writeThreadSize和readThreadSize                                                                                                | 2.2.0 |
+| connectionSizeWhenUseFixedFe | 1       | 仅useFixedFe=true时生效，表示除了Get/Put之外的调用使用的连接池大小                                                                                                                                             | 2.2.0 |
+| sslMode                      | disable | 是否启动传输加密，详见[Hologres启用SSL传输加密](https://help.aliyun.com/zh/hologres/user-guide/ssl-encrypted-transmission)。取值为disable、require、verify-ca、verify-full，后两种需要通过sslRootCertLocation参数配置CA证书的路径 | 2.3.0 |
+| sslRootCertLocation          | 无       | sslMode=verify-ca或verify-full时必填，CA证书的路径                                                                                                                                                 | 2.3.0 |
 
 #### 写入配置
-| 参数名                                   | 默认值 | 说明 |引入版本| 
-|---------------------------------------| --- | --- | --- |
-| writeThreadSize                       | 1 | 处理HoloClient.put方法请求的最大连接数 |
-| [writeMode](#writeMode)               | INSERT_OR_REPLACE | 当INSERT目标表为有主键的表时采用不同策略<br>INSERT_OR_IGNORE 当主键冲突时，不写入<br>INSERT_OR_UPDATE 当主键冲突时，更新相应列<br>INSERT_OR_REPLACE当主键冲突时，更新所有列| 1.2.3|
-| writeBatchSize                        | 512 | 每个写入线程的最大批次大小，在经过WriteMode合并后的Put数量达到writeBatchSize时进行一次批量提交 | 1.2.3 |
-| writeBatchByteSize                    | 2097152（2 * 1024 * 1024） | 每个写入线程的最大批次bytes大小，单位为Byte，默认2MB，<br>在经过WriteMode合并后的Put数据字节数达到writeBatchByteSize时进行一次批量提交 | 1.2.3 |
-| writeBatchTotalByteSize               | 20971520（20 * 1024 * 1024） | 所有表最大批次bytes大小，单位为Byte，默认20MB，在经过WriteMode合并后的Put数据字节数达到writeBatchByteSize时进行一次批量提交| 1.2.8.1 |
-| writeMaxIntervalMs                    | 10000 | 距离上次提交超过writeMaxIntervalMs会触发一次批量提交 | 1.2.4 |
-| writerShardCountResizeIntervalMs      | 30s | 主动调用flush时，触发resize，两次resize间隔不短于writerShardCountResizeIntervalMs | 1.2.10.1 |
-| inputNumberAsEpochMsForDatetimeColumn | false | 当Number写入Date/timestamp/timestamptz列时，若为true，将number视作ApochMs   | 1.2.5 |
-| inputStringAsEpochMsForDatetimeColumn | false | 当String写入Date/timestamp/timestamptz列时，若为true，将String视作ApochMs   | 1.2.6 |
-| removeU0000InTextColumnValue          | true | 当写入Text/Varchar列时，若为true，剔除字符串中的\u0000 | 1.2.10.1 |
-| enableDefaultForNotNullColumn         | true | 启用时，not null且未在表上设置default的字段传入null时，将以默认值写入. String 默认“”,Number 默认0,Date/timestamp/timestamptz 默认1970-01-01 00:00:00 | 1.2.6 |
-| defaultTimeStampText                  | null | enableDefaultForNotNullColumn=true时，Date/timestamp/timestamptz的默认值 | 1.2.6 |
-| useLegacyPutHandler                   | false | true时，写入sql格式为insert into xxx(c0,c1,...) values (?,?,...),... on conflict; false时优先使用sql格式为insert into xxx(c0,c1,...) select unnest(?),unnest(?),... on conflict | 2.0.1 |
-| maxRowsPerSql                         | Integer.MAX_VALUE | useLegacyPutHandler=false，且通过unnest形式写入时，每条sql的最大行数 | 2.0.1 |
-| maxBytesPerSql                        | Long.MAX_VALUE | useLegacyPutHandler=false，且通过unnest形式写入时，每条sql的最大字节数 | 2.0.1 |
-| enableAffectedRows                    | false | 开启时 若用户用holoclient.sql执行statement.executeUpdate将会返回正确的affectrow计数，但对于行存表进行holoclient.put会有性能下降 | 2.2.5 |
+| 参数名                                   | 默认值                        | 说明                                                                                                                                                               | 引入版本     | 
+|---------------------------------------|----------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------|
+| writeThreadSize                       | 1                          | 处理HoloClient.put方法请求的最大连接数                                                                                                                                       |
+| [writeMode](#writeMode)               | INSERT_OR_REPLACE          | 当INSERT目标表为有主键的表时采用不同策略<br>INSERT_OR_IGNORE 当主键冲突时，不写入<br>INSERT_OR_UPDATE 当主键冲突时，更新相应列<br>INSERT_OR_REPLACE当主键冲突时，更新所有列                                         | 1.2.3    |
+| writeBatchSize                        | 512                        | 每个写入线程的最大批次大小，在经过WriteMode合并后的Put数量达到writeBatchSize时进行一次批量提交                                                                                                     | 1.2.3    |
+| writeBatchByteSize                    | 2097152（2 * 1024 * 1024）   | 每个写入线程的最大批次bytes大小，单位为Byte，默认2MB，<br>在经过WriteMode合并后的Put数据字节数达到writeBatchByteSize时进行一次批量提交                                                                       | 1.2.3    |
+| writeBatchTotalByteSize               | 20971520（20 * 1024 * 1024） | 所有表最大批次bytes大小，单位为Byte，默认20MB，在经过WriteMode合并后的Put数据字节数达到writeBatchByteSize时进行一次批量提交                                                                              | 1.2.8.1  |
+| writeMaxIntervalMs                    | 10000                      | 距离上次提交超过writeMaxIntervalMs会触发一次批量提交                                                                                                                              | 1.2.4    |
+| writerShardCountResizeIntervalMs      | 30s                        | 主动调用flush时，触发resize，两次resize间隔不短于writerShardCountResizeIntervalMs                                                                                                | 1.2.10.1 |
+| inputNumberAsEpochMsForDatetimeColumn | false                      | 当Number写入Date/timestamp/timestamptz列时，若为true，将number视作ApochMs                                                                                                    | 1.2.5    |
+| inputStringAsEpochMsForDatetimeColumn | false                      | 当String写入Date/timestamp/timestamptz列时，若为true，将String视作ApochMs                                                                                                    | 1.2.6    |
+| removeU0000InTextColumnValue          | true                       | 当写入Text/Varchar列时，若为true，剔除字符串中的\u0000                                                                                                                           | 1.2.10.1 |
+| enableDefaultForNotNullColumn         | true                       | 启用时，not null且未在表上设置default的字段传入null时，将以默认值写入. String 默认“”,Number 默认0,Date/timestamp/timestamptz 默认1970-01-01 00:00:00                                            | 1.2.6    |
+| defaultTimeStampText                  | null                       | enableDefaultForNotNullColumn=true时，Date/timestamp/timestamptz的默认值                                                                                               | 1.2.6    |
+| useLegacyPutHandler                   | false                      | true时，写入sql格式为insert into xxx(c0,c1,...) values (?,?,...),... on conflict; false时优先使用sql格式为insert into xxx(c0,c1,...) select unnest(?),unnest(?),... on conflict | 2.0.1    |
+| maxRowsPerSql                         | Integer.MAX_VALUE          | useLegacyPutHandler=false，且通过unnest形式写入时，每条sql的最大行数                                                                                                              | 2.0.1    |
+| maxBytesPerSql                        | Long.MAX_VALUE             | useLegacyPutHandler=false，且通过unnest形式写入时，每条sql的最大字节数                                                                                                             | 2.0.1    |
+| enableAffectedRows                    | false                      | 开启时 若用户用holoclient.sql执行statement.executeUpdate将会返回正确的affectrow计数，但对于行存表进行holoclient.put会有性能下降                                                                   | 2.2.5    |
+| enableGenerateBinlog                    | true                       | 关闭时，通过当前holo-client写入的数据不会生成binlog                                                                                                                               | 2.2.11   |
+| enableDeduplication                    | true                       | 写入时是否对攒批数据做去重，设置为false表示不会去重，如果数据重复非常严重，性能最差相当于writeBatchSize设置为1的逐条写入.                                                                                          | 2.3.0    |
 
 #### 查询配置
 | 参数名 | 默认值 | 说明 |引入版本| 

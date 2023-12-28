@@ -362,7 +362,7 @@ public class RetryTest extends HoloClientTestBase {
 		config.setWriteThreadSize(10);
 		config.setWriteBatchSize(4);
 		try (Connection conn = buildConnection()) {
-			String tableName = "holo_client_retry_004";
+			String tableName = "holo_client_retry_005";
 			String dropSql = "drop table if exists " + tableName + ";drop user if exists \"BASIC$test\"";
 			String createSql = "create table " + tableName + "(id int8 not null,name text,primary key(id));CREATE USER \"BASIC$test\" WITH PASSWORD 'test'; ";
 

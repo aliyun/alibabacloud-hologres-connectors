@@ -15,8 +15,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class OneshotWorker extends Worker {
 
-	public OneshotWorker(HoloConfig config, AtomicBoolean started, int index, boolean isShardEnv) {
-		super(config, started, index, isShardEnv);
+	public OneshotWorker(HoloConfig config, AtomicBoolean started, int index, boolean isShadingEnv) {
+		super(config, started, index, isShadingEnv);
 	}
 
 	@Override

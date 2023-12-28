@@ -110,4 +110,15 @@ public class Column implements Serializable {
 	public void setScale(int scale) {
 		this.scale = scale;
 	}
+
+	@Override
+	public String toString() {
+		return "\nColumn{" +
+				"name='" + name + '\'' +
+				", typeName='" + typeName + '\'' +
+				", allowNull=" + allowNull +
+				", isPrimaryKey=" + isPrimaryKey +
+				", defaultValue=" + defaultValue +
+				'}';
+	}
 }

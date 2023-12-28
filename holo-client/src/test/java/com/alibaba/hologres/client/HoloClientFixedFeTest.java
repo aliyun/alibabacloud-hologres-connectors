@@ -1,6 +1,7 @@
 package com.alibaba.hologres.client;
 
 import com.alibaba.hologres.client.impl.ConnectionHolder;
+import com.alibaba.hologres.client.impl.util.ConnectionUtil;
 import com.alibaba.hologres.client.model.HoloVersion;
 import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.model.WriteMode;
@@ -135,31 +136,31 @@ public class HoloClientFixedFeTest extends HoloClientTestBase {
 		HoloConfig config = buildConfig();
 		ConnectionHolder connectionHolder = new ConnectionHolder(config, this, false, true);
 		// 已有options=
-		Assert.assertEquals(connectionHolder.generateFixedUrl("jdbc:postgresql://ip:port/db"),
+		Assert.assertEquals(ConnectionUtil.generateFixedUrl("jdbc:postgresql://ip:port/db"),
 			"jdbc:postgresql://ip:port/db?options=type=fixed%20");
 		Assert.assertEquals(
-			connectionHolder.generateFixedUrl("jdbc:postgresql://ip:port/db?options=-c statement_timeout=123456"),
+			ConnectionUtil.generateFixedUrl("jdbc:postgresql://ip:port/db?options=-c statement_timeout=123456"),
 			"jdbc:postgresql://ip:port/db?options=type=fixed%20-c statement_timeout=123456");
-		Assert.assertEquals(connectionHolder.generateFixedUrl(
+		Assert.assertEquals(ConnectionUtil.generateFixedUrl(
 				"jdbc:postgresql://ip:port/db?options=-c statement_timeout=123456 -c "
 					+ "idle_in_transaction_session_timeout=654321"),
 			"jdbc:postgresql://ip:port/db?options=type=fixed%20-c statement_timeout=123456 -c "
 				+ "idle_in_transaction_session_timeout=654321");
 		// 包含&连接的其他参数
 		Assert.assertEquals(
-			connectionHolder.generateFixedUrl("jdbc:postgresql://ip:port/db?currentSchema=test&sslmode=disable"),
+			ConnectionUtil.generateFixedUrl("jdbc:postgresql://ip:port/db?currentSchema=test&sslmode=disable"),
 			"jdbc:postgresql://ip:port/db?currentSchema=test&sslmode=disable&options=type=fixed%20");
-		Assert.assertEquals(connectionHolder.generateFixedUrl(
+		Assert.assertEquals(ConnectionUtil.generateFixedUrl(
 				"jdbc:postgresql://ip:port/db?currentSchema=test&options=-c statement_timeout=123456&sslmode=disable"),
 			"jdbc:postgresql://ip:port/db?currentSchema=test&options=type=fixed%20-c "
 				+ "statement_timeout=123456&sslmode=disable");
-		Assert.assertEquals(connectionHolder.generateFixedUrl(
+		Assert.assertEquals(ConnectionUtil.generateFixedUrl(
 				"jdbc:postgresql://ip:port/db?currentSchema=test&sslmode=disable&options=-c statement_timeout=123456 "
 					+ "-c idle_in_transaction_session_timeout=654321"),
 			"jdbc:postgresql://ip:port/db?currentSchema=test&sslmode=disable&options=type=fixed%20-c "
 				+ "statement_timeout=123456 -c idle_in_transaction_session_timeout=654321");
 		// 多个options=(不应该这样写), 最后一个生效，因此我们fixed插入到最后一个options=之后
-		Assert.assertEquals(connectionHolder.generateFixedUrl(
+		Assert.assertEquals(ConnectionUtil.generateFixedUrl(
 				"jdbc:postgresql://ip:port/db?currentSchema=test&sslmode=disable&options=-c "
 					+ "statement_timeout=123456&options= -c idle_in_transaction_session_timeout=654321"),
 			"jdbc:postgresql://ip:port/db?currentSchema=test&sslmode=disable&options=-c "

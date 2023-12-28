@@ -4,6 +4,7 @@
 
 package com.alibaba.hologres.client;
 
+import com.alibaba.hologres.client.model.SSLMode;
 import com.alibaba.hologres.client.model.WriteFailStrategy;
 import com.alibaba.hologres.client.model.WriteMode;
 
@@ -224,6 +225,26 @@ public class HoloConfig implements Serializable {
 	 * @HasSetter
 	 */
 	long maxBytesPerSql = Long.MAX_VALUE;
+
+	/**
+	 * 写入时是否生成binlog.
+	 * boolean
+	 *
+	 * @HasGetter
+	 * @HasSetter
+	 */
+	boolean enableGenerateBinlog = true;
+
+	/**
+	 * 写入时是否对攒批数据做去重.
+	 * 设置为false表示不会去重，如果数据重复非常严重，性能最差相当于writeBatchSize设置为1的逐条写入.
+	 * boolean
+	 *
+	 * @HasGetter
+	 * @HasSetter
+	 */
+	boolean enableDeduplication = true;
+
 	//--------------------------read conf-------------------------------------------------
 	/**
 	 * 最多一次将readBatchSize条Get请求合并提交，默认128.
@@ -383,7 +404,7 @@ public class HoloConfig implements Serializable {
 	 * @HasGetter
 	 * @HasSetter
 	 */
-	boolean refreshMetaAfterConnectionCreated = true;
+	boolean refreshMetaAfterConnectionCreated = false;
 
 	/**
 	 * 获取tableSchema前是否执行hg_internal_refresh_meta.
@@ -402,6 +423,23 @@ public class HoloConfig implements Serializable {
 	 * @HasSetter
 	 */
 	boolean enableDirectConnection = false;
+
+	/**
+	 * 是否启用SSL（Secure Sockets Layer）传输加密.
+	 * 详见文档 <a href="https://help.aliyun.com/zh/hologres/user-guide/ssl-encrypted-transmission">...</a>
+	 *
+	 * @HasGetter
+	 * @HasSetter
+	 */
+	SSLMode sslMode = SSLMode.DISABLE;
+
+	/**
+	 * SSL证书路径， 当sslMode设置位VERIFY_CA或者VERIFY_FULL时需要.
+	 *
+	 * @HasGetter
+	 * @HasSetter
+	 */
+	String sslRootCertLocation = null;
 
 	//------------------------endpoint conf--------------------------------------------
 	/**
@@ -847,6 +885,38 @@ public class HoloConfig implements Serializable {
 
 	public void setMaxBytesPerSql(long maxBytesPerSql) {
 		this.maxBytesPerSql = maxBytesPerSql;
+	}
+
+	public boolean isEnableGenerateBinlog() {
+		return enableGenerateBinlog;
+	}
+
+	public void setEnableGenerateBinlog(boolean enableGenerateBinlog) {
+		this.enableGenerateBinlog = enableGenerateBinlog;
+	}
+
+	public void setSslMode(SSLMode sslMode) {
+		this.sslMode = sslMode;
+	}
+
+	public SSLMode getSslMode() {
+		return sslMode;
+	}
+
+	public void setSslRootCertLocation(String sslRootCertLocation) {
+		this.sslRootCertLocation = sslRootCertLocation;
+	}
+
+	public String getSslRootCertLocation() {
+		return sslRootCertLocation;
+	}
+
+	public boolean isEnableDeduplication() {
+		return enableDeduplication;
+	}
+
+	public void setEnableDeduplication(boolean enableDedup) {
+		this.enableDeduplication = enableDedup;
 	}
 
 	public static String[] getPropertyKeys() {

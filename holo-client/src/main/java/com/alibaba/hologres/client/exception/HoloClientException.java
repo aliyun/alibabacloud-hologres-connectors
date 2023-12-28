@@ -32,7 +32,7 @@ public class HoloClientException extends Exception {
 	public static HoloClientException fromSqlException(SQLException e) {
 		ExceptionCode code = ExceptionCode.UNKNOWN_ERROR;
 		if (PSQLState.isConnectionError(e.getSQLState()) || (e.getMessage() != null && (e.getMessage().contains("This connection has been closed")
-				|| e.getMessage().contains("kConnectError") || e.getMessage().contains("Connection refused") || e.getMessage().contains("ERPC_ERROR_CONNECTION_CLOSED")))) {
+				|| e.getMessage().contains("kConnectError") || e.getMessage().contains("Connection refused") || e.getMessage().contains("ERPC_ERROR_CONNECTION_CLOSED") || (PSQLState.INVALID_PASSWORD.getState().equals(e.getSQLState()) && e.getMessage().contains("Invalid expire_time"))))) {
 			code = ExceptionCode.CONNECTION_ERROR;
 		} else if (e.getMessage() != null && e.getMessage().contains("not allowed in readonly mode")) {
 			code = ExceptionCode.READ_ONLY;

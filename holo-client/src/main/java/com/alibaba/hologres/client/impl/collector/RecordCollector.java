@@ -138,7 +138,12 @@ public class RecordCollector {
 		return false;
 	}
 
-	/*
+	public boolean isKeyExists(RecordKey key) {
+		// 不论是delete还是insert，只要有相同的key，都将之前攒批的数据先flush掉
+		return records.get(key) != null || deleteRecords.get(key) != null;
+	}
+
+	/**
 	 * reason.
 	 * 1 isSizeEnough
 	 * 2 isByteSizeEnough
@@ -148,7 +153,7 @@ public class RecordCollector {
 	 * 6 totalByteSizeCondition
 	 * 7 force
 	 * 8 retry one by one
-	 * */
+	 */
 	public BatchState getBatchState() {
 		long afterLastCommit = System.currentTimeMillis() - startTimeMs;
 		// 行数够多少条

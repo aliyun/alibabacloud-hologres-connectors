@@ -190,7 +190,9 @@ public class UpsertStatementBuilder {
 		String tail = sb.toString();
 
 		int maxLevel = 32 - Integer.numberOfLeadingZeros(Short.MAX_VALUE / set.cardinality()) - 1;
-		return new SqlTemplate(header, tail, rowText, DELIMITER_DOT, maxLevel);
+		SqlTemplate sqlTemplate = new SqlTemplate(header, tail, rowText, DELIMITER_DOT, maxLevel);
+		LOGGER.debug("new sql:{}", sqlTemplate.getSql(maxLevel));
+		return sqlTemplate;
 	}
 
 	/**

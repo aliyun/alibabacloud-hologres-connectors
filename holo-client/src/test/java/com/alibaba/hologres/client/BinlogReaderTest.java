@@ -4,6 +4,7 @@
 
 package com.alibaba.hologres.client;
 
+import com.alibaba.hologres.client.exception.HoloClientException;
 import com.alibaba.hologres.client.impl.binlog.BinlogOffset;
 import com.alibaba.hologres.client.impl.binlog.HoloBinlogDecoder;
 import com.alibaba.hologres.client.model.HoloVersion;
@@ -223,7 +224,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				}
 				client.flush();
 
-				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName, slotName).build());
+				reader = client.binlogSubscribe(createStartTimeBuilderOnHoloVersion(tableName, slotName).build());
 
 				long start = System.nanoTime();
 				int count = 0;
@@ -337,7 +338,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 					}
 				}
 
-				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName, slotName).setBinlogReadStartTime(now.toString()).build());
+				reader = client.binlogSubscribe(createStartTimeBuilderOnHoloVersion(tableName, slotName).setBinlogReadStartTime(now.toString()).build());
 				Map<Integer, Long> lsnResults = new ConcurrentHashMap<>(shardCount);
 				int count = 0;
 				BinlogRecord r;
@@ -382,21 +383,50 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String publicationName = "holo_client_binlog_reader_005_publication_test";
 			String slotName = "holo_client_binlog_reader_005_slot_1";
 
+			String dropSql1 = "drop table if exists " + tableName + "; drop publication if exists " + publicationName + ";\n";
+			String dropSql2 = "delete from hologres.hg_replication_progress where slot_name='" + slotName + "';\n";
+			String dropSql3 = "call hg_drop_logical_replication_slot('" + slotName + "');";
+			String createSql1 = "create extension if not exists hg_binlog;\n";
+			String createSql2 = "create table " + tableName
+					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id));\n "
+					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
+					+ "call set_table_property('" + tableName + "', 'shard_count', '10');\n";
+			String createSql3 = "create publication " + publicationName + " for table " + tableName + ";\n";
+			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
+
+			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
+			tryExecute(conn, new String[]{dropSql2, dropSql3});
+			execute(conn, new String[]{createSql1, "begin;", createSql2, "commit;", createSql3});
+			execute(conn, new String[]{createSql4});
+
 			BinlogShardGroupReader reader = null;
 
 			try {
 				TableSchema schema = client.getTableSchema(tableName, true);
 
-				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName, slotName).build());
+				for (int i = 0; i < 100000; ++i) {
+					Put put2 = new Put(schema);
+					put2.setObject("id", i);
+					put2.setObject("amount", "16.211");
+					put2.setObject("t", "abc,d");
+					if (i == 2) {
+						put2.setObject("t", null);
+					} else if (i == 3) {
+						put2.setObject("t", "NULL");
+					}
+					put2.setObject("ts", "2021-04-12 12:12:12");
+					put2.setObject("ba", new byte[]{(byte) (i % 128)});
+					put2.setObject("t_a", new String[]{"a", "b,c"});
+					put2.setObject("i_a", new int[]{1, 2, 3, 4, 5});
+					client.put(put2);
+				}
+				client.flush();
+
+				reader = client.binlogSubscribe(createStartTimeBuilderOnHoloVersion(tableName, slotName).build());
 
 				long start = System.nanoTime();
 				int count = 0;
-				BinlogRecord a;
-				while ((a = reader.getBinlogRecord()) != null) {
-					if (count % 1000 == 0) {
-						System.out.println(a);
-						Thread.sleep(20000);
-					}
+				while (reader.getBinlogRecord() != null) {
 					count++;
 					if (count == 100000) {
 						reader.cancel();
@@ -411,10 +441,10 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				Assert.assertEquals(count, 100000);
 
 			} finally {
-//				if (reader != null) {
-//					reader.cancel();
-//				}
-				// execute(conn, new String[]{dropSql1, dropSql2, dropSql3});
+				if (reader != null) {
+					reader.cancel();
+				}
+				execute(conn, new String[]{dropSql1, dropSql2, dropSql3});
 			}
 		}
 	}
@@ -495,7 +525,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				}
 				client.flush();
 
-				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName, slotName).build());
+				reader = client.binlogSubscribe(createStartTimeBuilderOnHoloVersion(tableName, slotName).build());
 
 				long start = System.nanoTime();
 				int count = 0;
@@ -602,7 +632,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				}
 				client.flush();
 
-				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName, slotName).build());
+				reader = client.binlogSubscribe(createStartTimeBuilderOnHoloVersion(tableName, slotName).build());
 
 				int count = 0;
 				while (reader.getBinlogRecord() != null) {
@@ -690,7 +720,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				// delete 1000条数据，一共会有2000条binlog
 				execute(conn, new String[]{deleteSql});
 
-				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName, slotName).build());
+				reader = client.binlogSubscribe(createStartTimeBuilderOnHoloVersion(tableName, slotName).build());
 
 				int count = 0;
 				while (reader.getBinlogRecord() != null) {
@@ -776,7 +806,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				// delete 1000条数据，一共会有2000条binlog; binlogIgnoreDelete=true，只读取1000条
 				execute(conn, new String[]{deleteSql});
 
-				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName, slotName).build());
+				reader = client.binlogSubscribe(createStartTimeBuilderOnHoloVersion(tableName, slotName).build());
 
 				int count = 0;
 				while (reader.getBinlogRecord() != null) {
@@ -839,7 +869,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			execute(conn, new String[]{createSql4});
 
 			try {
-				try (BinlogShardGroupReader reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName, slotName).build())) {
+				try (BinlogShardGroupReader reader = client.binlogSubscribe(createStartTimeBuilderOnHoloVersion(tableName, slotName).build())) {
 					final CompletableFuture<Void> writeFuture = new CompletableFuture<>();
 					new Thread(() -> {
 						try {
@@ -964,7 +994,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			execute(conn, new String[]{createSql1, "begin;", createSql2, "commit;", createSql3});
 			execute(conn, new String[]{createSql4});
 
-			try (BinlogShardGroupReader reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName, slotName).build())) {
+			try (BinlogShardGroupReader reader = client.binlogSubscribe(createStartTimeBuilderOnHoloVersion(tableName, slotName).build())) {
 				final CompletableFuture<Void> writeFuture = new CompletableFuture<>();
 				new Thread(() -> {
 					try {
@@ -1102,7 +1132,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 					}
 				}
 
-				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName, slotName).build());
+				reader = client.binlogSubscribe(createStartTimeBuilderOnHoloVersion(tableName, slotName).build());
 
 				int count = 0;
 				BinlogRecord record;
@@ -1124,7 +1154,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 					offsetMap.put(i, new BinlogOffset().setSequence(lsn));
 				}
 				try (HoloClient client2 = new HoloClient(config)) {
-					Subscribe.OffsetBuilder builder = Subscribe.newOffsetBuilder(tableName, slotName);
+					Subscribe.OffsetBuilder builder = createOffsetBuilderOnHoloVersion(tableName, slotName);
 					for (Map.Entry<Integer, BinlogOffset> entry : offsetMap.entrySet()) {
 						builder.addShardStartOffset(entry.getKey(), entry.getValue());
 					}
@@ -1243,7 +1273,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 					}
 				}
 
-				Subscribe.OffsetBuilder offsetBuilder = Subscribe.newOffsetBuilder(tableName, slotName);
+				Subscribe.OffsetBuilder offsetBuilder = createOffsetBuilderOnHoloVersion(tableName, slotName);
 				for (int i = 0; i < shardCount; i++) {
 					// BinlogOffset 的sequence等于-1但timestamp有效时，根据timestamp开始消费
 					offsetBuilder.addShardStartOffset(i, new BinlogOffset(-1, now.getTime() * 1000L));
@@ -1344,7 +1374,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 					}
 				}
 
-				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName, slotName).build());
+				reader = client.binlogSubscribe(createStartTimeBuilderOnHoloVersion(tableName, slotName).build());
 
 				int count = 0;
 				BinlogRecord record;
@@ -1363,7 +1393,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				Assert.assertEquals(count, 25000);
 
 				try (HoloClient client2 = new HoloClient(config)) {
-					Subscribe.OffsetBuilder builder = Subscribe.newOffsetBuilder(tableName, slotName);
+					Subscribe.OffsetBuilder builder = createOffsetBuilderOnHoloVersion(tableName, slotName);
 					for (Map.Entry<Integer, BinlogOffset> entry : offsetMap.entrySet()) {
 						builder.addShardStartOffset(entry.getKey(), entry.getValue());
 					}
@@ -1578,7 +1608,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				}
 				client.flush();
 
-				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName, slotName).build());
+				reader = client.binlogSubscribe(createStartTimeBuilderOnHoloVersion(tableName, slotName).build());
 
 				long start = System.nanoTime();
 				int count = 0;
@@ -1672,7 +1702,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 					}
 				}
 
-				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName, slotName).build());
+				reader = client.binlogSubscribe(createStartTimeBuilderOnHoloVersion(tableName, slotName).build());
 
 				int count = 0;
 				BinlogRecord record;
@@ -1779,7 +1809,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				}
 				client.flush();
 
-				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName, slotName).build());
+				reader = client.binlogSubscribe(createStartTimeBuilderOnHoloVersion(tableName, slotName).build());
 
 				Thread.sleep(80000L);
 				long start = System.nanoTime();
@@ -1815,6 +1845,89 @@ public class BinlogReaderTest extends HoloClientTestBase {
 					reader.cancel();
 				}
 				execute(conn, new String[]{dropSql1, dropSql2, dropSql3});
+			}
+		}
+	}
+
+	/**
+	 * binlogGroupShardReader.
+	 * 实例版本大于2.1时，不需要传入slot
+	 */
+	@Test
+	public void binlogReader041() throws Exception {
+		if (properties == null || holoVersion.compareTo(needVersion) < 0) {
+			return;
+		}
+
+		HoloConfig config = buildConfig();
+		config.setWriteMode(WriteMode.INSERT_OR_REPLACE);
+		config.setBinlogReadBatchSize(128);
+
+		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
+			String tableName = "new_schema.holo_client_binlog_reader_041";
+
+			String dropSql1 = "drop table if exists " + tableName;
+			String createSchema = "create schema if not exists new_schema;\n";
+			String createSql1 = "create extension if not exists hg_binlog;\n";
+			String createSql2 = "create table " + tableName
+					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id));\n "
+					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
+					+ "call set_table_property('" + tableName + "', 'shard_count', '3');\n";
+
+			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
+			execute(conn, new String[]{createSchema, createSql1, "begin;", createSql2, "commit;"});
+
+			BinlogShardGroupReader reader = null;
+
+			try {
+				TableSchema schema = client.getTableSchema(tableName, true);
+
+				for (int i = 0; i < 1000; ++i) {
+					Put put2 = new Put(schema);
+					put2.setObject("id", i);
+					put2.setObject("amount", "16.211");
+					put2.setObject("t", "abc,d");
+					if (i == 2) {
+						put2.setObject("t", null);
+					} else if (i == 3) {
+						put2.setObject("t", "NULL");
+					}
+					put2.setObject("ts", "2021-04-12 12:12:12");
+					put2.setObject("ba", new byte[]{(byte) (i % 128)});
+					put2.setObject("t_a", new String[]{"a", "b,c"});
+					put2.setObject("i_a", new int[]{1, 2, 3, 4, 5});
+					client.put(put2);
+				}
+				client.flush();
+
+				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName).build());
+
+				long start = System.nanoTime();
+				int count = 0;
+				while (reader.getBinlogRecord() != null) {
+					count++;
+					if (count == 1000) {
+						reader.cancel();
+						break;
+					}
+				}
+				LOG.info("reader cancel");
+
+				long end = System.nanoTime();
+				LOG.info("Binlog reader count: {}, cost: {} ms", count, (end - start) / 1000000L);
+
+				Assert.assertEquals(count, 1000);
+
+			} catch (HoloClientException e) {
+				if (!(holoVersion.compareTo(new HoloVersion("2.1.0")) < 0
+						&& e.getMessage().contains("For hologres instance version lower than r2.1.0, need to provide slotName to subscribe binlog. your version is HoloVersion"))) {
+					throw new RuntimeException(e);
+				}
+			} finally {
+				if (reader != null) {
+					reader.cancel();
+				}
+				execute(conn, new String[]{dropSql1});
 			}
 		}
 	}
@@ -1905,7 +2018,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				}
 				client.flush();
 
-				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName, slotName).build());
+				reader = client.binlogSubscribe(createStartTimeBuilderOnHoloVersion(tableName, slotName).build());
 
 				int count = 0;
 				BinlogRecord record;
@@ -1931,6 +2044,23 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				}
 				execute(conn, new String[]{dropSql1, dropSql2, dropSql3});
 			}
+		}
+	}
+
+	// 2.1版本的实例可以只传入表名
+	private Subscribe.StartTimeBuilder createStartTimeBuilderOnHoloVersion(String tableName, String slotName) {
+		if (holoVersion.compareTo(new HoloVersion(2, 1, 0)) > 0) {
+			return Subscribe.newStartTimeBuilder(tableName);
+		} else {
+			return Subscribe.newStartTimeBuilder(tableName, slotName);
+		}
+	}
+
+	private Subscribe.OffsetBuilder createOffsetBuilderOnHoloVersion(String tableName, String slotName) {
+		if (holoVersion.compareTo(new HoloVersion(2, 1, 0)) > 0) {
+			return Subscribe.newOffsetBuilder(tableName);
+		} else {
+			return Subscribe.newOffsetBuilder(tableName, slotName);
 		}
 	}
 }

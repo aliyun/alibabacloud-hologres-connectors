@@ -47,8 +47,16 @@ public class Subscribe {
 		return new OffsetBuilder(tableName, slotName);
 	}
 
+	public static OffsetBuilder newOffsetBuilder(String tableName) {
+		return new OffsetBuilder(tableName);
+	}
+
 	public static StartTimeBuilder newStartTimeBuilder(String tableName, String slotName) {
 		return new StartTimeBuilder(tableName, slotName);
+	}
+
+	public static StartTimeBuilder newStartTimeBuilder(String tableName) {
+		return new StartTimeBuilder(tableName);
 	}
 
 	/**
@@ -58,11 +66,16 @@ public class Subscribe {
 		protected final String tableName;
 		protected final String slotName;
 
-		public Builder(String tableName, String slotName) {
+		public Builder(String tableName) {
 			if (tableName == null) {
 				throw new InvalidParameterException("tableName must be not null");
 			}
-			if (slotName == null) {
+			this.tableName = tableName;
+			this.slotName = null;
+		}
+
+		public Builder(String tableName, String slotName) {
+			if (tableName == null) {
 				throw new InvalidParameterException("tableName must be not null");
 			}
 			this.tableName = tableName;
@@ -78,6 +91,10 @@ public class Subscribe {
 
 		public OffsetBuilder(String tableName, String slotName) {
 			super(tableName, slotName);
+		}
+
+		public OffsetBuilder(String tableName) {
+			super(tableName);
 		}
 
 		/**
@@ -111,6 +128,10 @@ public class Subscribe {
 
 		public StartTimeBuilder(String tableName, String slotName) {
 			super(tableName, slotName);
+		}
+
+		public StartTimeBuilder(String tableName) {
+			super(tableName);
 		}
 
 		public StartTimeBuilder setBinlogReadStartTime(String binlogReadStartTime) {

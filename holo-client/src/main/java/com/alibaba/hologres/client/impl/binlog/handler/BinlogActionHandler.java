@@ -54,7 +54,7 @@ public class BinlogActionHandler extends ActionHandler<BinlogAction> {
 	final ArrayBuffer<BinlogRecord> binlogRecordArray;
 	int retryCount;
 
-	public BinlogActionHandler(AtomicBoolean started, HoloConfig config, boolean isShardEnv) {
+	public BinlogActionHandler(AtomicBoolean started, HoloConfig config, boolean isShadingEnv, boolean isFixed) {
 		super(config);
 		this.started = started;
 		this.info = new Properties();
@@ -65,10 +65,14 @@ public class BinlogActionHandler extends ActionHandler<BinlogAction> {
 		PGProperty.REPLICATION.set(info, "database");
 		PGProperty.SOCKET_TIMEOUT.set(info, "120");
 		String jdbcUrl = config.getJdbcUrl();
-		if (isShardEnv) {
+		if (isShadingEnv) {
 			if (jdbcUrl.startsWith("jdbc:postgresql:")) {
 				jdbcUrl = "jdbc:hologres:" + jdbcUrl.substring("jdbc:postgresql:".length());
 			}
+		}
+		// 这里的判断不使用config.isUseFixedFe()，而是使用来自调用者的isFixed，因为可能存在一种情况：虽然config文件中标记使用fixed fe，但是当前Worker没有执行在fixedPool上
+		if (isFixed) {
+			jdbcUrl = ConnectionUtil.generateFixedUrl(jdbcUrl);
 		}
 		this.originalUrl = jdbcUrl;
 		this.binlogReadBatchSize = config.getBinlogReadBatchSize();
@@ -125,10 +129,14 @@ public class BinlogActionHandler extends ActionHandler<BinlogAction> {
 						.getReplicationAPI()
 						.replicationStream()
 						.logical()
-						.withSlotName(action.getSlotName())
 						.withSlotOption("parallel_index", action.getShardId())
 						.withSlotOption("batch_size", binlogReadBatchSize)
 						.withStatusInterval(10, TimeUnit.SECONDS);
+				if (action.getSlotName() != null) {
+					logicalStreamBuilder.withSlotName(action.getSlotName());
+				} else {
+					logicalStreamBuilder.withSlotOption("table_name", action.getTableName());
+				}
 				if (startLsn > -1) {
 					logicalStreamBuilder.withSlotOption("start_lsn", String.valueOf(startLsn));
 				}

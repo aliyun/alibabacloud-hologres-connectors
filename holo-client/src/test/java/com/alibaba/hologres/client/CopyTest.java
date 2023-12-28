@@ -71,10 +71,11 @@ public class CopyTest extends HoloClientTestBase {
 
 	@DataProvider(name = "typeCaseData")
 	public Object[][] createData() {
-		Object[][] ret = new Object[FIXED_PLAN_TYPE_DATA.length * 2][];
+		Object[][] ret = new Object[FIXED_PLAN_TYPE_DATA.length * 3][];
 		for (int i = 0; i < FIXED_PLAN_TYPE_DATA.length; ++i) {
-			ret[2 * i] = new Object[]{FIXED_PLAN_TYPE_DATA[i], true};
-			ret[2 * i + 1] = new Object[]{FIXED_PLAN_TYPE_DATA[i], false};
+			ret[3 * i] = new Object[]{FIXED_PLAN_TYPE_DATA[i], true, true};
+			ret[3 * i + 1] = new Object[]{FIXED_PLAN_TYPE_DATA[i], false, true};
+			ret[3 * i + 2] = new Object[]{FIXED_PLAN_TYPE_DATA[i], false, false};
 		}
 		return ret;
 	}
@@ -92,7 +93,7 @@ public class CopyTest extends HoloClientTestBase {
 	 * data type test.
 	 */
 	@Test(dataProvider = "typeCaseData")
-	public void testCopy001(TypeCaseData typeCaseData, boolean binary) throws Exception {
+	public void testCopy001(TypeCaseData typeCaseData, boolean binary, boolean streamMode) throws Exception {
 
 		if (properties == null) {
 			return;
@@ -102,11 +103,11 @@ public class CopyTest extends HoloClientTestBase {
 		final int nullPkId = 5;
 		String typeName = typeCaseData.getName();
 		try (Connection conn = buildConnection()) {
-			String tableName = "\"holo_client_copy_type_001_" + typeName + "_" + binary + "\"";
+			String tableName = "\"holo_client_copy_type_001_" + typeName + "_" + binary + "_" + streamMode + "_" + "\"";
 			String dropSql = "drop table if exists " + tableName;
 			String createSql = "create table " + tableName + "(id " + typeCaseData.getColumnType() + ", pk int primary key)";
 			try {
-				LOG.info("current type {}, binary {}", typeName, binary);
+				LOG.info("current type {}, binary {}, streamMode {}", typeName, binary,  streamMode);
 
 				execute(conn, new String[]{"CREATE EXTENSION if not exists roaringbitmap", dropSql, createSql});
 
@@ -118,7 +119,7 @@ public class CopyTest extends HoloClientTestBase {
 
 				TableSchema schema = ConnectionUtil.getTableSchema(conn, tn);
 				CopyManager copyManager = new CopyManager(conn.unwrap(PgConnection.class));
-				String copySql = CopyUtil.buildCopyInSql(schema, binary, WriteMode.INSERT_OR_REPLACE);
+				String copySql = CopyUtil.buildCopyInSql(schema, binary, WriteMode.INSERT_OR_REPLACE, streamMode);
 				LOG.info("copySql : {}", copySql);
 
 				try (OutputStream os = new CopyInOutputStream(copyManager.copyIn(copySql))) {
@@ -231,13 +232,13 @@ public class CopyTest extends HoloClientTestBase {
 	}
 
 	@Test(dataProvider = "typeCaseData")
-	public void testRecordChecker001(TypeCaseData typeCaseData, boolean binary) throws Exception {
+	public void testRecordChecker001(TypeCaseData typeCaseData, boolean binary, boolean streamMode) throws Exception {
 		if (properties == null) {
 			return;
 		}
 		try (Connection conn = buildConnection()) {
 			{
-				String tableName = "\"holo_client_record_checker_sql_001_" + binary + "\"";
+				String tableName = "\"holo_client_record_checker_sql_001_" + binary + "_" + streamMode + "\"";
 				String dropSql = "drop table if exists " + tableName;
 				String createSql = "create table " + tableName;
 
@@ -267,7 +268,7 @@ public class CopyTest extends HoloClientTestBase {
 						record.setObject(1, 1);
 						RecordChecker.check(record);
 						if (ros == null) {
-							copySql = CopyUtil.buildCopyInSql(record, binary, WriteMode.INSERT_OR_UPDATE);
+							copySql = CopyUtil.buildCopyInSql(record, binary, WriteMode.INSERT_OR_UPDATE, streamMode);
 							LOG.info("copySql : {}", copySql);
 							os = new CopyInOutputStream(copyManager.copyIn(copySql));
 							ros = binary ?
@@ -336,4 +337,68 @@ public class CopyTest extends HoloClientTestBase {
 			}
 		}
 	}
+
+	/**
+	 * test buildCopyInSql.
+	 */
+	@Test
+	public void testCopyUtil001() throws Exception {
+		if (properties == null) {
+			return;
+		}
+		try (Connection conn = buildConnection()) {
+
+			String tableName = "\"holo_client_copy_util_001\"";
+			String dropSql = "drop table if exists " + tableName;
+			String createSql = "create table " + tableName
+					+ "(id int not null,name text not null,address text,primary key(id))";
+			try {
+				execute(conn, new String[]{dropSql, createSql});
+				TableName tn = TableName.valueOf(tableName);
+				TableSchema schema = ConnectionUtil.getTableSchema(conn, tn);
+
+				// stream_mode = true (default), binary = true
+				Assert.assertEquals(CopyUtil.buildCopyInSql(schema, true, WriteMode.INSERT_OR_UPDATE),
+						"copy \"public\".\"holo_client_copy_util_001\"(id,name,address) from stdin with(stream_mode true, format binary, on_conflict update)");
+				Assert.assertEquals(CopyUtil.buildCopyInSql(schema, true, WriteMode.INSERT_OR_IGNORE),
+						"copy \"public\".\"holo_client_copy_util_001\"(id,name,address) from stdin with(stream_mode true, format binary, on_conflict ignore)");
+				// stream_mode = true (default), binary = false
+				Assert.assertEquals(CopyUtil.buildCopyInSql(schema, false, WriteMode.INSERT_OR_REPLACE),
+						"copy \"public\".\"holo_client_copy_util_001\"(id,name,address) from stdin with(stream_mode true, format csv, DELIMITER ',', ESCAPE '\\', QUOTE '\"', NULL 'N', on_conflict update)");
+				Assert.assertEquals(CopyUtil.buildCopyInSql(schema, false, WriteMode.INSERT_OR_IGNORE),
+						"copy \"public\".\"holo_client_copy_util_001\"(id,name,address) from stdin with(stream_mode true, format csv, DELIMITER ',', ESCAPE '\\', QUOTE '\"', NULL 'N', on_conflict ignore)");
+
+				// stream_mode = false, don't care binary, don't care WriteMode
+				Assert.assertEquals(CopyUtil.buildCopyInSql(schema, true, WriteMode.INSERT_OR_UPDATE, false),
+						"copy \"public\".\"holo_client_copy_util_001\"(id,name,address) from stdin with(format csv, DELIMITER ',', ESCAPE '\\', QUOTE '\"', NULL 'N')");
+				Assert.assertEquals(CopyUtil.buildCopyInSql(schema, true, WriteMode.INSERT_OR_IGNORE, false),
+						"copy \"public\".\"holo_client_copy_util_001\"(id,name,address) from stdin with(format csv, DELIMITER ',', ESCAPE '\\', QUOTE '\"', NULL 'N')");
+				Assert.assertEquals(CopyUtil.buildCopyInSql(schema, false, WriteMode.INSERT_OR_UPDATE, false),
+						"copy \"public\".\"holo_client_copy_util_001\"(id,name,address) from stdin with(format csv, DELIMITER ',', ESCAPE '\\', QUOTE '\"', NULL 'N')");
+
+				Record record = new Record(schema);
+				record.setObject(0, 0);
+				record.setObject(1, "name0");
+				// record不包含第三个字段address
+				Assert.assertEquals(CopyUtil.buildCopyInSql(record, true, WriteMode.INSERT_OR_UPDATE),
+						"copy \"public\".\"holo_client_copy_util_001\"(id,name) from stdin with(stream_mode true, format binary, on_conflict update)");
+				Assert.assertEquals(CopyUtil.buildCopyInSql(record, true, WriteMode.INSERT_OR_IGNORE),
+						"copy \"public\".\"holo_client_copy_util_001\"(id,name) from stdin with(stream_mode true, format binary, on_conflict ignore)");
+				Assert.assertEquals(CopyUtil.buildCopyInSql(record, false, WriteMode.INSERT_OR_REPLACE),
+						"copy \"public\".\"holo_client_copy_util_001\"(id,name) from stdin with(stream_mode true, format csv, DELIMITER ',', ESCAPE '\\', QUOTE '\"', NULL 'N', on_conflict update)");
+				Assert.assertEquals(CopyUtil.buildCopyInSql(record, false, WriteMode.INSERT_OR_IGNORE),
+						"copy \"public\".\"holo_client_copy_util_001\"(id,name) from stdin with(stream_mode true, format csv, DELIMITER ',', ESCAPE '\\', QUOTE '\"', NULL 'N', on_conflict ignore)");
+
+				Assert.assertEquals(CopyUtil.buildCopyInSql(record, true, WriteMode.INSERT_OR_UPDATE, false),
+						"copy \"public\".\"holo_client_copy_util_001\"(id,name) from stdin with(format csv, DELIMITER ',', ESCAPE '\\', QUOTE '\"', NULL 'N')");
+				Assert.assertEquals(CopyUtil.buildCopyInSql(record, true, WriteMode.INSERT_OR_IGNORE, false),
+						"copy \"public\".\"holo_client_copy_util_001\"(id,name) from stdin with(format csv, DELIMITER ',', ESCAPE '\\', QUOTE '\"', NULL 'N')");
+				Assert.assertEquals(CopyUtil.buildCopyInSql(record, false, WriteMode.INSERT_OR_UPDATE, false),
+						"copy \"public\".\"holo_client_copy_util_001\"(id,name) from stdin with(format csv, DELIMITER ',', ESCAPE '\\', QUOTE '\"', NULL 'N')");
+			} finally {
+				execute(conn, new String[]{dropSql});
+			}
+		}
+	}
+
 }

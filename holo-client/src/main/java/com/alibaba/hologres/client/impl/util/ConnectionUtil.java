@@ -17,6 +17,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.sql.Connection;
+import java.sql.DatabaseMetaData;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -38,6 +39,8 @@ public class ConnectionUtil {
 	public static final Logger LOGGER = LoggerFactory.getLogger(ConnectionUtil.class);
 	static Pattern holoVersionPattern = Pattern.compile("release-([^ )]*)");
 	static Pattern hgVersionPattern = Pattern.compile("Hologres ([^ -]*)");
+    private static String optionProperty = "options=";
+	private static String fixedOption = "type=fixed%20";
 
 	public static void refreshMeta(Connection conn, int timeout) throws SQLException {
 		try (Statement stat = conn.createStatement()) {
@@ -166,7 +169,15 @@ public class ConnectionUtil {
 	//  schema |     name     | partstrat | partnatts | partattrs
 	// --------+--------------+-----------+-----------+-----------
 	//  public | test_message | l         |         1 | 1
-	public static int getPartitionColumnIndex(Connection conn, String schemaName, String tableName) throws SQLException {
+
+	// SELECT attname
+	// FROM pg_attribute
+	// WHERE attrelid = 'public.test_message'::regclass
+	// AND attnum = 1;
+	// attname
+	// ---------
+	// ds
+	public static String getPartitionColumnName(Connection conn, TableName tableName) throws SQLException {
 		StringBuilder sb = new StringBuilder(512);
 		sb.append("SELECT n.nspname as Schema, c.relname as Name,\n");
 		sb.append("    part.partstrat,\n");
@@ -179,11 +190,11 @@ public class ConnectionUtil {
 		sb.append("limit 1;\n");
 		String sql = sb.toString();
 
-		ResultSet rs = null;
+		int partColumnPos = -1;
 		try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-			stmt.setString(1, schemaName);
-			stmt.setString(2, tableName);
-			rs = stmt.executeQuery();
+			stmt.setString(1, tableName.getSchemaName());
+			stmt.setString(2, tableName.getTableName());
+			ResultSet rs = stmt.executeQuery();
 
 			if (rs.next()) {
 				String strategyStr = rs.getString("partstrat");
@@ -193,13 +204,24 @@ public class ConnectionUtil {
 				}
 
 				String partColumnStr = rs.getString("partattrs");
-				int partColumnPos = Integer.parseInt(partColumnStr);
-
-				return partColumnPos - 1;
+				partColumnPos = Integer.parseInt(partColumnStr);
 			}
-
 		}
-		return -1;
+
+		String partColumnName = null;
+		sql = "SELECT attname FROM pg_attribute WHERE attrelid =?::regclass AND attnum = ?;";
+		if (partColumnPos > 0) {
+			try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+				stmt.setString(1, tableName.getFullName());
+				stmt.setInt(2, partColumnPos);
+				ResultSet rs = stmt.executeQuery();
+
+				if (rs.next()) {
+					return rs.getString("attname");
+				}
+			}
+		}
+		return partColumnName;
 	}
 
 	// Query all child tables
@@ -338,15 +360,18 @@ public class ConnectionUtil {
 		String[] columns = null;
 		int[] types = null;
 		String[] typeNames = null;
-
+		DatabaseMetaData metaData = conn.getMetaData();
 		List<String> primaryKeyList = new ArrayList<>();
-		try (ResultSet rs = conn.getMetaData().getPrimaryKeys(null, tableName.getSchemaName(), tableName.getTableName())) {
+		try (ResultSet rs = metaData.getPrimaryKeys(null, tableName.getSchemaName(), tableName.getTableName())) {
 			while (rs.next()) {
 				primaryKeyList.add(rs.getString(4));
 			}
 		}
 		List<Column> columnList = new ArrayList<>();
-		try (ResultSet rs = conn.getMetaData().getColumns(null, tableName.getSchemaName(), tableName.getTableName(), "%")) {
+		String escape = metaData.getSearchStringEscape();
+		// getColumns方法的后三个参数都是LIKE表达式使用的pattern，因此需要对这里传入的schemaName和tableName中的特殊字符进行转义。
+		// https://www.postgresql.org/docs/current/functions-matching.html#FUNCTIONS-LIKE PG文档中明确LIKE的特殊字符只有%以及_（还有转义字符本身）。
+		try (ResultSet rs = metaData.getColumns(null, escapePattern(tableName.getSchemaName(), escape), escapePattern(tableName.getTableName(), escape), "%")) {
 			while (rs.next()) {
 				Column column = new Column();
 				column.setName(rs.getString(4));
@@ -363,7 +388,7 @@ public class ConnectionUtil {
 			}
 		}
 
-		int partitionColumnIndex = getPartitionColumnIndex(conn, tableName.getSchemaName(), tableName.getTableName());
+		String partitionColumnName = getPartitionColumnName(conn, tableName);
 
 		String sql =
 				"select property_key,property_value from hologres.hg_table_properties where table_namespace=? and table_name=? and property_key in "
@@ -397,7 +422,7 @@ public class ConnectionUtil {
 		}
 		TableSchema.Builder builder = new TableSchema.Builder(tableId, schemaVersion);
 
-		builder.setPartitionColumnIndex(partitionColumnIndex);
+		builder.setPartitionColumnName(partitionColumnName);
 		builder.setColumns(columnList);
 		builder.setTableName(tableName);
 		builder.setNotExist(false);
@@ -449,6 +474,12 @@ public class ConnectionUtil {
 		return ret;
 	}
 
+	private static String escapePattern(String pattern, String escape) {
+		return pattern.replace(escape,  escape + escape)
+				.replace("%", escape + "%")
+				.replace("_", escape + "_");
+	}
+
 	/**
 	 * 返回直连fe的jdbc url，如果网络连通可以不走vip.
 	 *
@@ -482,4 +513,15 @@ public class ConnectionUtil {
 		return originalUrl.replaceFirst("//\\S+/", replacement);
 	}
 
+	public static String generateFixedUrl(String url) {
+		StringBuilder sb = new StringBuilder(url);
+		int index = sb.lastIndexOf(optionProperty);
+		if (index > -1) {
+			// In fact fixed fe will ignore url parameters, but we guarantee the correctness of the url here.
+			sb.insert(index + optionProperty.length(), fixedOption);
+		} else {
+			sb.append(url.contains("?") ? "&" : "?").append(optionProperty).append(fixedOption);
+		}
+		return sb.toString();
+	}
 }

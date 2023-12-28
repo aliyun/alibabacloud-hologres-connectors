@@ -22,6 +22,7 @@ import com.alibaba.hologres.client.impl.collector.BatchState;
 import com.alibaba.hologres.client.impl.copy.CopyContext;
 import com.alibaba.hologres.client.impl.copy.InternalPipedOutputStream;
 import com.alibaba.hologres.client.model.ExportContext;
+import com.alibaba.hologres.client.model.HoloVersion;
 import com.alibaba.hologres.client.model.ImportContext;
 import com.alibaba.hologres.client.model.Partition;
 import com.alibaba.hologres.client.model.Record;
@@ -359,7 +360,7 @@ public class HoloClient implements Closeable {
 	private boolean rewriteForPartitionTable(Record record, boolean createIfNotExists, boolean exceptionIfNotExists) throws HoloClientException {
 		TableSchema schema = record.getSchema();
 		if (schema.isPartitionParentTable()) {
-			boolean isStr = Types.VARCHAR == schema.getColumn(schema.getPartitionIndex()).getType();
+			boolean isStr = Types.VARCHAR == schema.getColumn(schema.getPartitionIndex()).getType() || Types.DATE == schema.getColumn(schema.getPartitionIndex()).getType();
 			String value = String.valueOf(record.getObject(schema.getPartitionIndex()));
 			Partition partition = pool.getOrSubmitPartition(schema.getTableNameObj(), value, isStr, createIfNotExists);
 			if (partition != null) {
@@ -603,8 +604,14 @@ public class HoloClient implements Closeable {
 		};
 		TableSchema schema = supplier.apply();
 		int shardCount = Command.getShardCount(this, schema);
-		if (!Command.getSlotNames(this, schema).contains(subscribe.getSlotName())) {
+		if (subscribe.getSlotName() != null && !Command.getSlotNames(this, schema).contains(subscribe.getSlotName())) {
 			throw new HoloClientException(ExceptionCode.INVALID_REQUEST, String.format("The table %s has no slot named %s", schema.getTableNameObj().getFullName(), subscribe.getSlotName()));
+		}
+		if (subscribe.getSlotName() == null) {
+			HoloVersion holoVersion = Command.getHoloVersion(this);
+			if (holoVersion.compareTo(new HoloVersion("2.1.0")) < 0) {
+				throw new HoloClientException(ExceptionCode.INVALID_REQUEST, String.format("For hologres instance version lower than r2.1.0, need to provide slotName to subscribe binlog. your version is %s", holoVersion));
+			}
 		}
 		Map<Integer, BinlogOffset> offsetMap = subscribe.getOffsetMap();
 		if (null != offsetMap) {
@@ -630,7 +637,11 @@ public class HoloClient implements Closeable {
 				Committer committer = new Committer(queue);
 				committerMap.put(entry.getKey(), committer);
 				BinlogAction action = new BinlogAction(subscribe.getTableName(), subscribe.getSlotName(), entry.getKey(), entry.getValue().getSequence(), entry.getValue().getStartTimeText(), reader.getCollector(), supplier, queue);
-				reader.addThread(pool.submitOneShotAction(started, entry.getKey(), action));
+				if (this.useFixedFe) {
+					reader.addThread(fixedPool.submitOneShotAction(started, entry.getKey(), action));
+				} else {
+					reader.addThread(pool.submitOneShotAction(started, entry.getKey(), action));
+				}
 			}
 
 		} catch (HoloClientException e) {

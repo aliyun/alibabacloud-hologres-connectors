@@ -6,6 +6,8 @@ package com.alibaba.hologres.client;
 
 import com.alibaba.hologres.client.exception.ExceptionCode;
 import com.alibaba.hologres.client.exception.HoloClientException;
+import com.alibaba.hologres.client.impl.util.ConnectionUtil;
+import com.alibaba.hologres.client.model.HoloVersion;
 import com.alibaba.hologres.client.model.TableSchema;
 
 import java.sql.PreparedStatement;
@@ -57,6 +59,10 @@ public class Command {
 			}
 			return slotNames;
 		}));
+	}
+
+	public static HoloVersion getHoloVersion(HoloClient client) throws HoloClientException {
+		return get(client.sql(ConnectionUtil::getHoloVersion));
 	}
 
 	private static <T> T get(CompletableFuture<T> future) throws HoloClientException {

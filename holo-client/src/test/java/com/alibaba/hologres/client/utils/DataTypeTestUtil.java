@@ -15,7 +15,6 @@ import java.sql.Timestamp;
 import java.text.DateFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
-import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.UUID;
 import java.util.function.BiFunction;
@@ -37,7 +36,7 @@ public class DataTypeTestUtil {
 			new TypeCaseData("float8", (i, conn) -> i.doubleValue(), (i, rs) -> Assert.assertEquals(rs.getDouble(1), i.doubleValue())),
 			new TypeCaseData("timestamp", (i, conn) -> new Timestamp(i * 1000L + 123L), (i, rs) -> Assert.assertEquals(rs.getTimestamp(1), new Timestamp(i * 1000L + 123L))),
 			new TypeCaseData("timestamptz", (i, conn) -> new Timestamp(i * 1000L + 123L), (i, rs) -> Assert.assertEquals(rs.getTimestamp(1), new Timestamp(i * 1000L + 123L))),
-			new TypeCaseData("date", (i, conn) -> java.sql.Date.valueOf(LocalDate.ofEpochDay(2)), (i, rs) -> Assert.assertEquals(rs.getString(1), Date.valueOf(LocalDate.ofEpochDay(2)).toString())),
+			new TypeCaseData("date", (i, conn) -> java.sql.Date.valueOf("1900-01-02"), (i, rs) -> Assert.assertEquals(rs.getString(1), Date.valueOf("1900-01-02").toString())),
 			new TypeCaseData("json", (i, conn) -> "{\"a\":\"" + i + "\"}", (i, rs) -> Assert.assertEquals(rs.getString(1), "{\"a\":\"" + i + "\"}")),
 			new TypeCaseData("jsonb", (i, conn) -> "{\"a\":\"" + i + "\"}", (i, rs) -> Assert.assertEquals(rs.getString(1), "{\"a\": \"" + i + "\"}")),
 			new TypeCaseData("bytea", (i, conn) -> new byte[]{i.byteValue(), (byte) (i.byteValue() + 1), (byte) (i + 2)}, (i, rs) -> Assert.assertEquals(rs.getBytes(1), new byte[]{i.byteValue(), (byte) (i.byteValue() + 1), (byte) (i + 2)})),
@@ -79,7 +78,7 @@ public class DataTypeTestUtil {
 			new TypeCaseDataWithRecord("float8", (i, conn) -> i.doubleValue(), (i, r) -> Assert.assertEquals(r.getObject(0), (double) (i))),
 			new TypeCaseDataWithRecord("timestamp", (i, conn) -> new Timestamp(i * 1000L + 123L), (i, r) -> Assert.assertEquals(r.getObject(0), new Timestamp(i * 1000L + 123L))),
 			new TypeCaseDataWithRecord("timestamptz", (i, conn) -> new Timestamp(i * 1000L + 123L), (i, r) -> Assert.assertEquals(r.getObject(0), new Timestamp(i * 1000L + 123L))),
-			new TypeCaseDataWithRecord("date", (i, conn) -> java.sql.Date.valueOf(LocalDate.ofEpochDay(2)), (i, r) -> Assert.assertEquals(r.getObject(0).toString(), Date.valueOf(LocalDate.ofEpochDay(2)).toString())),
+			new TypeCaseDataWithRecord("date", (i, conn) -> java.sql.Date.valueOf("1900-01-02"), (i, r) -> Assert.assertEquals(r.getObject(0).toString(), Date.valueOf("1900-01-02").toString())),
 			new TypeCaseDataWithRecord("json", (i, conn) -> "{\"a\":\"" + i + "\"}", (i, r) -> Assert.assertEquals(r.getObject(0).toString(), "{\"a\":\"" + i + "\"}")),
 			new TypeCaseDataWithRecord("jsonb", (i, conn) -> "{\"a\":\"" + i + "\"}", (i, r) -> Assert.assertEquals(r.getObject(0).toString(), "{\"a\": \"" + i + "\"}")),
 			new TypeCaseDataWithRecord("bytea", (i, conn) -> new byte[]{i.byteValue(), (byte) (i.byteValue() + 1), (byte) (i + 2)}, (i, r) -> Assert.assertEquals(r.getObject(0), new byte[]{i.byteValue(), (byte) (i.byteValue() + 1), (byte) (i + 2)})),

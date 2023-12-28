@@ -103,20 +103,20 @@ public class ExecutionPool implements Closeable {
 	final int refreshMetaTimeout;
 	final boolean enableShutdownHook;
 	final HoloConfig config;
-	final boolean isShardEnv;
+	final boolean isShadingEnv;
 	final boolean isFixedPool; //当前ExecutionPool是不是fixed fe execution Pool
 
 	public static ExecutionPool buildOrGet(String name, HoloConfig config) {
 		return buildOrGet(name, config, true);
 	}
 
-	public static ExecutionPool buildOrGet(String name, HoloConfig config, boolean isShardEnv) {
-		return buildOrGet(name, config, isShardEnv, false);
+	public static ExecutionPool buildOrGet(String name, HoloConfig config, boolean isShadingEnv) {
+		return buildOrGet(name, config, isShadingEnv, false);
 	}
 
-	public static ExecutionPool buildOrGet(String name, HoloConfig config, boolean isShardEnv, boolean isFixedPool) {
+	public static ExecutionPool buildOrGet(String name, HoloConfig config, boolean isShadingEnv, boolean isFixedPool) {
 		synchronized (POOL_MAP) {
-			return POOL_MAP.computeIfAbsent(name, n -> new ExecutionPool(n, config, isShardEnv, isFixedPool));
+			return POOL_MAP.computeIfAbsent(name, n -> new ExecutionPool(n, config, isShadingEnv, isFixedPool));
 		}
 	}
 
@@ -124,10 +124,10 @@ public class ExecutionPool implements Closeable {
 		return POOL_MAP.get(name);
 	}
 
-	public ExecutionPool(String name, HoloConfig config, boolean isShardEnv, boolean isFixedPool) {
+	public ExecutionPool(String name, HoloConfig config, boolean isShadingEnv, boolean isFixedPool) {
 		this.name = name;
 		this.config = config;
-		this.isShardEnv = isShardEnv;
+		this.isShadingEnv = isShadingEnv;
 		this.isFixedPool = isFixedPool;
 		workerThreadFactory = new ThreadFactory() {
 			@Override
@@ -176,9 +176,9 @@ public class ExecutionPool implements Closeable {
 		workerStated = new AtomicBoolean(false);
 		for (int i = 0; i < workerSize; ++i) {
 			if (isFixedPool) {
-				workers[i] = new Worker(config, workerStated, i, isShardEnv, true);
+				workers[i] = new Worker(config, workerStated, i, isShadingEnv, true);
 			} else {
-				workers[i] = new Worker(config, workerStated, i, isShardEnv);
+				workers[i] = new Worker(config, workerStated, i, isShadingEnv);
 			}
 		}
 
@@ -350,7 +350,7 @@ public class ExecutionPool implements Closeable {
 	 * @throws HoloClientException
 	 */
 	public Thread submitOneShotAction(AtomicBoolean started, int index, AbstractAction action) throws HoloClientException {
-		Worker worker = new Worker(config, started, index, isShardEnv);
+		Worker worker = new Worker(config, started, index, isShadingEnv, isFixedPool);
 		boolean ret = worker.offer(action);
 		if (!ret) {
 			throw new HoloClientException(ExceptionCode.INTERNAL_ERROR, "submitOneShotAction fail");
