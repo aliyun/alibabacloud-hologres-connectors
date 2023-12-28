@@ -78,10 +78,20 @@ class SparkHoloTestUtils {
 
   @throws[SQLException]
   def createTable(createSql: String, tableName: String): Unit = {
+    createTable(createSql, tableName, hasPk = false)
+  }
+
+  @throws[SQLException]
+  def createTable(createSql: String, tableName: String, hasPk: Boolean): Unit = {
     try {
+      var createSql1: String = createSql
       val connection = DriverManager.getConnection(jdbcUrl, username, password)
       val statement = connection.createStatement
-      try statement.executeUpdate(createSql.replace("TABLE_NAME", tableName))
+      if (!hasPk) {
+        createSql1 = createSql.replace("primary key", "")
+      }
+      try statement.executeUpdate(createSql1.replace("TABLE_NAME", tableName))
+
       finally {
         if (statement != null) statement.close()
         if (connection != null) connection.close()

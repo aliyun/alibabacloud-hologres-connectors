@@ -8,7 +8,7 @@
     <parent>
         <groupId>com.alibaba.hologres</groupId>
         <artifactId>hologres-connector-parent</artifactId>
-        <version>1.3.2-SNAPSHOT</version>
+        <version>1.4.0-SNAPSHOT</version>
     </parent>
 
     <artifactId>hologres-connector-spark-base_${scala.binary.version}_spark${spark.release.version}</artifactId>
@@ -80,9 +80,6 @@
     <profiles>
         <profile>
             <id>scala-2.11</id>
-            <activation>
-                <activeByDefault>true</activeByDefault>
-            </activation>
             <properties>
                 <scala.version>2.11.12</scala.version>
                 <scala.binary.version>2.11</scala.binary.version>
@@ -90,6 +87,9 @@
         </profile>
         <profile>
             <id>scala-2.12</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
             <properties>
                 <scala.version>2.12.15</scala.version>
                 <scala.binary.version>2.12</scala.binary.version>
@@ -98,15 +98,12 @@
         <profile>
             <id>scala-2.13</id>
             <properties>
-                <scala.version>2.13.4</scala.version>
+                <scala.version>2.13.8</scala.version>
                 <scala.binary.version>2.13</scala.binary.version>
             </properties>
         </profile>
         <profile>
             <id>spark-2</id>
-            <activation>
-                <activeByDefault>true</activeByDefault>
-            </activation>
             <properties>
                 <spark.version>2.4.8</spark.version>
                 <spark.release.version>2</spark.release.version>
@@ -114,8 +111,11 @@
         </profile>
         <profile>
             <id>spark-3</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
             <properties>
-                <spark.version>3.3.0</spark.version>
+                <spark.version>3.5.0</spark.version>
                 <spark.release.version>3</spark.release.version>
             </properties>
         </profile>

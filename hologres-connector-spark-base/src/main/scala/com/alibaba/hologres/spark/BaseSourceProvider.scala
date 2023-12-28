@@ -25,4 +25,6 @@ class BaseSourceProvider() {
   val COPY_WRITE_FORMAT = "copy_write_format"
   val COPY_WRITE_DIRTY_DATA_CHECK = "copy_write_dirty_data_check"
   val COPY_WRITE_DIRECT_CONNECT = "copy_write_direct_connect"
+  val BULK_LOAD = "bulk_load"
+  val MAX_CELL_BUFFER_SIZE = "max_cell_buffer_size"
 }

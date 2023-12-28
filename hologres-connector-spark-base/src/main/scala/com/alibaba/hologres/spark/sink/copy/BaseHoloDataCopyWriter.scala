@@ -1,7 +1,7 @@
 package com.alibaba.hologres.spark.sink.copy
 
 import com.alibaba.hologres.client.Put
-import com.alibaba.hologres.client.copy.{CopyInOutputStream, CopyUtil, RecordBinaryOutputStream, RecordTextOutputStream}
+import com.alibaba.hologres.client.copy._
 import com.alibaba.hologres.client.exception.{HoloClientException, HoloClientWithDetailsException}
 import com.alibaba.hologres.client.model.WriteMode.{INSERT_OR_IGNORE, INSERT_OR_UPDATE}
 import com.alibaba.hologres.client.model.{Record, TableSchema}
@@ -72,13 +72,16 @@ abstract class BaseHoloDataCopyWriter(
       if (copyContext.os == null) {
         val schema = record.getSchema
         copyContext.schema = schema
-        val sql = CopyUtil.buildCopyInSql(record, binary, if (hologresConfigs.wMode eq INSERT_OR_IGNORE) INSERT_OR_IGNORE else INSERT_OR_UPDATE)
-        logger.info("copy sql :{}", sql)
+        val sql = CopyUtil.buildCopyInSql(record, binary, if (hologresConfigs.wMode eq INSERT_OR_IGNORE) INSERT_OR_IGNORE else INSERT_OR_UPDATE,
+          !hologresConfigs.bulkLoad)
+        logger.info("bulkLoad {}, copy sql :{}", hologresConfigs.bulkLoad, sql)
         val in = copyContext.manager.copyIn(sql)
-        copyContext.os = if (binary) {
-          new RecordBinaryOutputStream(new CopyInOutputStream(in), schema, copyContext.pgConn.unwrap(classOf[BaseConnection]), 1024 * 1024 * 10)
+        copyContext.os = if (!hologresConfigs.bulkLoad && binary) {
+          new RecordBinaryOutputStream(new CopyInOutputStream(in), schema, copyContext.pgConn.unwrap(classOf[BaseConnection]),
+            hologresConfigs.max_cell_buffer_size)
         } else {
-          new RecordTextOutputStream(new CopyInOutputStream(in), schema, copyContext.pgConn.unwrap(classOf[BaseConnection]), 1024 * 1024 * 10)
+          new RecordTextOutputStream(new CopyInOutputStream(in), schema, copyContext.pgConn.unwrap(classOf[BaseConnection]),
+            hologresConfigs.max_cell_buffer_size)
         }
       }
 

@@ -46,50 +46,46 @@ object JDBCUtil {
     PGProperty.PASSWORD.set(info, configs.password)
     PGProperty.APPLICATION_NAME.set(info, "hologres-connector-spark_copy")
     val directUrl = getJdbcDirectConnectionUrl(configs)
+    var conn: Connection = null
+    logger.info("try connect directly to holo with url {}", url)
     try {
-      var conn: Connection = null
-      logger.info("try connect directly to holo with url {}", url)
-      try {
-        conn = DriverManager.getConnection(directUrl, info)
-      } catch {
-        case _: Exception =>
-          logger.warn("could not connect directly to holo.")
-          return false
-      } finally if (conn != null) conn.close()
-    }
+      conn = DriverManager.getConnection(directUrl, info)
+    } catch {
+      case _: Exception =>
+        logger.warn("could not connect directly to holo.")
+        return false
+    } finally if (conn != null) conn.close()
     true
   }
 
   // Returns the jdbc url directly connected to fe
   def getJdbcDirectConnectionUrl(configs: HologresConfigs): String = {
     var endpoint: String = null
-    try {
-      try Class.forName("com.alibaba.hologres.org.postgresql.Driver")
-      catch {
-        case e: ClassNotFoundException =>
-          throw new RuntimeException(e)
-      }
-      val conn = DriverManager.getConnection(configs.jdbcUrl, configs.username, configs.password)
-      try {
-        val stat = conn.createStatement
-        try {
-          val rs = stat.executeQuery("select inet_server_addr(), inet_server_port()")
-          try {
-            if (rs.next) {
-              endpoint = rs.getString(1) + ":" + rs.getString(2)
-            }
-            if (Objects.isNull(endpoint)) {
-              throw new RuntimeException("Failed to query \"select inet_server_addr(), inet_server_port()\".")
-            }
-          } finally if (rs != null) rs.close()
-        }
-        finally if (stat != null) stat.close()
-      }
-      catch {
-        case t: SQLException =>
-          throw new RuntimeException(t)
-      } finally if (conn != null) conn.close()
+    try Class.forName("com.alibaba.hologres.org.postgresql.Driver")
+    catch {
+      case e: ClassNotFoundException =>
+        throw new RuntimeException(e)
     }
+    val conn = DriverManager.getConnection(configs.jdbcUrl, configs.username, configs.password)
+    try {
+      val stat = conn.createStatement
+      try {
+        val rs = stat.executeQuery("select inet_server_addr(), inet_server_port()")
+        try {
+          if (rs.next) {
+            endpoint = rs.getString(1) + ":" + rs.getString(2)
+          }
+          if (Objects.isNull(endpoint)) {
+            throw new RuntimeException("Failed to query \"select inet_server_addr(), inet_server_port()\".")
+          }
+        } finally if (rs != null) rs.close()
+      }
+      finally if (stat != null) stat.close()
+    }
+    catch {
+      case t: SQLException =>
+        throw new RuntimeException(t)
+    } finally if (conn != null) conn.close()
     replaceJdbcUrlEndpoint(configs.jdbcUrl, endpoint)
   }
 
@@ -121,4 +117,77 @@ object JDBCUtil {
         throw new RuntimeException(String.format("Failed getting connection to %s because %s", hologresConfigs.jdbcUrl, ExceptionUtils.getStackTrace(e)))
     }
   }
+
+  def createTempTableForOverWrite(hologresConfigs: HologresConfigs): Unit = {
+    /*
+    BEGIN ;
+    -- 清理潜在的临时表
+    DROP TABLE IF EXISTS <table_new>;
+    -- 创建临时表
+    SET hg_experimental_enable_create_table_like_properties=on;
+    CALL HG_CREATE_TABLE_LIKE ('<table_new>', 'select * from <table>');
+    COMMIT ;
+    */
+    var conn: Connection = null
+    try {
+      conn = createConnection(hologresConfigs)
+      val statement = conn.createStatement()
+      statement.execute(String.format("BEGIN;\n"
+        + "DROP TABLE IF EXISTS %s;\n"
+        + "set hg_experimental_enable_create_table_like_properties=on;\n"
+        + "CALL HG_CREATE_TABLE_LIKE ('%s', 'select * from %s');\n"
+        + "COMMIT;", hologresConfigs.tempTableForOverwrite, hologresConfigs.tempTableForOverwrite, hologresConfigs.table))
+
+    } finally {
+      if (conn != null) {
+        conn.close()
+      }
+    }
+  }
+
+  def renameTempTableForOverWrite(hologresConfigs: HologresConfigs): Unit = {
+    /*
+    BEGIN ;
+    -- 删除旧表
+    DROP TABLE IF EXISTS  <table>;
+    -- 临时表改名
+    ALTER TABLE <table_new> RENAME TO <table>;
+    COMMIT ;
+    */
+    var conn: Connection = null
+    try {
+      conn = createConnection(hologresConfigs)
+      val statement = conn.createStatement()
+      statement.execute(String.format("BEGIN;\n"
+        + "DROP TABLE IF EXISTS %s;\n"
+        + "ALTER TABLE %s RENAME TO %s;\n"
+        + "COMMIT;", hologresConfigs.table, hologresConfigs.tempTableForOverwrite, hologresConfigs.table))
+    } finally {
+      if (conn != null) {
+        conn.close()
+      }
+    }
+  }
+
+  def deleteTempTableForOverWrite(hologresConfigs: HologresConfigs): Unit = {
+    /*
+    BEGIN ;
+    -- 删除临时表
+    DROP TABLE IF EXISTS <table>;
+    COMMIT ;
+    */
+    var conn: Connection = null
+    try {
+      conn = createConnection(hologresConfigs)
+      val statement = conn.createStatement()
+      statement.execute(String.format("BEGIN;\n"
+        + "DROP TABLE IF EXISTS %s;\n"
+        + "COMMIT;", hologresConfigs.tempTableForOverwrite))
+    } finally {
+      if (conn != null) {
+        conn.close()
+      }
+    }
+  }
+
 }

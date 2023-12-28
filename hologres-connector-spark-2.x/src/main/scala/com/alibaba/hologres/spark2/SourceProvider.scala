@@ -30,7 +30,7 @@ class SourceProvider extends DataSourceRegister with WriteSupport with StreamWri
     val hologresConfigs = new HologresConfigs(opts)
     SparkHoloUtil.checkSparkTableSchema(hologresConfigs, schema)
 
-    Optional.of(new HoloWriter(opts, schema))
+    Optional.of(new HoloWriter(opts, schema, mode))
   }
 
   override def createStreamWriter(
@@ -42,7 +42,8 @@ class SourceProvider extends DataSourceRegister with WriteSupport with StreamWri
     val hologresConfigs = new HologresConfigs(opts)
     SparkHoloUtil.checkSparkTableSchema(hologresConfigs, schema)
 
-    new HoloWriter(opts, schema)
+    // stream write 只支持append
+    new HoloWriter(opts, schema, SaveMode.Append)
   }
 
   override def createReader(schema: StructType, options: DataSourceOptions): DataSourceReader = {

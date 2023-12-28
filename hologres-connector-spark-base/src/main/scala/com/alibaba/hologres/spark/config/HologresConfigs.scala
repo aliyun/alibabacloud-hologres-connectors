@@ -62,6 +62,13 @@ class HologresConfigs(sourceOptions: Map[String, String]) extends Serializable {
   val copy_write_format: String = sourceOptions.getOrElse("copy_write_format", "binary")
   val copy_write_dirty_data_check: Boolean = sourceOptions.getOrElse("copy_write_dirty_data_check", "false").toBoolean
   var copy_write_direct_connect: Boolean = sourceOptions.getOrElse("copy_write_direct_connect", "true").toBoolean
+  val max_cell_buffer_size: Int = sourceOptions.getOrElse("max_cell_buffer_size", "20971520").toInt
+
+  // overwrite来自于用户对SaveMode参数的设置，写入开始会创建临时表并写入，写入成功时会清理原表的数据。
+  var tempTableForOverwrite: String = _
+
+  // 在写入的目标表没有主键时，我们使用bulkLoad写入以提升性能。
+  var bulkLoad: Boolean = sourceOptions.getOrElse("bulk_load", "false").toBoolean
 
   holoConfig.setInputNumberAsEpochMsForDatetimeColumn(true)
   holoConfig.setAppName("hologres-connector-spark")

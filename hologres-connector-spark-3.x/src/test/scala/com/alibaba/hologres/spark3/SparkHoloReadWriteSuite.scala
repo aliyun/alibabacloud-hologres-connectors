@@ -2,12 +2,12 @@ package com.alibaba.hologres.spark3
 
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.{Row, SaveMode}
+import com.alibaba.hologres.spark.WriteType
 
 import java.sql.{Date, Timestamp}
 
 class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
-
-  def dataTypeTest(useCopy: Boolean): Unit = {
+  def dataTypeTest(writeType: WriteType.Value): Unit = {
     val table = "table_for_holo_test_1"
     testUtils.dropTable(table)
     testUtils.createTable(defaultCreateHoloTableDDL, table)
@@ -46,7 +46,8 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
       .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
       .option(SourceProvider.TABLE, table)
       .option(SourceProvider.WRITE_MODE, "insertOrIgnore")
-      .option(SourceProvider.COPY_WRITE_MODE, useCopy)
+      .option(SourceProvider.COPY_WRITE_MODE, writeType != WriteType.INSERT)
+      .option(SourceProvider.BULK_LOAD, writeType == WriteType.BULK_LOAD)
       .option(SourceProvider.COPY_WRITE_DIRTY_DATA_CHECK, "true")
       .mode(SaveMode.Append)
       .save()
@@ -69,11 +70,15 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
   }
 
   test("data type test insert.") {
-    dataTypeTest(true)
+    dataTypeTest(WriteType.INSERT)
   }
 
   test("data type test copy.") {
-    dataTypeTest(false)
+    dataTypeTest(WriteType.FIXED_COPY)
+  }
+
+  test("data type test bulk load.") {
+    dataTypeTest(WriteType.BULK_LOAD)
   }
 
   def partialInsertTest(useCopy: Boolean): Unit = {
@@ -134,11 +139,99 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
   }
 
   test("update part fields and read test copy.") {
-    // partialInsertTest(true);
+    partialInsertTest(true);
   }
 
   test("update part fields and read test insert.") {
-    // partialInsertTest(false);
+    partialInsertTest(false);
+  }
+
+
+  test("SaveMode = overwrite.") {
+    val table = "table_for_holo_test_2"
+    testUtils.dropTable(table)
+    testUtils.createTable(defaultCreateHoloTableDDL, table, hasPk = false)
+
+    val byteA = Array(4.toByte, 5.toByte, 6.toByte, 'q'.toByte, 'e'.toByte)
+    val intA = Array(4, 5, 6)
+    val doubleA = Array(2.333, 3.444, 4.555)
+
+    val data1 = Seq(
+      Row(0L, -7L, 20, "phone1", 6.7F, Timestamp.valueOf("2021-03-29 00:00:00"), byteA, intA, doubleA),
+      Row(1L, 6L, -30, "phone2", 7.8F, Timestamp.valueOf("2021-04-01 12:00:00"), byteA, intA, doubleA)
+    )
+
+    val data2 = Seq(
+      Row(0L, -7L, 20, "phone1", 6.7F, Timestamp.valueOf("2021-03-29 00:00:00"), byteA, intA, doubleA),
+      Row(0L, -7L, 20, "phone1", 6.7F, Timestamp.valueOf("2021-03-29 00:00:00"), byteA, intA, doubleA),
+      Row(1L, 6L, -30, "phone2", 7.8F, Timestamp.valueOf("2021-04-01 12:00:00"), byteA, intA, doubleA),
+      Row(1L, 6L, -30, "phone2", 7.8F, Timestamp.valueOf("2021-04-01 12:00:00"), byteA, intA, doubleA)
+    )
+
+    val newSchema = StructType(Array(
+      StructField("pk", LongType),
+      StructField("id", LongType),
+      StructField("count", IntegerType),
+      StructField("name", StringType),
+      StructField("thick", FloatType),
+      StructField("time", TimestampType),
+      StructField("by", BinaryType),
+      StructField("inta", ArrayType(IntegerType)),
+      StructField("doublea", ArrayType(DoubleType))
+    ))
+
+    var df = spark.createDataFrame(
+      spark.sparkContext.parallelize(data1),
+      newSchema
+    ).orderBy("pk").cache()
+
+    df.write
+      .format("hologres")
+      .option(SourceProvider.USERNAME, testUtils.username)
+      .option(SourceProvider.PASSWORD, testUtils.password)
+      .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
+      .option(SourceProvider.TABLE, table)
+      .option(SourceProvider.WRITE_MODE, "insertOrUpdate")
+      .option(SourceProvider.COPY_WRITE_MODE, "true")
+      .option(SourceProvider.BULK_LOAD, "true")
+      .option(SourceProvider.COPY_WRITE_DIRTY_DATA_CHECK, "true")
+      .mode(SaveMode.Overwrite)
+      .save()
+
+    df = spark.createDataFrame(
+      spark.sparkContext.parallelize(data2),
+      newSchema
+    ).orderBy("pk").cache()
+
+    df.write
+      .format("hologres")
+      .option(SourceProvider.USERNAME, testUtils.username)
+      .option(SourceProvider.PASSWORD, testUtils.password)
+      .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
+      .option(SourceProvider.TABLE, table)
+      .option(SourceProvider.WRITE_MODE, "insertOrUpdate")
+      .option(SourceProvider.COPY_WRITE_MODE, "true")
+      .option(SourceProvider.BULK_LOAD, "true")
+      .option(SourceProvider.COPY_WRITE_DIRTY_DATA_CHECK, "true")
+      .mode(SaveMode.Overwrite)
+      .save()
+
+    val readDf = spark.read
+      .format("hologres")
+      .schema(newSchema) // 指定读取哪些字段
+      .option(SourceProvider.USERNAME, testUtils.username)
+      .option(SourceProvider.PASSWORD, testUtils.password)
+      .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
+      .option(SourceProvider.TABLE, table)
+      .load().orderBy("pk").cache()
+
+    assert(df.count() == 4)
+    // compare read and write
+    if (df.except(readDf).count() > 0) {
+      df.show()
+      readDf.show()
+      throw new Exception("The data read is inconsistent with the data written！！！")
+    }
   }
 
   test("write or read not exists columns.") {
