@@ -3,35 +3,39 @@ package com.alibaba.ververica.connectors.hologres.utils;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.configuration.ReadableConfig;
 
+import com.alibaba.hologres.client.model.SSLMode;
 import com.alibaba.hologres.org.postgresql.PGProperty;
-import com.alibaba.ververica.connectors.hologres.config.HologresConfigs;
 import com.alibaba.ververica.connectors.hologres.config.JDBCOptions;
+import com.alibaba.ververica.connectors.hologres.jdbc.HologresJDBCConfigs;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.security.InvalidParameterException;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Arrays;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 import static com.alibaba.ververica.connectors.hologres.config.HologresConfigs.ARRAY_DELIMITER;
+import static com.alibaba.ververica.connectors.hologres.config.HologresConfigs.DATABASE;
+import static com.alibaba.ververica.connectors.hologres.config.HologresConfigs.ENDPOINT;
 import static com.alibaba.ververica.connectors.hologres.config.HologresConfigs.FIELD_DELIMITER;
+import static com.alibaba.ververica.connectors.hologres.config.HologresConfigs.PASSWORD;
+import static com.alibaba.ververica.connectors.hologres.config.HologresConfigs.TABLE;
+import static com.alibaba.ververica.connectors.hologres.config.HologresConfigs.USERNAME;
 
 /** JDBCUtils. */
 public class JDBCUtils {
     private static final Logger LOG = LoggerFactory.getLogger(JDBCUtils.class);
-    private static Map<JDBCOptions, Connection> connections = new ConcurrentHashMap<>();
 
-    public static String getDbUrl(String holoFrontend, String db) {
-        return "jdbc:hologres://" + holoFrontend + "/" + db;
+    public static String getDbUrl(String endpoint, String db) {
+        return "jdbc:hologres://" + endpoint + "/" + db;
     }
 
     public static String getSimpleSelectFromStatement(String table, String[] selectFields) {
@@ -47,15 +51,34 @@ public class JDBCUtils {
         return "\"" + identifier + "\"";
     }
 
-    public static Connection createConnection(JDBCOptions options, String url) {
+    // use special jdbc url
+    public static Connection createConnection(
+            JDBCOptions options, String url, boolean sslModeConnection) {
         try {
+            DriverManager.getDrivers();
             Class.forName("com.alibaba.hologres.org.postgresql.Driver");
         } catch (ClassNotFoundException e) {
             throw new RuntimeException(e);
         }
         try {
-            return DriverManager.getConnection(
-                    options.getDbUrl(), options.getUsername(), options.getPassword());
+            Properties properties = new Properties();
+            PGProperty.USER.set(properties, options.getUsername());
+            PGProperty.PASSWORD.set(properties, options.getPassword());
+            PGProperty.APPLICATION_NAME.set(properties, "ververica-connector-hologres-utils");
+            PGProperty.SOCKET_TIMEOUT.set(properties, 360);
+            if (sslModeConnection && options.getSslMode() != SSLMode.DISABLE) {
+                PGProperty.SSL.set(properties, true);
+                PGProperty.SSL_MODE.set(properties, options.getSslMode().getPgPropertyValue());
+                if (options.getSslMode() == SSLMode.VERIFY_CA
+                        || options.getSslMode() == SSLMode.VERIFY_FULL) {
+                    if (options.getSslRootCertLocation() == null) {
+                        throw new InvalidParameterException(
+                                "When SSL_MODE is set to VERIFY_CA or VERIFY_FULL, the location of the ssl root certificate must be configured.");
+                    }
+                    PGProperty.SSL_ROOT_CERT.set(properties, options.getSslRootCertLocation());
+                }
+            }
+            return DriverManager.getConnection(url, properties);
         } catch (SQLException e) {
             throw new RuntimeException(
                     String.format(
@@ -65,22 +88,26 @@ public class JDBCUtils {
     }
 
     public static Connection createConnection(JDBCOptions options) {
-        return createConnection(options, options.getDbUrl());
+        return createConnection(options, options.getDbUrl(), /*sslModeConnection*/ false);
     }
 
     public static JDBCOptions getJDBCOptions(ReadableConfig properties) {
         // required property
-        String frontend = properties.get(HologresConfigs.ENDPOINT);
-        String db = properties.get(HologresConfigs.DATABASE);
-        String table = properties.get(HologresConfigs.TABLE);
-        String username = properties.get(HologresConfigs.USERNAME);
-        String pwd = properties.get(HologresConfigs.PASSWORD);
+        String endpoint = properties.get(ENDPOINT);
+        String db = properties.get(DATABASE);
+        String table = properties.get(TABLE);
+        String username = properties.get(USERNAME);
+        String pwd = properties.get(PASSWORD);
         String delimiter =
                 properties.getOptional(ARRAY_DELIMITER).isPresent()
                         ? properties.get(ARRAY_DELIMITER)
                         : properties.get(FIELD_DELIMITER);
+        String sslMode = properties.get(HologresJDBCConfigs.OPTIONAL_CONNECTION_SSL_MODE);
+        String sslRootCertLocation =
+                properties.get(HologresJDBCConfigs.OPTIONAL_CONNECTION_SSL_ROOT_CERT_LOCATION);
 
-        return new JDBCOptions(db, table, username, pwd, frontend, delimiter);
+        return new JDBCOptions(
+                db, table, username, pwd, endpoint, sslMode, sslRootCertLocation, delimiter);
     }
 
     public static int getShardCount(JDBCOptions options) {
@@ -123,8 +150,9 @@ public class JDBCUtils {
 
     public static String getJdbcDirectConnectionUrl(JDBCOptions options, String url) {
         // Returns the jdbc url directly connected to fe
+        LOG.info("Try to connect {} for getting fe endpoint", url);
         String endpoint = null;
-        try (Connection conn = createConnection(options, url)) {
+        try (Connection conn = createConnection(options, url, /*sslModeConnection*/ false)) {
             try (Statement stat = conn.createStatement()) {
                 try (ResultSet rs =
                         stat.executeQuery("select inet_server_addr(), inet_server_port()")) {
@@ -141,7 +169,7 @@ public class JDBCUtils {
         } catch (SQLException t) {
             throw new RuntimeException(t);
         }
-        return replaceJdbcUrlEndpoint(url, endpoint);
+        return getDbUrl(endpoint, options.getDatabase());
     }
 
     public static Tuple2<String, String> getSchemaAndTableName(String name) {
@@ -178,10 +206,5 @@ public class JDBCUtils {
             }
             throw new RuntimeException("Failed to get hologres frontends number.", e);
         }
-    }
-
-    private static String replaceJdbcUrlEndpoint(String originalUrl, String newEndpoint) {
-        String replacement = "//" + newEndpoint + "/";
-        return originalUrl.replaceFirst("//\\S+/", replacement);
     }
 }

@@ -14,6 +14,14 @@ public class HologresJDBCConfigs {
             key("connectionPoolName".toLowerCase()).stringType().noDefaultValue();
     public static final ConfigOption<Boolean> OPTIONAL_JDBC_FIXED_CONNECTION_MODE =
             key("fixedConnectionMode".toLowerCase()).booleanType().defaultValue(false);
+    public static final ConfigOption<String> OPTIONAL_CONNECTION_SSL_MODE =
+            key("connection.ssl.mode".toLowerCase()).stringType().defaultValue("disable");
+    public static final ConfigOption<String> OPTIONAL_CONNECTION_SSL_ROOT_CERT_LOCATION =
+            key("connection.ssl.root-cert.location".toLowerCase())
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Users need to upload files to vvp in advance, and the path must be /flink/usrlib/${certificate file name}");
     public static final ConfigOption<Integer> OPTIONAL_JDBC_RETRY_COUNT =
             key("jdbcRetryCount".toLowerCase()).intType().defaultValue(10);
     public static final ConfigOption<Long> OPTIONAL_RETRY_SLEEP_INIT_MS =
@@ -50,12 +58,14 @@ public class HologresJDBCConfigs {
             key("jdbcUseLegacyPutHandler".toLowerCase()).booleanType().defaultValue(false);
     public static final ConfigOption<Boolean> OPTIONAL_JDBC_ENABLE_DEFAULT_FOR_NOT_NULL_COLUMN =
             key("jdbcEnableDefaultForNotNullColumn".toLowerCase()).booleanType().defaultValue(true);
+    public static final ConfigOption<Boolean> OPTIONAL_ENABLE_REMOVE_U0000_IN_TEXT =
+            key("remove-u0000-in-text.enabled".toLowerCase()).booleanType().defaultValue(false);
+    public static final ConfigOption<Boolean> OPTIONAL_ENABLE_DEDUPLICATION =
+            key("deduplication.enabled".toLowerCase()).booleanType().defaultValue(true);
 
     // Dim options
     public static final ConfigOption<Boolean> INSERT_IF_NOT_EXISTS =
             ConfigOptions.key("insertIfNotExists".toLowerCase()).booleanType().defaultValue(false);
-    public static final ConfigOption<Integer> ASYNC_CALLBACK_EXECUTION_POOL =
-            ConfigOptions.key("asyncCallbackPool".toLowerCase()).intType().defaultValue(1);
 
     // Copy options
     public static final ConfigOption<Boolean> COPY_WRITE_MODE =
@@ -66,6 +76,9 @@ public class HologresJDBCConfigs {
                     .defaultValue("binary")
                     .withDescription(
                             "copy format will be binary or text, if value is not binary, we use text");
+    public static final ConfigOption<Boolean> OPTIONAL_BULK_LOAD =
+            key("bulkLoad".toLowerCase()).booleanType().defaultValue(false);
+
     public static final ConfigOption<Boolean> COPY_WRITE_DIRECT_CONNECT =
             key("jdbcCopyWriteDirectConnect".toLowerCase()).booleanType().defaultValue(true);
 }

@@ -38,6 +38,8 @@ public class HologresConnectionParam implements Serializable {
     private final boolean ignoreDelete;
     private final boolean createMissingPartTable;
     private final boolean ignoreNullWhenUpdate;
+    private final boolean jdbcEnableRemoveU0000InText;
+    private final boolean enableDeduplication;
 
     // dirty data strategy
     private DirtyDataStrategy dirtyDataStrategy = DirtyDataStrategy.EXCEPTION;
@@ -71,6 +73,8 @@ public class HologresConnectionParam implements Serializable {
     private final boolean copyWriteMode;
     private final String copyWriteFormat;
     private boolean copyWriteDirectConnect;
+
+    private final boolean bulkLoad;
 
     public HologresConnectionParam(ReadableConfig properties) {
         this.options = JDBCUtils.getJDBCOptions(properties);
@@ -125,10 +129,15 @@ public class HologresConnectionParam implements Serializable {
         this.jdbcEnableDefaultForNotNullColumn =
                 properties.get(
                         HologresJDBCConfigs.OPTIONAL_JDBC_ENABLE_DEFAULT_FOR_NOT_NULL_COLUMN);
+        this.jdbcEnableRemoveU0000InText =
+                properties.get(HologresJDBCConfigs.OPTIONAL_ENABLE_REMOVE_U0000_IN_TEXT);
+        this.enableDeduplication =
+                properties.get(HologresJDBCConfigs.OPTIONAL_ENABLE_DEDUPLICATION);
         this.insertIfNotExists = properties.get(HologresJDBCConfigs.INSERT_IF_NOT_EXISTS);
         this.copyWriteMode = properties.get(HologresJDBCConfigs.COPY_WRITE_MODE);
         this.copyWriteFormat = properties.get(HologresJDBCConfigs.COPY_WRITE_FORMAT);
         this.copyWriteDirectConnect = properties.get(HologresJDBCConfigs.COPY_WRITE_DIRECT_CONNECT);
+        this.bulkLoad = properties.get(HologresJDBCConfigs.OPTIONAL_BULK_LOAD);
     }
 
     public static WriteMode getJDBCWriteMode(ReadableConfig tableProperties) {
@@ -247,6 +256,14 @@ public class HologresConnectionParam implements Serializable {
         return jdbcEnableDefaultForNotNullColumn;
     }
 
+    public boolean isJdbcEnableRemoveU0000InText() {
+        return jdbcEnableRemoveU0000InText;
+    }
+
+    public boolean isEnableDeduplication() {
+        return enableDeduplication;
+    }
+
     public int getJdbcRetryCount() {
         return jdbcRetryCount;
     }
@@ -285,6 +302,10 @@ public class HologresConnectionParam implements Serializable {
 
     public boolean isCopyWriteMode() {
         return copyWriteMode;
+    }
+
+    public boolean isBulkLoad() {
+        return bulkLoad;
     }
 
     public String getCopyWriteFormat() {

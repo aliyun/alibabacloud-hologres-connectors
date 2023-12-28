@@ -29,6 +29,7 @@ import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.types.DataType;
 
 import com.alibaba.ververica.connectors.common.MetricUtils;
+import com.alibaba.ververica.connectors.hologres.config.HologresConnectionParam;
 import com.alibaba.ververica.connectors.hologres.config.JDBCOptions;
 import com.alibaba.ververica.connectors.hologres.utils.JDBCUtils;
 import org.slf4j.Logger;
@@ -43,6 +44,7 @@ public class HologresBulkreadInputFormat extends RichInputFormat<RowData, Hologr
 
     private static final Logger LOG = LoggerFactory.getLogger(HologresBulkreadInputFormat.class);
 
+    private final HologresConnectionParam connectionParam;
     private final JDBCOptions options;
     private final String[] fieldNames;
     private final DataType[] fieldTypes;
@@ -50,7 +52,9 @@ public class HologresBulkreadInputFormat extends RichInputFormat<RowData, Hologr
     private RowData record;
     private transient Meter sourceInTps;
 
-    public HologresBulkreadInputFormat(JDBCOptions options, TableSchema schema) {
+    public HologresBulkreadInputFormat(
+            HologresConnectionParam connectionParam, JDBCOptions options, TableSchema schema) {
+        this.connectionParam = connectionParam;
         this.options = options;
         this.fieldNames = schema.getFieldNames();
         this.fieldTypes = schema.getFieldDataTypes();
@@ -88,7 +92,11 @@ public class HologresBulkreadInputFormat extends RichInputFormat<RowData, Hologr
         LOG.info("Opening HoloShardInputSplit {}", inputSplit.getSplitNumber());
         hologresBulkReader =
                 new HologresBulkReader(
-                        options, fieldNames, fieldTypes, inputSplit.getSplitNumber());
+                        connectionParam,
+                        options,
+                        fieldNames,
+                        fieldTypes,
+                        new String[] {String.valueOf(inputSplit.getSplitNumber())});
         hologresBulkReader.open();
     }
 

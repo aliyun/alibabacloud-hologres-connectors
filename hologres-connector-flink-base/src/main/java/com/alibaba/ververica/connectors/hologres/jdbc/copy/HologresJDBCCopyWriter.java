@@ -13,7 +13,6 @@ import com.alibaba.hologres.client.copy.RecordTextOutputStream;
 import com.alibaba.hologres.client.exception.HoloClientException;
 import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.utils.RecordChecker;
-import com.alibaba.hologres.org.postgresql.PGProperty;
 import com.alibaba.hologres.org.postgresql.copy.CopyIn;
 import com.alibaba.hologres.org.postgresql.copy.CopyManager;
 import com.alibaba.hologres.org.postgresql.core.BaseConnection;
@@ -31,9 +30,8 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.SQLException;
-import java.util.Properties;
+import java.sql.Statement;
 
 import static com.alibaba.hologres.client.model.WriteMode.INSERT_OR_IGNORE;
 import static com.alibaba.hologres.client.model.WriteMode.INSERT_OR_UPDATE;
@@ -45,7 +43,7 @@ public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
     private final int frontendOffset;
     private final int numFrontends;
     private int taskNumber;
-
+    private final boolean bulkLoad;
     private transient CopyContext copyContext;
     private boolean checkDirtyData = true;
     private final HologresRecordConverter<T, Record> recordConverter;
@@ -60,6 +58,7 @@ public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
         this.recordConverter = converter;
         this.numFrontends = numFrontends;
         this.frontendOffset = frontendOffset;
+        this.bulkLoad = param.isBulkLoad();
     }
 
     public static HologresJDBCCopyWriter<RowData> createRowDataWriter(
@@ -100,6 +99,7 @@ public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
     @Override
     public long writeAddRecord(T record) throws IOException {
         Record jdbcRecord = recordConverter.convertFrom(record);
+        LOG.debug("Hologres insert record in JDBC-COPY: {}", jdbcRecord);
         // The hologres instance cannot throw out dirty data details, so we do dirty data checking
         // on the holo-client. But there will be some performance loss, so we only do dirty data
         // check before the first flush, and no longer check after the first flush is successful.
@@ -130,21 +130,32 @@ public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
                                 binary,
                                 param.getJDBCWriteMode() == INSERT_OR_IGNORE
                                         ? INSERT_OR_IGNORE
-                                        : INSERT_OR_UPDATE);
+                                        : INSERT_OR_UPDATE,
+                                !bulkLoad);
                 LOG.info("copy sql :{}", sql);
                 CopyIn in = copyContext.manager.copyIn(sql);
-                copyContext.os =
-                        binary
-                                ? new RecordBinaryOutputStream(
-                                        new CopyInOutputStream(in),
-                                        schema,
-                                        copyContext.pgConn.unwrap(BaseConnection.class),
-                                        1024 * 1024 * 10)
-                                : new RecordTextOutputStream(
-                                        new CopyInOutputStream(in),
-                                        schema,
-                                        copyContext.pgConn.unwrap(BaseConnection.class),
-                                        1024 * 1024 * 10);
+                // holo bulk load copy just support text, not support binary
+                if (bulkLoad) {
+                    copyContext.os =
+                            new RecordTextOutputStream(
+                                    new CopyInOutputStream(in),
+                                    schema,
+                                    copyContext.pgConn.unwrap(BaseConnection.class),
+                                    1024 * 1024 * 10);
+                } else {
+                    copyContext.os =
+                            binary
+                                    ? new RecordBinaryOutputStream(
+                                            new CopyInOutputStream(in),
+                                            schema,
+                                            copyContext.pgConn.unwrap(BaseConnection.class),
+                                            1024 * 1024 * 10)
+                                    : new RecordTextOutputStream(
+                                            new CopyInOutputStream(in),
+                                            schema,
+                                            copyContext.pgConn.unwrap(BaseConnection.class),
+                                            1024 * 1024 * 10);
+                }
             }
             copyContext.os.putRecord(jdbcRecord);
         } catch (SQLException e) {
@@ -194,50 +205,41 @@ public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
         com.alibaba.hologres.client.model.TableSchema schema;
 
         public void init(HologresConnectionParam param) {
-            try {
-                Class.forName("com.alibaba.hologres.org.postgresql.Driver");
-            } catch (ClassNotFoundException e) {
-                throw new RuntimeException(e);
-            }
             Connection conn = null;
             String url = param.getJdbcOptions().getDbUrl();
-            Properties info = new Properties();
-            PGProperty.USER.set(info, param.getUsername());
-            PGProperty.PASSWORD.set(info, param.getPassword());
-            PGProperty.APPLICATION_NAME.set(info, "hologres-connector-flink_copy");
+            // Copy is generally used in scenarios with large parallelism, but load balancing of
+            // hologres vip endpoints may not be good. we randomize an offset and distribute
+            // connections evenly to each fe
+            if (numFrontends > 0) {
+                int choseFrontendId = chooseFrontendId();
+                LOG.info(
+                        "taskNumber {}, number of frontends {}, frontend id offset {}, frontend id chose {}",
+                        taskNumber,
+                        numFrontends,
+                        frontendOffset,
+                        choseFrontendId);
+                url += ("?options=fe=" + choseFrontendId);
+                // for none public cloud, we connect to holo fe with inner ip:port directly
+                if (param.isCopyWriteDirectConnect()) {
+                    url = JDBCUtils.getJdbcDirectConnectionUrl(param.getJdbcOptions(), url);
+                    LOG.info("will connect directly to fe id {} with url {}", choseFrontendId, url);
+                }
+            }
             try {
-                // Copy is generally used in scenarios with large parallelism, but load balancing of
-                // hologres vip endpoints may not be good. we randomize an offset and distribute
-                // connections evenly to each fe
-                if (numFrontends > 0) {
-                    int choseFrontendId = chooseFrontendId();
-                    LOG.info(
-                            "taskNumber {}, number of frontends {}, frontend id offset {}, frontend id chose {}",
-                            taskNumber,
-                            numFrontends,
-                            frontendOffset,
-                            choseFrontendId);
-                    url += ("?options=fe=" + choseFrontendId);
-                    // for none public cloud, we connect to holo fe with inner ip:port directly
-                    if (param.isCopyWriteDirectConnect()) {
-                        String directUrl =
-                                JDBCUtils.getJdbcDirectConnectionUrl(param.getJdbcOptions(), url);
-                        try {
-                            LOG.info("try connect directly to holo with url {}", directUrl);
-                            conn = DriverManager.getConnection(directUrl, info);
-                            LOG.info("init conn success with direct url {}", directUrl);
-                        } catch (Exception e) {
-                            LOG.warn("could not connect directly to holo.");
-                        }
-                    }
-                }
-
-                if (conn == null) {
-                    LOG.info("init conn success to " + url);
-                    conn = DriverManager.getConnection(url, info);
-                }
+                conn =
+                        JDBCUtils.createConnection(
+                                param.getJdbcOptions(), url, /*sslModeConnection*/ true);
+                LOG.info("init conn success to fe " + url);
                 pgConn = conn.unwrap(PgConnection.class);
                 LOG.info("init unwrap conn success");
+                // Set statement_timeout at the session level，avoid being affected by db level
+                // configuration.
+                // (for example, less than the checkpoint time)
+                try (Statement stat = pgConn.createStatement()) {
+                    stat.execute("set statement_timeout = '8h';");
+                } catch (SQLException e) {
+                    throw new RuntimeException("set statement_timeout to 8h failed because", e);
+                }
                 manager = new CopyManager(pgConn);
                 LOG.info("init new manager success");
             } catch (SQLException e) {

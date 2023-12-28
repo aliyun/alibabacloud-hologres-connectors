@@ -128,6 +128,7 @@ public class HologresTableSource implements DynamicTableSource, LookupTableSourc
 
     @Override
     public ScanRuntimeProvider getScanRuntimeProvider(ScanContext scanContext) {
-        return InputFormatProvider.of(new HologresBulkreadInputFormat(jdbcOptions, tableSchema));
+        return InputFormatProvider.of(
+                new HologresBulkreadInputFormat(connectionParam, jdbcOptions, tableSchema));
     }
 }

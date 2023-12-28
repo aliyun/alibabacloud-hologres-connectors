@@ -71,6 +71,8 @@ public class HologresJDBCClientProvider {
         holoConfig.setMetaCacheTTL(param.getJdbcMetaCacheTTL());
         holoConfig.setMetaAutoRefreshFactor(param.getJdbcMetaAutoRefreshFactor());
         holoConfig.setUseFixedFe(param.isFixedConnectionMode());
+        holoConfig.setSslMode(jdbcOptions.getSslMode());
+        holoConfig.setSslRootCertLocation(jdbcOptions.getSslRootCertLocation());
 
         // reader config
         holoConfig.setReadThreadSize(param.getConnectionPoolSize());
@@ -88,6 +90,8 @@ public class HologresJDBCClientProvider {
         holoConfig.setUseLegacyPutHandler(param.isJdbcUseLegacyPutHandler());
         holoConfig.setEnableDefaultForNotNullColumn(param.getJdbcEnableDefaultForNotNullColumn());
         holoConfig.setWriteMode(param.getJDBCWriteMode());
+        holoConfig.setEnableDeduplication(param.isEnableDeduplication());
+        holoConfig.setRemoveU0000InTextColumnValue(param.isJdbcEnableRemoveU0000InText());
 
         holoConfig.setDynamicPartition(param.isCreateMissingPartTable());
 

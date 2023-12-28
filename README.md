@@ -1,5 +1,6 @@
 # hologres-connectors
 Connectors for Hologres
+* 文档与版本相关，可以选择相应Branch查看对应版本的文档。
 
 # 模块介绍
 
@@ -12,6 +13,10 @@ Connectors for Hologres
     使用Hologres+PAI定制大模型聊天机器人，网页版
     
 * [holo-llm](./holo-llm/)
+    使用Hologres向量引擎和PAI-LLM服务搭建聊天机器人
+
+* [holo-llm](./holo-llm/)
+
     使用Hologres向量引擎和PAI-LLM服务搭建聊天机器人
 
 * [holo-client](./holo-client)
@@ -36,22 +41,26 @@ Connectors for Hologres
   
     该模块提供了若干使用该项目下Connector的各种实例代码<br/><br/>
 
-* [hologres-connector-flink-base](./hologres-connector-flink-base)
-
+* [hologres-connector-flink-base](./hologres-connector-flink-base)<br/>
   该模块实现了Hologres Flink Connector的通用核心代码
-* [hologres-connector-flink-1.11](https://github.com/aliyun/alibabacloud-hologres-connectors/tree/flink-1.11/1.12/hologres-connector-flink-1.11)
 
+* [hologres-connector-flink-1.11](https://github.com/aliyun/alibabacloud-hologres-connectors/tree/flink-1.11/1.12/hologres-connector-flink-1.11)<br/>
   依赖hologres-connector-flink-base，实现了Flink 1.11版本的Connector
-* [hologres-connector-flink-1.12](https://github.com/aliyun/alibabacloud-hologres-connectors/tree/flink-1.11/1.12/hologres-connector-flink-1.12)
 
+* [hologres-connector-flink-1.12](https://github.com/aliyun/alibabacloud-hologres-connectors/tree/flink-1.11/1.12/hologres-connector-flink-1.12)<br/>
   依赖hologres-connector-flink-base，实现了Flink 1.12版本的Connector，相较于1.11，主要新增了维表场景一对多的实现
-* [hologres-connector-flink-1.13](./hologres-connector-flink-1.13)
 
+* [hologres-connector-flink-1.13](https://github.com/aliyun/alibabacloud-hologres-connectors/tree/flink-1.13/1.14/hologres-connector-flink-1.13)<br/>
   依赖hologres-connector-flink-base，实现了Flink 1.13版本的Connector, 相较于1.12，支持消费holo源表
-* [hologres-connector-flink-1.14](./hologres-connector-flink-1.14)
 
-  依赖hologres-connector-flink-base，实现了Flink 1.14版本的Connector<br/><br/>
+* [hologres-connector-flink-1.14](https://github.com/aliyun/alibabacloud-hologres-connectors/tree/flink-1.13/1.14/hologres-connector-flink-1.14)<br/>
+  依赖hologres-connector-flink-base，实现了Flink 1.14版本的Connector
 
+* [hologres-connector-flink-1.15](./hologres-connector-flink-1.15)<br/>
+  依赖hologres-connector-flink-base，实现了Flink 1.15版本的Connector
+
+* [hologres-connector-flink-1.17](./hologres-connector-flink-1.17)<br/>
+  依赖hologres-connector-flink-base，实现了Flink 1.17版本的Connector<br/><br/>
 
 * [hologres-connector-hive-base](./hologres-connector-hive-base)
 
@@ -92,7 +101,7 @@ Connectors for Hologres
 <dependency>
     <groupId>com.alibaba.hologres</groupId>
     <artifactId>hologres-connector-flink-1.13</artifactId>
-    <version>1.0.0</version>
+    <version>1.4.0</version>
     <classifier>jar-with-dependencies</classifier>
 </dependency>
 ```
