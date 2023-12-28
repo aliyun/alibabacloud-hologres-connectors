@@ -1,12 +1,5 @@
 package com.alibaba.ververica.connectors.hologres.example;
 
-import org.apache.flink.api.common.typeinfo.Types;
-import org.apache.flink.configuration.Configuration;
-import org.apache.flink.streaming.api.datastream.DataStreamSource;
-import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.table.api.DataTypes;
-import org.apache.flink.table.api.TableSchema;
-
 import com.alibaba.hologres.client.Put.MutationType;
 import com.alibaba.hologres.client.model.Record;
 import com.alibaba.ververica.connectors.common.sink.OutputFormatSinkFunction;
@@ -21,6 +14,12 @@ import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.DefaultParser;
 import org.apache.commons.cli.Options;
+import org.apache.flink.api.common.typeinfo.Types;
+import org.apache.flink.configuration.Configuration;
+import org.apache.flink.streaming.api.datastream.DataStreamSource;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.table.api.DataTypes;
+import org.apache.flink.table.api.TableSchema;
 
 import java.math.BigDecimal;
 import java.sql.Timestamp;
@@ -114,7 +113,7 @@ public class FlinkDataStreamToHoloExample {
             result.setObject(1, record.userName);
             result.setObject(2, record.price);
             result.setObject(3, record.saleTimestamp);
-            /* 在DataStream作业中，用户需要使用自定义的OutputFormatSinkFunction以及RecordConverter，如果要支持消息的回撤，需要在此处对convert结果设置MutationType */
+            /* 在DataStream作业中，用户需要使用自定义的OutputFormatSinkFunction以及RecordConverter，如果要支持消息的回撤，需要在此处对convert结果设置MutationType。 需要hologres-connector 1.3.2及以上版本 */
              if (record.eventType == EventType.DELETE) {
                  result.setType(MutationType.DELETE);
              }

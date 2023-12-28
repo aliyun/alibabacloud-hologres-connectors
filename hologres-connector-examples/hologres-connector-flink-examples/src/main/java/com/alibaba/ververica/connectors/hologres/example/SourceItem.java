@@ -10,7 +10,7 @@ public class SourceItem {
         INSERT,
         DELETE
     }
-    EventType eventType = EventType.INSERT;
+    public EventType eventType = EventType.INSERT;
     public long userId;
     public String userName;
     public BigDecimal price;

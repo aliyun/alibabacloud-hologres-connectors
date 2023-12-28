@@ -61,7 +61,7 @@ public class FlinkRoaringBitmapAggJob {
 
         // flink env设置
         EnvironmentSettings.Builder settingsBuilder =
-                EnvironmentSettings.newInstance().inStreamingMode().useBlinkPlanner();
+                EnvironmentSettings.newInstance().inStreamingMode();
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         StreamTableEnvironment tableEnv =
                 StreamTableEnvironment.create(env, settingsBuilder.build());

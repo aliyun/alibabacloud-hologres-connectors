@@ -49,7 +49,7 @@ public class FlinkSQLToHoloExample {
                 EnvironmentSettings.newInstance().inStreamingMode();
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         StreamTableEnvironment tEnv =
-                StreamTableEnvironment.create(env, streamBuilder.useBlinkPlanner().build());
+                StreamTableEnvironment.create(env, streamBuilder.build());
 
         String createHologresTable =
                 String.format(

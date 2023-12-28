@@ -1,19 +1,13 @@
 package com.alibaba.ververica.connectors.hologres.example;
 
-import java.math.BigDecimal;
-import java.sql.Timestamp;
-
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.DefaultParser;
 import org.apache.commons.cli.Options;
-import org.apache.flink.streaming.api.datastream.DataStreamSource;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.table.api.EnvironmentSettings;
-import org.apache.flink.table.api.Table;
 import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
 
-import static org.apache.flink.table.api.Expressions.$;
 
 /** A Flink data stream example and SQL sinking data to Hologres. */
 public class FlinkSQLSourceAndSinkExample {
@@ -52,7 +46,7 @@ public class FlinkSQLSourceAndSinkExample {
             EnvironmentSettings.newInstance().inStreamingMode();
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         StreamTableEnvironment tEnv =
-            StreamTableEnvironment.create(env, streamBuilder.useBlinkPlanner().build());
+            StreamTableEnvironment.create(env, streamBuilder.build());
 
         String createHologresSourceTable =
             String.format(

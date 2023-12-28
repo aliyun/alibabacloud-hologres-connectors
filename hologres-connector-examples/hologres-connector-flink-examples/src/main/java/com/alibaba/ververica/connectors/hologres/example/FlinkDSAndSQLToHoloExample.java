@@ -1,8 +1,8 @@
 package com.alibaba.ververica.connectors.hologres.example;
 
-import org.apache.flink.streaming.api.datastream.DataStreamSource;
+import org.apache.flink.api.common.RuntimeExecutionMode;
+import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.table.api.EnvironmentSettings;
 import org.apache.flink.table.api.Table;
 import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
 
@@ -42,32 +42,29 @@ public class FlinkDSAndSQLToHoloExample {
         String database = commandLine.getOptionValue("database");
         String tableName = commandLine.getOptionValue("tablename");
 
-        EnvironmentSettings.Builder streamBuilder =
-                EnvironmentSettings.newInstance().inStreamingMode();
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        // use BATCH or STREAMING mode
+        env.setRuntimeMode(RuntimeExecutionMode.BATCH);
         StreamTableEnvironment tEnv =
-                StreamTableEnvironment.create(env, streamBuilder.useBlinkPlanner().build());
+                StreamTableEnvironment.create(env);
 
-        DataStreamSource<SourceItem> source =
+        DataStream<SourceItem> source =
                 env.fromElements(
                         new SourceItem(
                                 123L,
                                 "Adam",
                                 new BigDecimal("123.11"),
-                                new Timestamp(System.currentTimeMillis())),
+                                new Timestamp(System.currentTimeMillis())
+                            ),
                         new SourceItem(
                                 234,
                                 "Bob",
                                 new BigDecimal("000.11"),
-                                new Timestamp(System.currentTimeMillis())));
+                                new Timestamp(System.currentTimeMillis())
+                    ));
 
-        Table table =
-                tEnv.fromDataStream(
-                        source,
-                        $("userId").as("user_id"),
-                        $("userName").as("user_name"),
-                        $("price").as("price"),
-                        $("saleTimestamp").as("sale_timestamp"));
+        Table table = tEnv.fromDataStream(source);
+        table.printSchema();
 
         String createHologresTable =
                 String.format(
@@ -87,6 +84,6 @@ public class FlinkDSAndSQLToHoloExample {
                         database, tableName, userName, password, endPoint);
         tEnv.executeSql(createHologresTable);
 
-        tEnv.executeSql("insert into sink select * from " + table);
+        tEnv.executeSql("insert into sink select userId,userName,price,saleTimestamp from " + table);
     }
 }
