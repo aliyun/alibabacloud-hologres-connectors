@@ -268,15 +268,23 @@ CREATE TEMPORARY VIEW csvTable (
     c_mktsegment string,
     c_comment string)
 USING csv OPTIONS (
-    path "src/main/resources/customer1.tbl", sep "|"
+    path "resources/customer1.tbl", sep "|"
 );
 
-CREATE TEMPORARY VIEW hologresTable
+CREATE TEMPORARY VIEW hologresTable (
+    c_custkey bigint,
+    c_name string,
+    c_address string,
+    c_nationkey int,
+    c_phone string,
+    c_acctbal decimal(15, 2),
+    c_mktsegment string,
+    c_comment string)
 USING hologres OPTIONS (
     jdbcurl "jdbc:postgresql://hologres_endpoint/test_database",
     username "your_username", 
-    PASSWORD "your_password", 
-    TABLE "tb008", 
+    password "your_password", 
+    table "customer_holo_table", 
     copy_write_mode "true", 
     bulk_load "true", 
     copy_write_format "text"
