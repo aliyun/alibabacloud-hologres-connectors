@@ -250,7 +250,6 @@ df2.write.format("hologres").option(
 ```
 
 ### 使用Spark Sql加载connector进行写入
-
 启动pyspark并加载connector
 ```shell
 spark-sql --jars hologres-connector-spark-3.x-1.4.0-SNAPSHOT-jar-with-dependencies.jar
@@ -289,7 +288,8 @@ USING hologres OPTIONS (
     bulk_load "true", 
     copy_write_format "text"
 );
-    
+
+-- 目前通过sql创建的hologres view不支持写入部分列（如insert into hologresTable(c_custkey) select c_custkey from csvTable），写入时需要写入DDL中声明的所有字段。如果希望写入部分列，可以建表时仅声明需要写入的字段。
 insert into hologresTable select * from csvTable;
 ```
 
