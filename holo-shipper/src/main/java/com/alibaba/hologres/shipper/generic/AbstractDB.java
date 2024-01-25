@@ -10,10 +10,10 @@ public abstract class AbstractDB {
     public abstract AbstractTable getTable(String tableName) throws Exception;
     public abstract boolean checkTableExistence(String tableName);
     //check if table tableName already exists
-    public abstract boolean prepareRead();
+    public abstract void prepareRead();
     public abstract void prepareWrite();
-    public abstract String getGUC();
-    public abstract void setGUC(String GUCInfo);
+    public abstract Map<String,String> getGUC();
+    public abstract void setGUC(Map<String,String> gucMapping);
     public abstract String getExtension();
     public abstract void setExtension(String extInfo);
     public abstract void createSchemas(List<String> schemaList);

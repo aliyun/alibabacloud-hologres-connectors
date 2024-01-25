@@ -3,14 +3,15 @@ package com.alibaba.hologres.shipper.holo;
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
 import com.alibaba.hologres.client.HoloClient;
-import com.alibaba.hologres.org.postgresql.util.HoloVersion;
-import com.alibaba.hologres.org.postgresql.util.MetaUtil;
+import com.alibaba.hologres.client.impl.util.ConnectionUtil;
+import com.alibaba.hologres.client.model.HoloVersion;
 import com.alibaba.hologres.shipper.generic.AbstractDB;
 import com.alibaba.hologres.shipper.generic.AbstractTable;
 
 import java.sql.*;
 import java.util.*;
 
+import com.alibaba.hologres.shipper.utils.SqlUtil;
 import com.alibaba.hologres.shipper.utils.TableInfo;
 import com.alibaba.hologres.shipper.utils.TablesMeta;
 import org.slf4j.Logger;
@@ -24,6 +25,7 @@ public class HoloDB extends AbstractDB {
     String password;
     String dbName;
     HoloVersion version;
+    boolean hasToolkit;
 
     public HoloDB(String jdbcUrl, String user, String password, String dbName){
         this.jdbcUrl = jdbcUrl;
@@ -155,6 +157,30 @@ public class HoloDB extends AbstractDB {
             }else
                 tableInfoList = possibleTables;
 
+            hasToolkit = (boolean) client.sql(conn->{
+                boolean ret = false;
+                try (Statement stmt = conn.createStatement()) {
+                    try (ResultSet rs = stmt.executeQuery("select count(1) from pg_available_extensions where name = 'hg_toolkit'")) {
+                        rs.next();
+                        ret = rs.getBoolean(1);
+                    }
+                } catch (Exception e) {
+                    LOGGER.warn("Failed to confirm the existence of hg_toolkit: {}", e);
+                }
+                return ret;
+            }).get();
+            //某些久远的0.x版本需要手动创建hg_toolkit extension
+            if (!hasToolkit) {
+                hasToolkit = (boolean)client.sql(conn->{
+                    try (Statement stmt = conn.createStatement()) {
+                        stmt.executeUpdate("CREATE EXTENSION IF NOT EXISTS hg_toolkit");
+                    } catch (Exception e) {
+                        LOGGER.warn("Failed to create extension hg_toolkit: {}", e);
+                        return false;
+                    }
+                    return true;
+                }).get();
+            }
             tablesMeta.tableInfoList = tableInfoList;
             //get spm and slpm info
             boolean spm = (boolean) client.sql(conn -> {
@@ -293,24 +319,17 @@ public class HoloDB extends AbstractDB {
     public void recordMetadata(TablesMeta dbInfo) {}
 
     public AbstractTable getTable(String tableName) throws Exception{
-        AbstractTable table = new HoloTable(tableName, jdbcUrl, user, password, version);
+        AbstractTable table = new HoloTable(tableName, jdbcUrl, user, password, version, hasToolkit);
         return table;
     }
 
-    public boolean prepareRead() {
-        //create extension hg_toolkit
+    public void prepareRead() {
         try(HoloClient client = HoloUtils.getHoloClient(jdbcUrl, user, password)) {
-            this.version  = (HoloVersion)(client.sql(MetaUtil::getHoloVersion)).get();
-            client.sql(conn -> {
-                try (Statement stmt = conn.createStatement()) {
-                    stmt.executeUpdate("CREATE EXTENSION IF NOT EXISTS hg_toolkit");
-                }
-                return null;
-            }).get();
-            return true;
+            this.version  = (HoloVersion)(client.sql(ConnectionUtil::getHoloVersion)).get();
+            return;
         } catch (Exception e) {
-            LOGGER.warn("Failed creating extension hg_toolkit, will fetch table DDL manually");
-            return false;
+            LOGGER.warn("Failed prepareRead, exception:{}", e);
+            return;
         }
     }
 
@@ -351,47 +370,33 @@ public class HoloDB extends AbstractDB {
         return existence;
     }
 
-    public String getGUC() {
+    public Map<String,String> getGUC() {
         LOGGER.info("Starting fetching GUC from "+jdbcUrl);
-        String GUCInfo = null;
+        Map<String,String> gucMapping = null;
         try(HoloClient client = HoloUtils.getHoloClient(jdbcUrl, user, password)) {
-            GUCInfo = (String) client.sql(conn -> {
-                String GUC = "BEGIN;\n";
-                try (Statement stmt = conn.createStatement();
-                     ResultSet rs = stmt.executeQuery(String.format("SELECT setconfig FROM pg_db_role_setting s LEFT JOIN pg_database d on s.setdatabase = d.oid WHERE setrole = 0 and datname = '%s'",dbName))) {
-                    while(rs.next()) {
-                        Array configArray = rs.getArray("setconfig");
-                        String[] configInfo = (String[])configArray.getArray();
-                        for(String config:configInfo) {
-                            String name = config.split("=")[0];
-                            String value = config.split("=")[1];
-                            if(!(name.equals("hg_experimental_enable_spm")||name.equals("hg_enable_slpm"))) //spm和slpm的部分在恢复权限时恢复
-                                GUC = GUC + String.format("ALTER DATABASE %s SET %s = '%s';\n",dbName,name,value);
-                        }
-                    }
+            gucMapping = (Map<String,String>) client.sql(conn -> {
+                try {
+                    return SqlUtil.getGUC(conn, dbName);
+                } catch (Exception e) {
+                    LOGGER.error("Failed fetching GUC for database {}", dbName, e);
                 }
-                GUC = GUC + "END;\n";
-                return GUC;
+                return null;
             }).get();
-            LOGGER.info("Finished fetching GUC from "+jdbcUrl);
-        } catch (Exception e)
-        {
-            LOGGER.error("Failed fetching GUC for database "+dbName, e);
+            LOGGER.info("Finished fetching GUC from {}", jdbcUrl);
+        } catch (Exception e) {
+            LOGGER.error("Failed fetching GUC for database {}", dbName, e);
         }
-
-        return GUCInfo;
+        return gucMapping;
     }
 
-    public void setGUC(String GUCInfo) {
-        if(GUCInfo == null) {
+    public void setGUC(Map<String,String> gucMapping) {
+        if(gucMapping == null) {
             LOGGER.info("No GUC info");
             return;
         }
         try(HoloClient client = HoloUtils.getHoloClient(jdbcUrl, user, password)) {
             client.sql(conn -> {
-                try (Statement stmt = conn.createStatement()) {
-                    stmt.executeUpdate(GUCInfo);
-                }
+                SqlUtil.setGUC(conn, dbName, gucMapping);
                 return null;
             }).get();
         } catch (Exception e) {

@@ -11,8 +11,10 @@ import org.slf4j.LoggerFactory;
 
 import java.io.*;
 import java.net.URLEncoder;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 
 public class OSSDB extends AbstractDB {
     public static final Logger LOGGER = LoggerFactory.getLogger(OSSDB.class);
@@ -61,27 +63,29 @@ public class OSSDB extends AbstractDB {
         return found;
     }
 
-    public boolean prepareRead() {return true;}
+    public void prepareRead() {}
     public void prepareWrite() {}
 
-    public String getGUC() {
-        String gucFilePath = dbPath + "guc.sql";
-        String gucInfo = null;
+    public Map<String,String> getGUC() {
+        String gucFilePath = dbPath + "guc.properties";
         if(!ossClient.doesObjectExist(bucketName, gucFilePath)) {
             LOGGER.info("No GUC info stored");
-            return gucInfo;
+            return null;
         }
-        gucInfo = OSSUtils.readWholeFile(ossClient, bucketName, gucFilePath);
-        return gucInfo;
+        Properties properties = OSSUtils.loadProperties(ossClient, bucketName, gucFilePath);
+        Map<String, String> gucMapping = new HashMap<String, String>((Map) properties);
+        return gucMapping;
     }
 
-    public void setGUC(String GUCInfo) {
-        if(GUCInfo == null) {
+    public void setGUC(Map<String,String> gucMapping) {
+        if(gucMapping == null) {
             LOGGER.info("No GUC info");
             return;
         }
-        String gucFilePath = dbPath + "guc.sql";
-        OSSUtils.writeStringToFile(ossClient, bucketName, gucFilePath, GUCInfo);
+        String gucFilePath = dbPath + "guc.properties";
+        Properties properties = new Properties();
+        properties.putAll(gucMapping);
+        OSSUtils.storeProperties(ossClient, bucketName, gucFilePath, properties);
     }
 
     public String getExtension() {

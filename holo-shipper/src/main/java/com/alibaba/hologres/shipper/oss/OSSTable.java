@@ -43,7 +43,7 @@ public class OSSTable extends AbstractTable {
         this.tablePath = dbPath + schemaName + '/' + encodedTableName + '/';
     }
 
-    public String getTableDDL(boolean hasToolkit) {
+    public String getTableDDL() {
         String DDLFilePath = tablePath + encodedTableName + ".sql";
         String DDLInfo = OSSUtils.readWholeFile(ossClient, bucketName, DDLFilePath);
         return DDLInfo;

@@ -6,10 +6,8 @@ import com.aliyun.oss.model.PutObjectRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.BufferedReader;
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.io.InputStreamReader;
+import java.io.*;
+import java.util.Properties;
 
 public class OSSUtils {
     public static final Logger LOGGER = LoggerFactory.getLogger(OSSDB.class);
@@ -30,6 +28,17 @@ public class OSSUtils {
         return sb.toString();
     }
 
+    public static Properties loadProperties(OSS ossClient, String bucketName, String filePath) {
+        OSSObject ossObject = ossClient.getObject(bucketName, filePath);
+        Properties properties = new Properties();
+        try(BufferedReader reader = new BufferedReader(new InputStreamReader(ossObject.getObjectContent()))) {
+            properties.load(reader);
+        } catch (IOException e) {
+            LOGGER.error("Failed reading file at {}", filePath, e);
+        }
+        return properties;
+    }
+
     public static void writeStringToFile(OSS ossClient, String bucketName, String filePath, String content) {
         PutObjectRequest putObjectRequest = new PutObjectRequest(bucketName, filePath, new ByteArrayInputStream(content.getBytes()));
         // 如果需要上传时设置存储类型和访问权限，请参考以下示例代码。
@@ -37,6 +46,18 @@ public class OSSUtils {
         // metadata.setHeader(OSSHeaders.OSS_STORAGE_CLASS, StorageClass.Standard.toString());
         // metadata.setObjectAcl(CannedAccessControlList.Private);
         // putObjectRequest.setMetadata(metadata);
+        ossClient.putObject(putObjectRequest);
+    }
+
+    public static void storeProperties(OSS ossClient, String bucketName, String filePath, Properties properties) {
+        OutputStream outputStream = new ByteArrayOutputStream();
+        try {
+            properties.store(outputStream, "GUC INFO");
+        } catch (IOException e) {
+            LOGGER.error("Failed to store properties {}", filePath, e);
+        }
+        ByteArrayOutputStream byteArrayOutputStream = (ByteArrayOutputStream)outputStream;
+        PutObjectRequest putObjectRequest = new PutObjectRequest(bucketName, filePath, new ByteArrayInputStream(byteArrayOutputStream.toByteArray()));
         ossClient.putObject(putObjectRequest);
     }
 }

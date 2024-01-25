@@ -31,7 +31,6 @@ public class HoloDBShipper {
     Map<String, String> schemaMapping;
     Map<String, String> tgMapping;
     Map<String, String> parentMapping;
-    boolean hasToolkit;
     boolean allowSinkTableExists = false;
     boolean disableShardCopy = false;
 
@@ -58,15 +57,15 @@ public class HoloDBShipper {
     public void setDisableShardCopy(Boolean disableShardCopy) { this.disableShardCopy = disableShardCopy; }
     public List<String> ship(boolean restoreOwner, boolean restoreGUC, boolean restoreExt, boolean restorePriv, boolean restoreData, ExecutorService threadPoolForTable, ExecutorService threadPoolForShard) {
         LOGGER.info("Starting shipping database "+dbName);
-        hasToolkit = sourceDB.prepareRead();
+        sourceDB.prepareRead();
         sinkDB.prepareWrite();
         if(restoreExt) {
             String extInfo = sourceDB.getExtension();
             sinkDB.setExtension(extInfo);
         }
         if(restoreGUC) {
-            String gucInfo = sourceDB.getGUC();
-            sinkDB.setGUC(gucInfo);
+            Map<String, String> gucMapping = sourceDB.getGUC();
+            sinkDB.setGUC(gucMapping);
         }
         sinkDB.createSchemas(this.schemaList);
         if(restorePriv && spmInfo != null) {
@@ -113,7 +112,7 @@ public class HoloDBShipper {
                                 AbstractTable sinkTable = sinkDB.getTable(sinkTableName))
                             {
                                 if(!tableExists) {
-                                    String tableDDL = sourceTable.getTableDDL(hasToolkit);
+                                    String tableDDL = sourceTable.getTableDDL();
                                     String rectifiedDDL = rectifyDDL(table, tableDDL, restoreOwner);
                                     sinkTable.setTableDDL(rectifiedDDL);
                                     if (restorePriv) {

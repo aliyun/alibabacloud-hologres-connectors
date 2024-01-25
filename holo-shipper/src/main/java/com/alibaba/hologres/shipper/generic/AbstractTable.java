@@ -6,7 +6,7 @@ import java.io.PipedOutputStream;
 import java.util.Map;
 
 public abstract class AbstractTable implements Closeable {
-    public abstract String getTableDDL(boolean hasToolkit);
+    public abstract String getTableDDL();
     //return table DDL as a  string
     public abstract void setTableDDL(String DDLInfo) throws Exception;
     //set table DDL according to DDLInfo and user requirements

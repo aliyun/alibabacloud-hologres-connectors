@@ -2,15 +2,10 @@ package com.alibaba.hologres.shipper.holo;
 
 import com.alibaba.hologres.client.*;
 import com.alibaba.hologres.client.exception.HoloClientException;
-import com.alibaba.hologres.client.model.ExportContext;
-import com.alibaba.hologres.client.model.ImportContext;
-import com.alibaba.hologres.client.model.Record;
-import com.alibaba.hologres.client.model.RecordScanner;
-import com.alibaba.hologres.org.postgresql.util.HoloVersion;
-import com.alibaba.hologres.org.postgresql.util.MetaUtil;
+import com.alibaba.hologres.client.impl.util.ConnectionUtil;
+import com.alibaba.hologres.client.model.*;
 import com.alibaba.hologres.shipper.HoloDBShipper;
 import com.alibaba.hologres.shipper.generic.AbstractTable;
-import org.postgresql.model.TableSchema;
 
 import java.io.IOException;
 import java.io.PipedInputStream;
@@ -31,24 +26,26 @@ public class HoloTable extends AbstractTable {
     String pureTableName;
     HoloClient client;
     HoloVersion version;
+    boolean hasToolkit;
 
-    public HoloTable(String tableName, String jdbcUrl, String user, String password, HoloVersion version) throws Exception{
+    public HoloTable(String tableName, String jdbcUrl, String user, String password, HoloVersion version, boolean hasToolkit) throws Exception{
         this.tableName = HoloUtils.getTableNameWithQuotes(tableName);
         this.schemaName = tableName.split("\\.",2)[0];
         this.pureTableName = tableName.split("\\.",2)[1];
+        this.hasToolkit = hasToolkit;
         try {
             if(version != null && version.getMajorVersion() == 0 && version.getMinorVersion() <= 5)
                 this.client = HoloUtils.getSimpleClient(jdbcUrl, user, password);
             else
                 this.client = HoloUtils.getHoloClient(jdbcUrl, user, password, HoloDBShipper.NUM_BATCH);
-            this.version  = (HoloVersion)(client.sql(MetaUtil::getHoloVersion)).get();
+            this.version  = (client.sql(ConnectionUtil::getHoloVersion)).get();
         }catch(HoloClientException e) {
             LOGGER.error("Failed creating holo-client for table " + tableName, e);
             throw e;
         }
     }
 
-    public String getTableDDL(boolean hasToolkit) {
+    public String getTableDDL() {
         if(!hasToolkit) {
             return getTableDDLManually();
         }

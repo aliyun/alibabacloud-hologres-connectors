@@ -36,7 +36,7 @@ public class LocalStorageTable extends AbstractTable {
         this.tablePath = DBPath + '/' + schemaName + '/' + encodedTableName;
     }
 
-    public String getTableDDL(boolean hasToolkit) {
+    public String getTableDDL() {
         String DDLFilePath = tablePath+'/'+encodedTableName+".sql";
         String DDLInfo = null;
         try

@@ -10,10 +10,7 @@ import com.alibaba.hologres.shipper.utils.TablesMeta;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
-import java.io.FileWriter;
-import java.io.IOException;
-import java.io.UnsupportedEncodingException;
+import java.io.*;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.file.Files;
@@ -80,39 +77,39 @@ public class LocalStorageDB extends AbstractDB {
         return dataFile.exists();
     }
 
-    public boolean prepareRead() {return true;}
+    public void prepareRead() {}
     public void prepareWrite() {}
 
-    public String getGUC() {
-        String gucFilePath = dirPath+"/guc.sql";
-        String gucInfo = null;
+    public Map<String,String> getGUC() {
+        String gucFilePath = dirPath+"/guc.properties";
         File gucFile = new File(gucFilePath);
         if(!gucFile.exists()) {
             LOGGER.info("No GUC info stored");
-            return gucInfo;
+            return null;
         }
-        try
-        {
-            gucInfo = new String (Files.readAllBytes(Paths.get(gucFilePath)));
-        }
-        catch (IOException e)
-        {
+        Properties properties = new Properties();
+        try(FileReader reader = new FileReader(gucFile)) {
+            properties.load(reader);
+        } catch (IOException e) {
             LOGGER.error("Failed reading GUC info from "+gucFilePath, e);
         }
-        return gucInfo;
+        Map<String, String> gucMapping = new HashMap<String, String>((Map) properties);
+        return gucMapping;
     }
 
-    public void setGUC(String GUCInfo) {
-        if(GUCInfo == null) {
+    public void setGUC(Map<String,String> gucMapping) {
+        if(gucMapping == null) {
             LOGGER.info("No GUC info");
             return;
         }
-        String gucFilePath = dirPath+"/guc.sql";
+        String gucFilePath = dirPath+"/guc.properties";
+        Properties properties = new Properties();
+        properties.putAll(gucMapping);
         try {
             File file = new File(gucFilePath);
             file.getParentFile().mkdirs();
             try(FileWriter fw = new FileWriter(file)) {
-                fw.write(GUCInfo);
+                properties.store(fw, "GUC INFO");
             }
         }catch (IOException e) {
             LOGGER.error("Failed writing to "+gucFilePath, e);

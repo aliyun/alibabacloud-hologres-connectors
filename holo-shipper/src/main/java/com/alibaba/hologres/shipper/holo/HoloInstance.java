@@ -1,8 +1,6 @@
 package com.alibaba.hologres.shipper.holo;
 
 import com.alibaba.hologres.client.HoloClient;
-import com.alibaba.hologres.org.postgresql.util.HoloVersion;
-import com.alibaba.hologres.org.postgresql.util.MetaUtil;
 import com.alibaba.hologres.shipper.HoloShipper;
 import com.alibaba.hologres.shipper.generic.AbstractDB;
 import com.alibaba.hologres.shipper.generic.AbstractInstance;
