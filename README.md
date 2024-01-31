@@ -34,6 +34,10 @@ Connectors for Hologres
 
   holo-shipper 是支持将Holo Instance的部分表导入导出的备份工具。可以在Holo之间搬迁表，也可以dump到中间存储然后再恢复。<br/><br/>
 
+* [holo-utils](./holo-utils)
+
+  一些方便使用或者排查问题的小工具，目前包括[find-incompatible-flink-jobs](./holo-utils/find-incompatible-flink-jobs)工具，用于检测阿里云实时计算项目中可能存在，在升级Hologres版本时不兼容的作业<br/><br/>
+
 * [hologres-connector-examples](hologres-connector-examples)
   
     该模块提供了若干使用该项目下Connector的各种实例代码<br/><br/>
