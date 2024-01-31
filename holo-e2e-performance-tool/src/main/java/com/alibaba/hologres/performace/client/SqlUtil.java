@@ -2,24 +2,20 @@ package com.alibaba.hologres.performace.client;
 
 import com.alibaba.hologres.client.HoloClient;
 import com.alibaba.hologres.client.HoloConfig;
-import com.alibaba.hologres.client.exception.HoloClientException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.sql.Connection;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Statement;
-import java.util.concurrent.ExecutionException;
+import java.sql.*;
 
 public class SqlUtil {
   public static Logger LOG = LoggerFactory.getLogger(SqlUtil.class);
 
   public static void createTable(Connection conn, boolean partition, String tableName,
-      int columnCount, int shardCount, String orientation, boolean enableBinlog,
+      int columnCount, int shardCount, String orientation, boolean enableBinlog, int binlogTTL,
       boolean enableBitmap, boolean additionTsColumn, boolean hasPk, boolean prefixPk , String dataColumnType) throws
       SQLException {
     StringBuilder sb = new StringBuilder();
+    sb.append("set hg_experimental_force_sync_replay = on;\n");
     sb.append("begin;\ndrop table if exists ")
         .append(tableName)
         .append(";\ncreate table ")
@@ -80,7 +76,9 @@ public class SqlUtil {
           .append("','binlog.level','replica');\n");
       sb.append("call set_table_property('")
           .append(tableName)
-          .append("','binlog.ttl','3600');\n");
+          .append("','binlog.ttl','")
+          .append(binlogTTL)
+          .append("');\n");
     }
     if (!enableBitmap) {
       sb.append("call set_table_property('")
@@ -106,6 +104,14 @@ public class SqlUtil {
   public static void disableAffectedRows(Connection conn) throws SQLException {
     String sql = "set hg_experimental_enable_fixed_dispatcher_affected_rows = off";
     try (Statement stat = conn. createStatement()) {
+      stat.execute(sql);
+    }
+    LOG.info("sql:{}", sql);
+  }
+
+  public static void setOnSessionThreadSize(Connection conn, int threadSize) throws SQLException {
+    String sql = "set hg_experimental_fixed_thread_pool_size = " + threadSize;
+    try (Statement stat = conn.createStatement()) {
       stat.execute(sql);
     }
     LOG.info("sql:{}", sql);
@@ -146,6 +152,87 @@ public class SqlUtil {
         }
         return null;
       }).get();
+    }
+  }
+
+  public static void createBinLogExtension(Connection conn) throws SQLException {
+    String sql = "create extension if not exists hg_binlog";
+    try (Statement stat = conn.createStatement()) {
+      stat.execute(sql);
+    }
+    LOG.info("sql:{}", sql);
+  }
+
+  public static void createPublication(Connection conn, String publicationName, String tableName) throws SQLException {
+    String sql = "create publication " + publicationName + " for table " + tableName;
+    try (Statement stat = conn.createStatement()) {
+      stat.execute(sql);
+    }
+    LOG.info("sql:{}", sql);
+  }
+
+  public static void createSlot(Connection conn, String publicationName, String slotName) throws SQLException {
+    String sql = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "')";
+    try(Statement stat = conn.createStatement()) {
+      stat.execute(sql);
+    }
+    LOG.info("sql:{}", sql);
+  }
+
+  public static void dropPublication(Connection conn, String publicationName) throws SQLException {
+    String sql = "drop publication if exists " + publicationName;
+    try (Statement stat = conn.createStatement()) {
+      stat.execute(sql);
+    }
+    LOG.info("sql:{}", sql);
+  }
+
+  public static void dropSlot(Connection conn, String slotName) throws SQLException {
+    String sql = "call hg_drop_logical_replication_slot('" + slotName + "')";
+    try(Statement stat = conn.createStatement()) {
+      stat.execute(sql);
+    }
+    LOG.info("sql:{}", sql);
+  }
+
+  public static void deleteReplicationProgress(Connection conn, String slotName) throws SQLException {
+    String sql = "delete from hologres.hg_replication_progress where slot_name='" + slotName + "'";
+    try(Statement stat = conn.createStatement()) {
+      stat.execute(sql);
+    }
+    LOG.info("sql:{}", sql);
+  }
+
+  public static void createUserIfNotExists(Connection conn, String userName) throws SQLException {
+    StringBuilder sb = new StringBuilder();
+    sb.append("set hg_experimental_force_sync_replay = on; ")
+        .append("create user \"")
+        .append(userName)
+        .append("\";");
+    String sql = sb.toString();
+    LOG.info("sql:{}", sql);
+    try (Statement stat = conn.createStatement()) {
+      stat.execute(sql);
+    } catch (SQLException e) {
+      if (!e.getMessage().contains("already exists")) {
+        throw e;
+      }
+    }
+  }
+
+  public static void checkCurrentUser(Connection conn, String userName) throws SQLException {
+    String sql = "select current_user;";
+    LOG.debug("sql:{}", sql);
+    try (Statement stat = conn.createStatement()) {
+      ResultSet resultSet = stat.executeQuery(sql);
+      if (!resultSet.next()) {
+        throw new RuntimeException("No result");
+      }
+
+      String result = resultSet.getString("current_user");
+      if (!result.equals(userName)) {
+        throw new RuntimeException("Current user is not as expected");
+      }
     }
   }
 }

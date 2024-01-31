@@ -18,6 +18,7 @@ public class PrepareGetData extends FixedCopyTest{
         conf.hasPk = true;
         conf.orientation = prepareGetDataConf.orientation;
         conf.deleteTableAfterDone = false;
+        conf.dumpMemoryStat = false;
     }
 
 }

@@ -13,11 +13,16 @@ import com.alibaba.hologres.client.utils.ConfLoader;
 import com.alibaba.hologres.client.utils.Metrics;
 import com.alibaba.hologres.com.codahale.metrics.Histogram;
 import com.alibaba.hologres.com.codahale.metrics.Meter;
+import com.alibaba.hologres.org.postgresql.PGProperty;
 import com.alibaba.hologres.performace.params.ParamsProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.util.Properties;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -32,6 +37,8 @@ public class GetTest {
   GetTestConf conf = new GetTestConf();
 
   ParamsProvider provider;
+  private static long memoryUsage = 0;
+  private CyclicBarrier barrier = null;
 
   public void run(String confName) throws Exception {
     LOG.info("confName:{}", confName);
@@ -42,14 +49,18 @@ public class GetTest {
     ConfLoader.load(confName, "holoClient.", config);
     provider = new ParamsProvider(conf.keyRangeParams);
     Reporter reporter = new Reporter(confName);
-    try (HoloClient client = new HoloClient(config)) {
-      TableSchema schema = client.sql(conn -> {
-        if (conf.vacuumTableBeforeRun) {
-          SqlUtil.vaccumTable(conn, conf.tableName);
-        }
-        reporter.start(ConnectionUtil.getHoloVersion(conn));
-        return ConnectionUtil.getTableSchema(conn, TableName.valueOf(conf.tableName));
-      }).get();
+    Properties props = new Properties();
+    PGProperty.USER.set(props, config.getUsername());
+    PGProperty.PASSWORD.set(props, config.getPassword());
+    PGProperty.APPLICATION_NAME.set(props, config.getAppName());
+    LOG.info("props : {}", props);
+    String jdbcUrl = config.getJdbcUrl();
+    try (Connection conn = DriverManager.getConnection(jdbcUrl, props)) {
+      if (conf.vacuumTableBeforeRun) {
+        SqlUtil.vaccumTable(conn, conf.tableName);
+      }
+      reporter.start(ConnectionUtil.getHoloVersion(conn));
+      TableSchema schema =  ConnectionUtil.getTableSchema(conn, TableName.valueOf(conf.tableName));
       if (schema == null) {
         throw new Exception("table not found");
       } else if (schema.getPrimaryKeys().length != provider.size()) {
@@ -63,6 +74,10 @@ public class GetTest {
     } else {
       singleExecutionPoolJobSize = new AtomicInteger(0);
     }
+    barrier = new CyclicBarrier(conf.threadSize, ()->{
+      memoryUsage = Util.getMemoryStat();
+      Util.dumpHeap(confName);
+    });
     targetTime = System.currentTimeMillis() + conf.testTime;
     Thread[] threads = new Thread[conf.threadSize];
     Metrics.startSlf4jReporter(60L, TimeUnit.SECONDS);
@@ -81,7 +96,7 @@ public class GetTest {
       Histogram hist = Metrics.registry().histogram(METRICS_GET_PERF_LATENCY);
       reporter.report(meter.getCount(), meter.getOneMinuteRate(), meter.getFiveMinuteRate(),
           meter.getFifteenMinuteRate(), hist.getSnapshot().getMean(),
-          hist.getSnapshot().get99thPercentile(), hist.getSnapshot().get999thPercentile());
+          hist.getSnapshot().get99thPercentile(), hist.getSnapshot().get999thPercentile(), memoryUsage);
     }
 
     if (conf.deleteTableAfterDone) {
@@ -101,67 +116,69 @@ public class GetTest {
     public void run() {
       HoloConfig poolConf = new HoloConfig();
       HoloConfig clientConf = new HoloConfig();
+      HoloClient client = null;
+      HoloClientExecutionPool pool = null;
       try {
         ConfLoader.load(confName, "holoClient.", poolConf);
         ConfLoader.load(confName, "holoClient.", clientConf);
         ConfLoader.load(confName, "pool.", poolConf);
 
-        String executionPoolName = "hello";
-        if (!conf.singleExecutionPool) {
-          executionPoolName += "_" + id;
-        }
         Meter meter = Metrics.registry().meter(METRICS_GET_PERF_RPS);
         Histogram hist = Metrics.registry().histogram(METRICS_GET_PERF_LATENCY);
-        ExecutionPool pool = ExecutionPool.buildOrGet(executionPoolName, poolConf, true, poolConf.isUseFixedFe());
-        try (HoloClient client = new HoloClient(clientConf)) {
-          if (poolConf.isUseFixedFe()) {
-            client.setFixedPool(pool);
-          } else {
-            client.setPool(pool);
+        client = new HoloClient(clientConf);
+        pool = new HoloClientExecutionPool(poolConf, this.id, conf.singleExecutionPool);
+        pool.setHoloClientPool(client);
+        int i = 0;
+        CompletableFuture<Record> future = null;
+        while (true) {
+          if (++i % 1000 == 0) {
+            if (System.currentTimeMillis() > targetTime) {
+              break;
+            }
           }
-          int i = 0;
-          CompletableFuture<Record> future = null;
-          while (true) {
-            if (++i % 1000 == 0) {
-              if (System.currentTimeMillis() > targetTime) {
-                break;
-              }
-            }
-            TableSchema schema = client.getTableSchema(conf.tableName);
-            Object[] pks = new Object[schema.getPrimaryKeys().length];
-            for (int j = 0; j < pks.length; ++j) {
-              pks[j] = provider.get(j);
-            }
-            Get get = new Get(schema, pks);
-
-
-            long startNano = System.nanoTime();
-            future = client.get(get);
-            if (conf.async) {
-              future = future.thenApply(r -> {
-                long endNano = System.nanoTime();
-                hist.update((endNano - startNano) / 1000000L);
-                meter.mark();
-                return r;
-              });
-            } else {
-              future.get();
-              meter.mark();
+          TableSchema schema = client.getTableSchema(conf.tableName);
+          Object[] pks = new Object[schema.getPrimaryKeys().length];
+          for (int j = 0; j < pks.length; ++j) {
+            pks[j] = provider.get(j);
+          }
+          Get get = new Get(schema, pks);
+          long startNano = System.nanoTime();
+          future = client.get(get);
+          if (conf.async) {
+            future = future.thenApply(r -> {
               long endNano = System.nanoTime();
               hist.update((endNano - startNano) / 1000000L);
-            }
-          }
-          if (conf.async && future != null) {
+              meter.mark();
+              return r;
+            });
+          } else {
             future.get();
+            meter.mark();
+            long endNano = System.nanoTime();
+            hist.update((endNano - startNano) / 1000000L);
           }
-        } finally {
-          if (conf.singleExecutionPool && singleExecutionPoolJobSize.decrementAndGet() == 0 ||(!conf.singleExecutionPool)) {
+        }
+        if (conf.async && future != null) {
+          future.get();
+        }
+      } catch (Exception e) {
+        e.printStackTrace();
+      } finally {
+        if (conf.dumpMemoryStat) {
+          try {
+            barrier.await();
+          } catch (Exception e) {
+            e.printStackTrace();
+          }
+        }
+        if(client != null) {
+          client.close();
+        }
+        if (conf.singleExecutionPool && singleExecutionPoolJobSize.decrementAndGet() == 0 || (!conf.singleExecutionPool)) {
+          if (pool != null) {
             pool.close();
           }
         }
-
-      } catch (Exception e) {
-        e.printStackTrace();
       }
     }
   }
@@ -176,4 +193,5 @@ class GetTestConf {
   public String keyRangeParams;
   public boolean async = true;
   public boolean deleteTableAfterDone = false;
+  public boolean dumpMemoryStat = false;
 }

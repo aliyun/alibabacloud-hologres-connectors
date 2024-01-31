@@ -47,11 +47,13 @@ public class FixedCopyTest extends PutTest {
       PGProperty.USER.set(props, config.getUsername());
       PGProperty.PASSWORD.set(props, config.getPassword());
       PGProperty.APPLICATION_NAME.set(props, config.getAppName());
-      try (Connection conn = DriverManager.getConnection(config.getJdbcUrl(), props)) {
-        this.feNumber = SqlUtil.getNumberFrontends(conn);
-        Random random = new Random();
-        this.randomOffset = random.nextInt(this.feNumber);
+      LOG.info("props : {}", props);
+      String jdbcUrl = config.getJdbcUrl();
+      try (Connection conn = DriverManager.getConnection(jdbcUrl, props)) {
+        feNumber = SqlUtil.getNumberFrontends(conn);
       }
+      Random random = new Random();
+      this.randomOffset = random.nextInt(this.feNumber);
     }
   }
 
@@ -94,11 +96,12 @@ public class FixedCopyTest extends PutTest {
           TableSchema schema =
               ConnectionUtil.getTableSchema(conn, TableName.valueOf(conf.tableName));
           SqlUtil.disableAffectedRows(conn);
+          SqlUtil.setOnSessionThreadSize(conn, fixedCopyConf.onSessionThreadPoolSize);
           String copySql = null;
           List<String> columns = Util.getWriteColumnsName(conf, schema);
           if (conf.writeColumnCount > 0) {
             copySql = CopyUtil.buildCopyInSql(schema.getTableName(), columns, true,
-                schema.getPrimaryKeys().length > 0, poolConf.getWriteMode());
+                schema.getPrimaryKeys().length > 0, poolConf.getWriteMode(), true);
           } else {
             copySql = CopyUtil.buildCopyInSql(schema, true, poolConf.getWriteMode());
           }
@@ -141,15 +144,22 @@ public class FixedCopyTest extends PutTest {
         }
       } catch (Exception e) {
         LOG.error("", e);
+      } finally {
+        if (conf.dumpMemoryStat) {
+          try {
+            barrier.await();
+          } catch (Exception e) {
+            e.printStackTrace();
+          }
+        }
       }
     }
   }
-
-
 }
 
 class FixedCopyTestConf {
   public int maxRowBufferSize = 512 * 1024;
+  public int onSessionThreadPoolSize = 1;
   public boolean checkRecordBeforeInsert = false;
   public boolean enableClientLoadBalance = false;
 }

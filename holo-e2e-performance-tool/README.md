@@ -7,7 +7,7 @@ Hologres是兼容PostgreSQL协议的一站式实时数仓引擎，支持海量�
 - 点查场景：主要用于测试引擎针对行存、行列共存表进行主键过滤的点查性能。
 - 前缀扫描场景：主要用于测试引擎对行存，行列共存表进行前缀主键扫描的查询性能。
 
-下载地址：https://github.com/aliyun/alibabacloud-hologres-connectors/releases/download/release-1.3.0/holo-e2e-performance-tool-1.0.0.jar
+- 下载地址：https://github.com/aliyun/alibabacloud-hologres-connectors/releases/download/release-1.4.0/holo-e2e-performance-tool-1.0.1.jar
 
 # 使用说明
 ## 数据写入场景
@@ -29,6 +29,7 @@ Hologres是兼容PostgreSQL协议的一站式实时数仓引擎，支持海量�
 ### 操作步骤
 
 - 首先创建写入配置文件
+
 ```
 -- 连接配置
 holoClient.jdbcUrl=jdbc:hologres://<ENDPOINT>:<PORT>/<DBNAME>
@@ -74,16 +75,18 @@ put.vacuumTableBeforeRun=false
 | 其他配置 | createTableBeforeRun | true | 测试开始前是否创建表。 | 参数取值如下：<br />- true：表示建表。<br />- false：表示不建表。<br />如果设为true，测试工具默认会先执行删除同名表、再创建表的操作，请注意目标表名不与实例中其他表名相同。 |
 |  | deleteTableAfterDone | true | 测试结束后是否删除表。 | 参数取值如下：<br />- true：表示删除表。<br />- false：表示不删除表。<br />如果在写入测试后，需要基于同一个表进行更新、点查等测试，则需要设为true。 |
 |  | vacuumTableBeforeRun | false | 测试开始前是否执行vacuum操作。 | 参数取值如下：<br />- true：表示执行vacuum操作。<br />- false：表示不执行vacuum操作。<br />执行vacuum会强制触发Compaction操作。只影响INSERT模式下的数据更新场景测试，不影响FIXED_COPY模式。 |
+|  | dumpMemoryStat | false | 是否在测试结束前收集内存信息 |
 
 - 然后执行如下语句进行测试：
    - 测试工具会默认将结果文件result.csv保存在根目录下，将测试过程日志文件保存在目标目录下。
    - 其中，测试模式参数包含3个取值，FIXED_COPY对应Fixed copy模式，INSERT对应Insert模式，GET对应点查模式。
+
 ```
 --测试语句格式
 java -jar <JAR_file_name> test_insert.conf <mode> > <log_file_location>
 
 --示例：使用Fixed copy模式进行数据写入测试，并将日志文件存储于jar_result文件下
-java -jar holo-e2e-performance-tool-1.0.0.jar test_insert.conf FIXED_COPY > ./jar_result/fixed_copy_$(date '+%Y-%m-%d-%H:%M:%S').log
+java -jar holo-e2e-performance-tool-1.0.1.jar test_insert.conf FIXED_COPY > ./jar_result/fixed_copy_$(date '+%Y-%m-%d-%H:%M:%S').log
 ```
 ## 数据更新
 ### 原理说明
@@ -96,6 +99,7 @@ java -jar holo-e2e-performance-tool-1.0.0.jar test_insert.conf FIXED_COPY > ./ja
 ### 全局更新
 
 - 创建名为test_update.conf的测试配置文件
+
 ```
 -- 连接配置
 holoClient.jdbcUrl=jdbc:hologres://<ENDPOINT>:<PORT>/<DBNAME>
@@ -121,19 +125,21 @@ put.deleteTableAfterDone=false
 put.vacuumTableBeforeRun=false
 ```
 
-   - 配置参数说明：
-      - 各参数含义与数据写入场景一致
-      - 相比于数据写入场景，仅需将createTableBeforeRun参数由true修改为false，其他参数均保持不变，即可开始数据更新场景的测试
+- 配置参数说明：
+    - 各参数含义与数据写入场景一致
+    - 相比于数据写入场景，仅需将createTableBeforeRun参数由true修改为false，其他参数均保持不变，即可开始数据更新场景的测试
 - 执行如下语句进行测试：
+
 ```sql
 --测试语句格式
 java -jar <JAR_file_name> test_update.conf <mode> > <log_file_location>
 
 --示例：使用Fixed copy模式进行数据写入测试，并将日志文件存储于jar_result文件下
-java -jar holo-e2e-performance-tool-1.0.0.jar test_update.conf FIXED_COPY > ./jar_result/fixed_copy_$(date '+%Y-%m-%d-%H:%M:%S').log
+java -jar holo-e2e-performance-tool-1.0.1.jar test_update.conf FIXED_COPY > ./jar_result/fixed_copy_$(date '+%Y-%m-%d-%H:%M:%S').log
 ```
 ### 局部更新
 - 创建名为test_update_part.conf的测试配置文件
+
 ```
 -- 连接配置
 holoClient.jdbcUrl=jdbc:hologres://<ENDPOINT>:<PORT>/<DBNAME>
@@ -160,16 +166,17 @@ put.deleteTableAfterDone=false
 put.vacuumTableBeforeRun=false
 ```
 
-   - 配置参数说明：
-      - 相比于全局更新场景，局部更新场景需要增加参数writeColumnCount，该参数用于定义数据写入全部TEXT列中的几列。本文均将该参数设为表列数columnCount的50%。
-      - 其他参数含义与全局更新场景一致，且均可保持不变。
+- 配置参数说明：
+     - 相比于全局更新场景，局部更新场景需要增加参数writeColumnCount，该参数用于定义数据写入全部TEXT列中的几列。本文均将该参数设为表列数columnCount的50%。
+     - 其他参数含义与全局更新场景一致，且均可保持不变。
 - 执行如下语句进行测试：
+
 ```
 --测试语句格式
 java -jar <JAR_file_name> test_update_part.conf <mode> > <log_file_location>
 
 --示例：使用Fixed copy模式进行数据写入测试，并将日志文件存储于jar_result文件下
-java -jar holo-e2e-performance-tool-1.0.0.jar test_update_part.conf FIXED_COPY > ./jar_result/fixed_copy_$(date '+%Y-%m-%d-%H:%M:%S').log
+java -jar holo-e2e-performance-tool-1.0.1.jar test_update_part.conf FIXED_COPY > ./jar_result/fixed_copy_$(date '+%Y-%m-%d-%H:%M:%S').log
 ```
 
 ## 点查
@@ -189,6 +196,7 @@ java -jar holo-e2e-performance-tool-1.0.0.jar test_update_part.conf FIXED_COPY >
 - 注意：自行创建的数据表中必须包含单列主键，主键数据类型为INT或BIGINT，同时需要注意主键的连续性。
 
 - 创建名为test.conf的测试配置文件
+
 ```
 -- 连接配置
 holoClient.jdbcUrl=jdbc:hologres://<ENDPOINT>:<PORT>/<DBNAME>
@@ -225,18 +233,20 @@ put.columnSize=20
 |  | async | true | 点查测试的模式是否为异步。 | 参数取值如下：<br />- true：表示异步。<br />- false：表示同步。<br /> |
 |  | vacuumTableBeforeRun | true | 测试开始前是否执行vacuum操作。 | 参数取值如下：<br />- true：表示执行vacuum操作。<br />- false：表示不执行vacuum操作。<br />执行vacuum会强制触发Compaction操作。 |
 |  | keyRangeParams | 无 | 点查的主键参数范围，格式为<I/L><Start-End> | 参数取值如下：<br />- I/L：I表示INT类型，L表示BIGINT类型。<br />- Start：主键起始值。<br />- End：主键结束值。<br />比如L0-5000，表示BIGINT类型，主键值为0-5000。<br />点查测试过程中，测试工具会在配置的范围内随机生成目标主键进行查询。 |
+|  | dumpMemoryStat | false | 是否在测试结束前收集内存信息 |
 | 表初始化配置 | rowNumber | 1000000 | 测试的目标行数 | |
 |  | orientation | row |表的存储类型 | 参数取值如下：<br />- row：行存表<br />- row,column：行列共存表<br /> |
 |  | 其他 | |除rowNumber，orientation，tableName外其他表配置可以参考写入的表配置参数| |
 - 执行如下语句进行测试：
+
 ```
 --测试语句格式
 java -jar <JAR_file_name> test.conf <mode> > <log_file_location>
 
 --示例：使用GET模式进行点查测试，并将日志文件存储于jar_result文件下
   同一份配置文件，先通过PREPARE_GET_DATA模式准备数据，再通过GET模式进行点查测试
-java -jar holo-e2e-performance-tool-1.0.0.jar test.conf PREPARE_GET_DATA
-java -jar holo-e2e-performance-tool-1.0.0.jar test.conf GET > ./jar_result/select_$(date '+%Y-%m-%d-%H:%M:%S').log
+java -jar holo-e2e-performance-tool-1.0.1.jar test.conf PREPARE_GET_DATA
+java -jar holo-e2e-performance-tool-1.0.1.jar test.conf GET > ./jar_result/select_$(date '+%Y-%m-%d-%H:%M:%S').log
 ```
 
 ## 前缀扫描
@@ -250,10 +260,11 @@ java -jar holo-e2e-performance-tool-1.0.0.jar test.conf GET > ./jar_result/selec
 ### 操作步骤
 说明：
 
-- 如果自动生成的数据无法满足您需要的点查业务场景，您可以自行写入业务数据，完成主键、分布列、分段列等表属性的创建，而后根据如下步骤进行点查性能测试。
+- 如果自动生成的数据无法满足您需要的前缀扫描业务场景，您可以自行写入业务数据，完成主键、分布列、分段列等表属性的创建，而后根据如下步骤进行前缀扫描性能测试。
 - 注意：自行创建的数据表中必须包含单列主键，主键数据类型为INT或BIGINT，同时需要注意主键的连续性。
 
 - 创建名为test.conf的测试配置文件
+
 ```
 -- 连接配置
 holoClient.jdbcUrl=jdbc:hologres://<ENDPOINT>:<PORT>/<DBNAME>
@@ -284,24 +295,92 @@ put.columnSize=20
 |  | username | 空 | 当前阿里云账号的AccessKey ID。 | 您可以登录[AccessKey 管理](https://ram.console.aliyun.com/manage/ak?spm=5176.2020520207.nav-right.dak.538b4c12VYbuIb)，获取AccessKey ID。 |
 |  | password | 空 | 当前阿里云账号的AccessKey Secret。 | 您可以登录[AccessKey 管理](https://ram.console.aliyun.com/manage/ak?spm=5176.2020520207.nav-right.dak.538b4c12VYbuIb)，获取AccessKey Secret。 |
 |  | readThreadSize | 1 | 查询场景的连接数。 | <br />- 异步模式下，为提高攒批效率，建议设为线程数threadSize的2-4倍。<br />- 同步模式下，为确保计算资源充分利用，建议适当调高连接数。本文设置的连接数为100。<br /> |
-| 测试配置 | threadSize | 10 | 线程数。 | 针对本文测试的64核实例规格：<br />- 在异步点查模式下建议设置线程数为8。<br />- 在同步点查模式下建议设置线程数为500。<br />您可以根据实例规格适当调整该参数。 |
+| 测试配置 | threadSize | 10 | 线程数。 | <br />您可以根据实例规格适当调整该参数。 |
 |  | testTime | 600000 | 测试的目标时间，单位为毫秒。 |  |
 |  | tableName | holo_perf | 测试的目标表名。 |  |
 |  | vacuumTableBeforeRun | true | 测试开始前是否执行vacuum操作。 | 参数取值如下：<br />- true：表示执行vacuum操作。<br />- false：表示不执行vacuum操作。<br />执行vacuum会强制触发Compaction操作。 |
 |  | keyRangeParams | 无 | 前缀扫描的前缀主键参数范围，格式为<I/L><Start-End> | 参数取值如下：<br />- I/L：I表示INT类型，L表示BIGINT类型。<br />- Start：主键起始值。<br />- End：主键结束值。<br />比如L0-5000，表示BIGINT类型，主键值为0-5000。<br />点查测试过程中，测试工具会在配置的范围内随机生成目标主键进行查询。 |
+|  | dumpMemoryStat | false | 是否在测试结束前收集内存信息 |
 | 表初始化配置 | rowNumber | 1000000 | 测试的目标行数 | |
 |  | orientation | row |表的存储类型 | 参数取值如下：<br />- row：行存表<br />- row,column：行列共存表<br /> |
 |  | recordCountPerPrefix | 100 | 每个前缀值对应多少条数据 | |
 |  | 其他 | |除rowNumber，orientation，tableName外其他表配置可以参考写入的表配置参数| |
 - 执行如下语句进行测试：
+
 ```sql
 --测试语句格式
 java -jar <JAR_file_name> test.conf <mode> > <log_file_location>
 
 --示例：使用SCAN模式进行前缀扫描测试，并将日志文件存储于jar_result文件下
-  同一份配置文件，先通过PREPARE_SCAN_DATA模式准备数据，再通过SCAN模式进行前缀扫描测试
-java -jar holo-e2e-performance-tool-1.0.0.jar test.conf PREPARE_SCAN_DATA
-java -jar holo-e2e-performance-tool-1.0.0.jar test.conf SCAN > ./jar_result/select_$(date '+%Y-%m-%d-%H:%M:%S').log
+  同一份配置文件，先通过PREPARE_SCAN_DATA模式准备数据，再通过SCAN模式进行点查测试
+java -jar holo-e2e-performance-tool-1.0.1.jar test.conf PREPARE_SCAN_DATA
+java -jar holo-e2e-performance-tool-1.0.1.jar test.conf SCAN > ./jar_result/select_$(date '+%Y-%m-%d-%H:%M:%S').log
+```
+
+## 消费binlog
+### 原理说明
+消费binlog模式说明：
+消费binlog模式主要分为两个阶段，其中第一阶段，会在数据准备阶段生成开启binlog的表，并往表里写数据生成binlog，在数据写完后，第一阶段结束;第二阶段会订阅binlog，进行消费。
+
+消费binlog测试原理：
+
+- 在测试过程中，测试工具会根据设置的消费起始位点进行消费，直到binlog消费完毕或达到目标时间后停止，计算测试结果。
+### 操作步骤
+说明：
+
+- 如果自动生成的数据无法满足您需要的消费binlog业务场景，您可以自行写入业务数据，完成主键、分布列、分段列，binlog等表属性的创建，而后根据如下步骤进行消费binlog性能测试。
+- 注意：自行创建的数据表中必须开启binlog。
+
+- 创建名为test.conf的测试配置文件
+
+```
+-- 连接配置
+holoClient.jdbcUrl=jdbc:hologres://<ENDPOINT>:<PORT>/<DBNAME>
+holoClient.username=<AccessKey_ID>
+holoClient.password=<AccessKey_Secret>
+holoClient.binlogHeartBeatIntervalMs=60000
+
+-- 测试配置
+binlog.threadSize=10
+binlog.testTime=300000
+binlog.tableName=kv_test
+binlog.vacuumTableBeforeRun=true
+
+-- 表初始化配置
+prepareBinlogData.rowNumber=1000000
+```
+
+- 配置参数说明：
+   
+| 模块 | 参数 | 默认值 | 描述 | 备注 |
+| --- | --- | --- | --- | --- |
+| 连接配置 | 空 | jdbcUrl | Hologres的JDBC连接串，格式为jdbc:hologres://<ENDPOINT>:<PORT>/<DBNAME>。 | ENDPOINT需要填写Hologres实例的VPC网络地址。 |
+|  | username | 空 | 当前阿里云账号的AccessKey ID。 | 您可以登录[AccessKey 管理](https://ram.console.aliyun.com/manage/ak?spm=5176.2020520207.nav-right.dak.538b4c12VYbuIb)，获取AccessKey ID。 |
+|  | password | 空 | 当前阿里云账号的AccessKey Secret。 | 您可以登录[AccessKey 管理](https://ram.console.aliyun.com/manage/ak?spm=5176.2020520207.nav-right.dak.538b4c12VYbuIb)，获取AccessKey Secret。 |
+|  | binlogHeartBeatIntervalMs | -1 | 发送BinlogHeartBeatRecord的间隔 | -1表示不发送 当binlog没有新数据，每binlogHeartBeatIntervalMs会下发一条BinlogHeartBeatRecord，record的timestamp表示截止到这个时间的数据都已经消费完了. |
+| 测试配置 | threadSize | 10 | 线程数。 | <br />您可以根据实例规格适当调整该参数。 |
+|  | testTime | 600000 | 测试的目标时间，单位为毫秒。 |  |
+|  | tableName | holo_perf | 测试的目标表名。 |  |
+|  | slotName | holo_perf_slot | 测试的slot名。 |  |
+|  | publicationName | holo_perf_publication | 测试的publication名。 | |
+|  | binlogStartTime | 当前时间6小时前 | 消费的起始时间点位，格式为(yyyy-mm-dd 00:00:00) ||
+|  | vacuumTableBeforeRun | true | 测试开始前是否执行vacuum操作。 | 参数取值如下：<br />- true：表示执行vacuum操作。<br />- false：表示不执行vacuum操作。<br />执行vacuum会强制触发Compaction操作。 |
+|  | dumpMemoryStat | false | 是否在测试结束前收集内存信息 |
+| 表初始化配置 | rowNumber | 1000000 | 测试的目标行数 | |
+|  | shardCount | 40 |建表的shard数 | 对于已有表可以不填 | ｜
+|  | recreatePublicationAndSlot | true | 是否需要重建publication和slot | |
+|  | binlogTTL | 19600 | 建表的binlog ttl 单位秒 | |
+|  | 其他 | |上述配置外的其他表配置可以参考写入的表配置参数| |
+- 执行如下语句进行测试：
+
+```sql
+--测试语句格式
+java -jar <JAR_file_name> test.conf <mode> > <log_file_location>
+
+--示例：使用BINLOG模式进行消费binlog测试，并将日志文件存储于jar_result文件下
+  同一份配置文件，先通过PREPARE_BINLOG_DATA模式准备数据，再通过BINLOG模式进行消费binlog测试
+java -jar holo-e2e-performance-tool-1.0.1.jar test.conf PREPARE_BINLOG_DATA
+java -jar holo-e2e-performance-tool-1.0.1.jar test.conf BINLOG > ./jar_result/select_$(date '+%Y-%m-%d-%H:%M:%S').log
 ```
 
 # 测试结果
@@ -315,7 +394,8 @@ java -jar holo-e2e-performance-tool-1.0.0.jar test.conf SCAN > ./jar_result/sele
 | qps1 | 最后1分钟的平均QPS |  |
 | qps5 | 最后5分钟的平均QPS |  |
 | qps15 | 最后15分钟的平均QPS |  |
-| latencyMean | 平均延迟 | GET/INSERT/SCAN场景收集 |
-| latencyP99 | P99延迟 | GET/INSERT/SCAN场景收集场景收集 |
-| latencyP999 | P999延迟 | GET/INSERT/SCAN场景收集 |
+| latencyMean | 平均延迟 | GET/INSERT/SCAN/BINLOG场景收集 |
+| latencyP99 | P99延迟 | GET/INSERT/SCAN/BINLOG场景收集场景收集 |
+| latencyP999 | P999延迟 | GET/INSERT/SCAN/BINLOG场景收集 |
+| memoryUsage | 请求结束时，客户端的内存使用量，单位KB | 默认0，手动开启dumpMemoryStat参数后收集 |
 | version | 实例版本 |  |

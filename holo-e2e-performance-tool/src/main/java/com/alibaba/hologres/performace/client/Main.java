@@ -31,6 +31,12 @@ public class Main {
         case "SCAN":
           new ScanTest().run(args[0]);
           break;
+        case "PREPARE_BINLOG_DATA":
+          new PrepareBinlogData().run(args[0]);
+          break;
+        case "BINLOG":
+          new BinlogTest().run(args[0]);
+          break;
         default:
           throw new Exception("unknow method " + args[1]);
       }

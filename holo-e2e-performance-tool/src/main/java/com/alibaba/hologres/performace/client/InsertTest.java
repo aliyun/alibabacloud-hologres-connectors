@@ -4,10 +4,8 @@ package com.alibaba.hologres.performace.client;
 import com.alibaba.hologres.client.HoloClient;
 import com.alibaba.hologres.client.HoloConfig;
 import com.alibaba.hologres.client.Put;
-import com.alibaba.hologres.client.RecordOutputFormat;
-import com.alibaba.hologres.client.impl.ConnectionHolder;
+
 import com.alibaba.hologres.client.impl.ExecutionPool;
-import com.alibaba.hologres.client.model.ImportContext;
 import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.utils.ConfLoader;
 import com.alibaba.hologres.client.utils.Metrics;
@@ -53,69 +51,74 @@ public class InsertTest extends PutTest {
     public void run() {
       HoloConfig poolConf = new HoloConfig();
       HoloConfig clientConf = new HoloConfig();
+      HoloClient client = null;
+      HoloClientExecutionPool pool = null;
       try {
         ConfLoader.load(confName, "holoClient.", poolConf);
         ConfLoader.load(confName, "holoClient.", clientConf);
         ConfLoader.load(confName, "pool.", poolConf);
 
-        String executionPoolName = "hello";
-        if (!insertTestConf.singleExecutionPool) {
-          executionPoolName += "_" + id;
-        }
         Meter meter = Metrics.registry().meter(Metrics.METRICS_WRITE_RPS);
-        ExecutionPool pool = ExecutionPool.buildOrGet(executionPoolName, poolConf, true, poolConf.isUseFixedFe());
-        try (HoloClient client = new HoloClient(clientConf)) {
-          Random rand = new Random();
-          if (poolConf.isUseFixedFe()) {
-            client.setFixedPool(pool);
-          } else {
-            client.setPool(pool);
-          }
-          TableSchema schema = client.getTableSchema(conf.tableName);
-          int i = 0;
-          List<String> writeColumns = Util.getWriteColumnsName(conf, schema);
-          while (true) {
-            long pk = tic.incrementAndGet();
-            ++i;
-            if(conf.testByTime) {
-              if (i % 1000 == 0) {
-                if (System.currentTimeMillis() > targetTime) {
-                  LOG.info("test time reached");
-                  totalCount.addAndGet(i-1);
-                  break;
-                }
-              }
-            } else {
-              if (pk > conf.rowNumber) {
-                LOG.info("insert write : {}", i - 1);
+        client = new HoloClient(clientConf);
+        pool = new HoloClientExecutionPool(poolConf, this.id, insertTestConf.singleExecutionPool);
+        pool.setHoloClientPool(client);
+        Random rand = new Random();
+        TableSchema schema = client.getTableSchema(conf.tableName);
+        int i = 0;
+        List<String> writeColumns = Util.getWriteColumnsName(conf, schema);
+        while (true) {
+          long pk = tic.incrementAndGet();
+          ++i;
+          if(conf.testByTime) {
+            if (i % 1000 == 0) {
+              if (System.currentTimeMillis() > targetTime) {
+                LOG.info("test time reached");
                 totalCount.addAndGet(i-1);
                 break;
               }
             }
-            Put put = newPut(pk, schema, rand, writeColumns);
-            client.put(put);
+          } else {
+            if (pk > conf.rowNumber) {
+              LOG.info("insert write : {}", i - 1);
+              totalCount.addAndGet(i-1);
+              break;
+            }
           }
-          client.flush();
-        } finally {
-          if (insertTestConf.singleExecutionPool && singleExecutionPoolJobSize.decrementAndGet() == 0 || (!insertTestConf.singleExecutionPool)) {
+          Put put = newPut(pk, schema, rand, writeColumns, insertTestConf.enableRandomPartialColumn);
+          client.put(put);
+        }
+        client.flush();
+      } catch (Exception e) {
+        e.printStackTrace();
+      } finally {
+        if (conf.dumpMemoryStat) {
+          try {
+            barrier.await();
+          } catch (Exception e) {
+            e.printStackTrace();
+          }
+        }
+        if(client != null) {
+          client.close();
+        }
+        if (insertTestConf.singleExecutionPool && singleExecutionPoolJobSize.decrementAndGet() == 0 || (!insertTestConf.singleExecutionPool)) {
+          if (pool != null) {
             pool.close();
           }
         }
-
-      } catch (Exception e) {
-        e.printStackTrace();
       }
     }
   }
 
 
-  private Put newPut(long id, TableSchema schema, Random random, List<String> writeColumns) {
+  private Put newPut(long id, TableSchema schema, Random random, List<String> writeColumns, boolean enableRandomPartialColumn) {
     Put put = new Put(schema);
-    fillRecord(put.getRecord(), id, schema, random, writeColumns);
+    fillRecord(put.getRecord(), id, schema, random, writeColumns, enableRandomPartialColumn);
     return put;
   }
 }
 
 class InsertTestConf {
   public boolean singleExecutionPool = true;
+  public boolean enableRandomPartialColumn = false;
 }

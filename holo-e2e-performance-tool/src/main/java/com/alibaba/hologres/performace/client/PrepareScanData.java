@@ -20,6 +20,7 @@ public class PrepareScanData extends FixedCopyTest{
         conf.hasPk = true;
         conf.orientation = prepareScanDataConf.orientation;
         conf.deleteTableAfterDone = false;
+        conf.dumpMemoryStat = false;
     }
 }
 
