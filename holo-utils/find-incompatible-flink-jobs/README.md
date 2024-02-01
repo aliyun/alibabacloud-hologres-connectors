@@ -19,7 +19,7 @@ mvn clean package
 java -cp find-incompatible-flink-jobs-1.0-SNAPSHOT-jar-with-dependencies.jar com.alibaba.hologres.FindIncompatibleFlinkJobs <region> <url> <AccessKeyId> <AccessKeySecret> <binlog/rpc>
 ```
 共有5个参数，含义是：
- 1. region: 目标实时计算Flink版项目空间所在的region中文名，取值详见下方表格
+ 1. region: 目标实时计算Flink版项目空间所在的地域名，取值详见下方列表
  2. url: 目标实时计算Flink版项目任意一个作业的连接地址
  3. AccessKeyId: 能访问实时计算Flink版项目空间的账号Id
  4. AccessKeySecret: 能访问实时计算Flink版项目空间的账号Secret
@@ -29,7 +29,7 @@ java -cp find-incompatible-flink-jobs-1.0-SNAPSHOT-jar-with-dependencies.jar com
 
 比如，我的实时计算Flink版本所在的region是北京，检查整个项目空间中是否有需要调整的不兼容的hologres binlog源表
 ```bash
-java -cp find-incompatible-flink-jobs-1.0-SNAPSHOT-jar-with-dependencies.jar com.alibaba.hologres.FindIncompatibleFlinkJobs 北京 https://vvp.console.aliyun.com/web/aaa/zh/#/workspaces/my-workspace/namespaces/my-namespace/operations my-access-key-id my-access-key-secret binlog
+java -cp find-incompatible-flink-jobs-1.0-SNAPSHOT-jar-with-dependencies.jar com.alibaba.hologres.FindIncompatibleFlinkJobs cn-beijing https://vvp.console.aliyun.com/web/aaa/zh/#/workspaces/my-workspace/namespaces/my-namespace/operations my-access-key-id my-access-key-secret binlog
 ```
 运行结果可能如下：
 ```bash
@@ -40,20 +40,22 @@ read_binlog_deployment_001 vvr-8.0.1-flink-1.17 order_source_table
 ```
 之后便可以根据输出结果，对相应作业的版本进行调整，建议升级到8.0.5以上版本。
 
-#### region取值参考如下表格
+#### region参数取值如下，请根据自己项目空间所在地域选择合适的取值
 
-|     地域     |   取值   |
-|:----------:|:------:|
-|  中国（北京）	   |   北京   |
-|  中国（上海）	   |   上海   |
-|  中国（杭州）	   |   杭州   |
-|  中国（深圳）	   |   深圳   |
-|  中国（张家口）	  |  张家口   |
-|  中国（香港）	   |   香港   |
-|    新加坡     |  	新加坡  |
-|  德国（法兰克福）  |  	德国   |
-|    英国	     |   英国   |
-| 印度尼西亚（雅加达） | 	印度尼西亚 |
-|   马来西亚	    |  马来西亚  |
-|   美国（硅谷）   |  	美国   |
-|   上海金融云	   | 上海金融云  |
+```
+cn-hangzhou
+cn-shanghai
+cn-beijing
+cn-zhangjiakou
+cn-shenzhen
+cn-hongkong
+cn-shanghai-finance-1
+ap-northeast-1
+ap-southeast-1
+ap-southeast-3
+ap-southeast-5
+ap-south-1
+eu-central-1
+us-east-1
+us-west-1
+```

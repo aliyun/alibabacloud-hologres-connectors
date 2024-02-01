@@ -189,6 +189,19 @@ public class FindIncompatibleFlinkJobs {
             put("马来西亚", "ververica.ap-southeast-3.aliyuncs.com");
             put("美国", "ververica.us-west-1.aliyuncs.com");
             put("上海金融云", "ververica.cn-shanghai-finance-1.aliyuncs.com");
+            put("cn-beijing", "ververica.cn-beijing.aliyuncs.com");
+            put("cn-shanghai", "ververica.cn-shanghai.aliyuncs.com");
+            put("cn-hangzhou", "ververica.cn-hangzhou.aliyuncs.com");
+            put("cn-shenzhen", "ververica.cn-shenzhen.aliyuncs.com");
+            put("cn-zhangjiakou", "ververica.cn-zhangjiakou.aliyuncs.com");
+            put("cn-hongkong", "ververica.cn-hongkong.aliyuncs.com");
+            put("ap-northeast-1", "ververica.ap-southeast-1.aliyuncs.com");
+            put("eu-central-1", "ververica.eu-central-1.aliyuncs.com");
+            put("eu-west-1", "ververica.eu-west-1.aliyuncs.com");
+            put("ap-southeast-5", "ververica.ap-southeast-5.aliyuncs.com");
+            put("ap-southeast-3", "ververica.ap-southeast-3.aliyuncs.com");
+            put("us-west-1", "ververica.us-west-1.aliyuncs.com");
+            put("cn-shanghai-finance-1", "ververica.cn-shanghai-finance-1.aliyuncs.com");
         }
     };
 
