@@ -44,6 +44,7 @@ public class SqlUtil {
         try (Statement stmt = conn.createStatement()) {
             for(Map.Entry<String, String> entry : gucMapping.entrySet()) {
                 String sql = "ALTER DATABASE \"" + dbName + "\" SET " + entry.getKey() + " = " + entry.getValue();
+                LOGGER.info("set guc {}", sql);
                 stmt.execute(sql);
             }
         } catch (SQLException e) {

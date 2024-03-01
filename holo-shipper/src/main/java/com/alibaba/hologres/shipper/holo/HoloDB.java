@@ -32,6 +32,34 @@ public class HoloDB extends AbstractDB {
         this.user = user;
         this.password = password;
         this.dbName = dbName;
+        try (HoloClient client = HoloUtils.getHoloClient(jdbcUrl, user, password)) {
+            hasToolkit = (boolean) client.sql(conn -> {
+                boolean ret = false;
+                try (Statement stmt = conn.createStatement()) {
+                    try (ResultSet rs = stmt.executeQuery("select count(1) from pg_available_extensions where name = 'hg_toolkit'")) {
+                        rs.next();
+                        ret = rs.getBoolean(1);
+                    }
+                } catch (Exception e) {
+                    LOGGER.warn("Failed to confirm the existence of hg_toolkit: {}", e);
+                }
+                return ret;
+            }).get();
+            //某些久远的0.x版本需要手动创建hg_toolkit extension
+            if (!hasToolkit) {
+                hasToolkit = (boolean) client.sql(conn -> {
+                    try (Statement stmt = conn.createStatement()) {
+                        stmt.executeUpdate("CREATE EXTENSION IF NOT EXISTS hg_toolkit");
+                    } catch (Exception e) {
+                        LOGGER.warn("Failed to create extension hg_toolkit: {}", e);
+                        return false;
+                    }
+                    return true;
+                }).get();
+            }
+        } catch (Exception e) {
+            LOGGER.error("{}", e);
+        }
     }
 
     public TablesMeta getMetadata(JSONObject shipList, JSONObject blackList, boolean restoreOwner, boolean restorePriv, boolean restoreForeign, boolean restoreView) {
@@ -157,30 +185,6 @@ public class HoloDB extends AbstractDB {
             }else
                 tableInfoList = possibleTables;
 
-            hasToolkit = (boolean) client.sql(conn->{
-                boolean ret = false;
-                try (Statement stmt = conn.createStatement()) {
-                    try (ResultSet rs = stmt.executeQuery("select count(1) from pg_available_extensions where name = 'hg_toolkit'")) {
-                        rs.next();
-                        ret = rs.getBoolean(1);
-                    }
-                } catch (Exception e) {
-                    LOGGER.warn("Failed to confirm the existence of hg_toolkit: {}", e);
-                }
-                return ret;
-            }).get();
-            //某些久远的0.x版本需要手动创建hg_toolkit extension
-            if (!hasToolkit) {
-                hasToolkit = (boolean)client.sql(conn->{
-                    try (Statement stmt = conn.createStatement()) {
-                        stmt.executeUpdate("CREATE EXTENSION IF NOT EXISTS hg_toolkit");
-                    } catch (Exception e) {
-                        LOGGER.warn("Failed to create extension hg_toolkit: {}", e);
-                        return false;
-                    }
-                    return true;
-                }).get();
-            }
             tablesMeta.tableInfoList = tableInfoList;
             //get spm and slpm info
             boolean spm = (boolean) client.sql(conn -> {
