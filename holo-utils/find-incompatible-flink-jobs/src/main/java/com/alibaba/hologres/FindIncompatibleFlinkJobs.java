@@ -129,7 +129,7 @@ public class FindIncompatibleFlinkJobs {
     }
 
     public static void checkBinlog(String sql, String deploymentName, String deploymentVersion) {
-        if (sql.contains("hologres") && sql.contains("binlog")) {
+        if (sql.contains("binlog")) {
             Set<Map<String, String>> allHologresTables = extractParameters(sql);
             for (Map<String, String> table : allHologresTables) {
                 String tableName = table.get("tablename");
@@ -152,7 +152,7 @@ public class FindIncompatibleFlinkJobs {
     }
 
     public static void checkRpc(String sql, String deploymentName, String deploymentVersion) {
-        if (sql.contains("hologres") && sql.contains("rpc")) {
+        if (sql.contains("rpc")) {
             Set<Map<String, String>> allHologresTables = extractParameters(sql);
             for (Map<String, String> table : allHologresTables) {
                 String tableName = table.get("tablename");
@@ -251,6 +251,28 @@ public class FindIncompatibleFlinkJobs {
             if ("hologres".equalsIgnoreCase(parameters.get("connector"))) {
                 allHologresTables.add(parameters);
             }
+        }
+
+        // 匹配包含'OPTIONS'的完整块，并捕获括号中的内容，忽略大小写，用于catalog
+        String optionsBlockRegex = "(?i)OPTIONS\\s*\\((.*?)\\)";
+        Pattern optionsBlockPattern = Pattern.compile(optionsBlockRegex, Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
+        Matcher optionsBlockMatcher = optionsBlockPattern.matcher(input);
+
+        while (optionsBlockMatcher.find()) {
+            // 从 'OPTIONS' 块中捕获的内容
+            String optionsBlockContent = optionsBlockMatcher.group(1);
+            // 匹配所有键值对
+            String kvRegex = "'(.*?)'\\s*=\\s*'([^']*)'";
+            Pattern kvPattern = Pattern.compile(kvRegex, Pattern.CASE_INSENSITIVE);
+            Matcher kvMatcher = kvPattern.matcher(optionsBlockContent);
+            Map<String, String> parameters = new HashMap<>();
+            while (kvMatcher.find()) {
+                String key = kvMatcher.group(1).toLowerCase();
+                String value = kvMatcher.group(2);
+                parameters.put(key, value);
+            }
+            // 添加提取出来的options参数映射到结果集
+            allHologresTables.add(parameters);
         }
         return allHologresTables;
     }

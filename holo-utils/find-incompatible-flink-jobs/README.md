@@ -7,6 +7,7 @@ find-incompatible-flink-jobs 是基于[阿里云开发者工具套件](https://h
 ## 要求
 - 具备superuser权限的账号，或其他能访问实时计算Flink版项目空间的账号
 - 且有JAVA环境的机器
+- 此工具只支持扫描sql作业，无法扫描jar作业以及不使用Hints方式指定参数的catalog作业
 
 ### 命令行参数
 
