@@ -40,6 +40,7 @@ public class HologresConnectionParam implements Serializable {
     private final boolean ignoreNullWhenUpdate;
     private final boolean jdbcEnableRemoveU0000InText;
     private final boolean enableDeduplication;
+    private final boolean enableAggressive;
 
     // dirty data strategy
     private DirtyDataStrategy dirtyDataStrategy = DirtyDataStrategy.EXCEPTION;
@@ -65,6 +66,8 @@ public class HologresConnectionParam implements Serializable {
     private final long jdbcWriteBatchByteSize;
     private final long jdbcWriteBatchTotalByteSize;
     private final long jdbcWriteFlushInterval;
+    private final boolean enableAffectedRows;
+    private final boolean enableTargetShards;
     private final Boolean jdbcUseLegacyPutHandler;
     private final boolean jdbcEnableDefaultForNotNullColumn;
     // JDBC dim
@@ -72,7 +75,7 @@ public class HologresConnectionParam implements Serializable {
     // JDBC copy sink
     private final boolean copyWriteMode;
     private final String copyWriteFormat;
-    private boolean copyWriteDirectConnect;
+    private boolean directConnect;
 
     private final boolean bulkLoad;
 
@@ -124,6 +127,8 @@ public class HologresConnectionParam implements Serializable {
                 properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_WRITE_BATCH_TOTAL_BYTE_SIZE);
         this.jdbcWriteFlushInterval =
                 properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_WRITE_FLUSH_INTERVAL);
+        this.enableAffectedRows = properties.get(HologresJDBCConfigs.OPTIONAL_ENABLE_AFFECTED_ROWS);
+        this.enableTargetShards = properties.get(HologresJDBCConfigs.OPTIONAL_ENABLE_TARGET_SHARDS);
         this.jdbcUseLegacyPutHandler =
                 properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_USE_LEGACY_PUT_HANDLER);
         this.jdbcEnableDefaultForNotNullColumn =
@@ -133,10 +138,11 @@ public class HologresConnectionParam implements Serializable {
                 properties.get(HologresJDBCConfigs.OPTIONAL_ENABLE_REMOVE_U0000_IN_TEXT);
         this.enableDeduplication =
                 properties.get(HologresJDBCConfigs.OPTIONAL_ENABLE_DEDUPLICATION);
+        this.enableAggressive = properties.get(HologresJDBCConfigs.OPTIONAL_ENABLE_AGGRESSIVE);
         this.insertIfNotExists = properties.get(HologresJDBCConfigs.INSERT_IF_NOT_EXISTS);
         this.copyWriteMode = properties.get(HologresJDBCConfigs.COPY_WRITE_MODE);
         this.copyWriteFormat = properties.get(HologresJDBCConfigs.COPY_WRITE_FORMAT);
-        this.copyWriteDirectConnect = properties.get(HologresJDBCConfigs.COPY_WRITE_DIRECT_CONNECT);
+        this.directConnect = properties.get(HologresJDBCConfigs.DIRECT_CONNECT);
         this.bulkLoad = properties.get(HologresJDBCConfigs.OPTIONAL_BULK_LOAD);
     }
 
@@ -264,6 +270,10 @@ public class HologresConnectionParam implements Serializable {
         return enableDeduplication;
     }
 
+    public boolean isEnableAggressive() {
+        return enableAggressive;
+    }
+
     public int getJdbcRetryCount() {
         return jdbcRetryCount;
     }
@@ -312,16 +322,99 @@ public class HologresConnectionParam implements Serializable {
         return copyWriteFormat;
     }
 
-    public boolean isCopyWriteDirectConnect() {
-        return copyWriteDirectConnect;
+    public boolean isDirectConnect() {
+        return directConnect;
     }
 
-    public void setCopyWriteDirectConnect(boolean copyWriteDirectConnect) {
-        this.copyWriteDirectConnect = copyWriteDirectConnect;
+    public void setDirectConnect(boolean directConnect) {
+        this.directConnect = directConnect;
+    }
+
+    public boolean isEnableAffectedRows() {
+        return enableAffectedRows;
+    }
+
+    public boolean isEnableTargetShards() {
+        return enableTargetShards;
     }
 
     @Override
     public String toString() {
-        return "HologresConnectionParam{" + "options=" + options + '}';
+        return "HologresConnectionParam{"
+                + "options="
+                + options
+                + ", splitDataSize="
+                + splitDataSize
+                + ", ignoreDelete="
+                + ignoreDelete
+                + ", createMissingPartTable="
+                + createMissingPartTable
+                + ", ignoreNullWhenUpdate="
+                + ignoreNullWhenUpdate
+                + ", remove-u0000-in-text.enabled="
+                + jdbcEnableRemoveU0000InText
+                + ", deduplication.enabled="
+                + enableDeduplication
+                + ", affect-rows.enabled"
+                + enableAffectedRows
+                + ", aggressive.enabled="
+                + enableAggressive
+                + ", target-shards.enabled="
+                + enableTargetShards
+                + ", dirtyDataStrategy="
+                + dirtyDataStrategy
+                + ", jdbcRetryCount="
+                + jdbcRetryCount
+                + ", jdbcRetrySleepInitMs="
+                + jdbcRetrySleepInitMs
+                + ", jdbcRetrySleepStepMs="
+                + jdbcRetrySleepStepMs
+                + ", jdbcConnectionMaxIdleMs="
+                + jdbcConnectionMaxIdleMs
+                + ", jdbcMetaCacheTTL="
+                + jdbcMetaCacheTTL
+                + ", jdbcMetaAutoRefreshFactor="
+                + jdbcMetaAutoRefreshFactor
+                + ", connectionPoolName='"
+                + connectionPoolName
+                + '\''
+                + ", connectionPoolSize="
+                + connectionPoolSize
+                + ", fixedConnectionMode="
+                + fixedConnectionMode
+                + ", jdbcReadBatchSize="
+                + jdbcReadBatchSize
+                + ", jdbcReadBatchQueueSize="
+                + jdbcReadBatchQueueSize
+                + ", jdbcScanFetchSize="
+                + jdbcScanFetchSize
+                + ", jdbcScanTimeoutSeconds="
+                + jdbcScanTimeoutSeconds
+                + ", writeMode="
+                + writeMode
+                + ", jdbcWriteBatchSize="
+                + jdbcWriteBatchSize
+                + ", jdbcWriteBatchByteSize="
+                + jdbcWriteBatchByteSize
+                + ", jdbcWriteBatchTotalByteSize="
+                + jdbcWriteBatchTotalByteSize
+                + ", jdbcWriteFlushInterval="
+                + jdbcWriteFlushInterval
+                + ", jdbcUseLegacyPutHandler="
+                + jdbcUseLegacyPutHandler
+                + ", jdbcEnableDefaultForNotNullColumn="
+                + jdbcEnableDefaultForNotNullColumn
+                + ", insertIfNotExists="
+                + insertIfNotExists
+                + ", copyWriteMode="
+                + copyWriteMode
+                + ", copyWriteFormat='"
+                + copyWriteFormat
+                + '\''
+                + ", directConnect="
+                + directConnect
+                + ", bulkLoad="
+                + bulkLoad
+                + '}';
     }
 }

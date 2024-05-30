@@ -14,6 +14,8 @@ public class HologresJDBCConfigs {
             key("connectionPoolName".toLowerCase()).stringType().noDefaultValue();
     public static final ConfigOption<Boolean> OPTIONAL_JDBC_FIXED_CONNECTION_MODE =
             key("fixedConnectionMode".toLowerCase()).booleanType().defaultValue(false);
+    public static final ConfigOption<Boolean> DIRECT_CONNECT =
+            key("jdbcDirectConnect".toLowerCase()).booleanType().defaultValue(false);
     public static final ConfigOption<String> OPTIONAL_CONNECTION_SSL_MODE =
             key("connection.ssl.mode".toLowerCase()).stringType().defaultValue("disable");
     public static final ConfigOption<String> OPTIONAL_CONNECTION_SSL_ROOT_CERT_LOCATION =
@@ -59,9 +61,13 @@ public class HologresJDBCConfigs {
     public static final ConfigOption<Boolean> OPTIONAL_JDBC_ENABLE_DEFAULT_FOR_NOT_NULL_COLUMN =
             key("jdbcEnableDefaultForNotNullColumn".toLowerCase()).booleanType().defaultValue(true);
     public static final ConfigOption<Boolean> OPTIONAL_ENABLE_REMOVE_U0000_IN_TEXT =
-            key("remove-u0000-in-text.enabled".toLowerCase()).booleanType().defaultValue(false);
+            key("remove-u0000-in-text.enabled".toLowerCase()).booleanType().defaultValue(true);
     public static final ConfigOption<Boolean> OPTIONAL_ENABLE_DEDUPLICATION =
             key("deduplication.enabled".toLowerCase()).booleanType().defaultValue(true);
+    public static final ConfigOption<Boolean> OPTIONAL_ENABLE_AGGRESSIVE =
+            key("aggressive.enabled".toLowerCase()).booleanType().defaultValue(false);
+    public static final ConfigOption<Boolean> OPTIONAL_ENABLE_AFFECTED_ROWS =
+            key("affect-rows.enabled".toLowerCase()).booleanType().defaultValue(true);
 
     // Dim options
     public static final ConfigOption<Boolean> INSERT_IF_NOT_EXISTS =
@@ -78,7 +84,8 @@ public class HologresJDBCConfigs {
                             "copy format will be binary or text, if value is not binary, we use text");
     public static final ConfigOption<Boolean> OPTIONAL_BULK_LOAD =
             key("bulkLoad".toLowerCase()).booleanType().defaultValue(false);
-
-    public static final ConfigOption<Boolean> COPY_WRITE_DIRECT_CONNECT =
-            key("jdbcCopyWriteDirectConnect".toLowerCase()).booleanType().defaultValue(true);
+    // 仅copy模式生效，根据总并发数，当前并发id和写入表的shard数，计算当前task将会写入的target shard，需要上游数据已经基于distribution
+    // key进行了Repartition，且使用取余的方式分布在了holo的shard上
+    public static final ConfigOption<Boolean> OPTIONAL_ENABLE_TARGET_SHARDS =
+            key("target-shards.enabled".toLowerCase()).booleanType().defaultValue(false);
 }

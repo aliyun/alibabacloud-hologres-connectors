@@ -73,6 +73,8 @@ public class HologresJDBCClientProvider {
         holoConfig.setUseFixedFe(param.isFixedConnectionMode());
         holoConfig.setSslMode(jdbcOptions.getSslMode());
         holoConfig.setSslRootCertLocation(jdbcOptions.getSslRootCertLocation());
+        holoConfig.setEnableDirectConnection(param.isDirectConnect());
+        holoConfig.setEnableAffectedRows(param.isEnableAffectedRows());
 
         // reader config
         holoConfig.setReadThreadSize(param.getConnectionPoolSize());
@@ -92,7 +94,7 @@ public class HologresJDBCClientProvider {
         holoConfig.setWriteMode(param.getJDBCWriteMode());
         holoConfig.setEnableDeduplication(param.isEnableDeduplication());
         holoConfig.setRemoveU0000InTextColumnValue(param.isJdbcEnableRemoveU0000InText());
-
+        holoConfig.setEnableAggressive(param.isEnableAggressive());
         holoConfig.setDynamicPartition(param.isCreateMissingPartTable());
 
         return holoConfig;

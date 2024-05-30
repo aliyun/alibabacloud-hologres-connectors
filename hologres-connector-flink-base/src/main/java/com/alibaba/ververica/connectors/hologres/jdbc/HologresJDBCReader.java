@@ -30,7 +30,6 @@ public class HologresJDBCReader<T> extends HologresReader<T> {
     private final HologresRecordConverter<T, Record> recordConverter;
     private transient HologresJDBCClientProvider clientProvider;
     protected final boolean insertIfNotExists;
-    private transient HologresTableSchema schema;
 
     public HologresJDBCReader(
             String[] primaryKeys,
@@ -70,14 +69,7 @@ public class HologresJDBCReader<T> extends HologresReader<T> {
         if (insertIfNotExists) {
             LOG.info("Hologres dim table will insert new record if primary key does not exist.");
         }
-        try {
-            this.clientProvider = new HologresJDBCClientProvider(param);
-            schema =
-                    new HologresTableSchema(
-                            clientProvider.getClient().getTableSchema(param.getTable()));
-        } catch (HoloClientException e) {
-            throw new RuntimeException(e);
-        }
+        this.clientProvider = new HologresJDBCClientProvider(param);
         LOG.info(
                 "Successfully initiated connection to database [{}] / table[{}]",
                 param.getJdbcOptions().getDatabase(),

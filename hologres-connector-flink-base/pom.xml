@@ -8,7 +8,7 @@
     <parent>
         <groupId>com.alibaba.hologres</groupId>
         <artifactId>hologres-connector-parent</artifactId>
-        <version>1.4.0-SNAPSHOT</version>
+        <version>1.4.1-SNAPSHOT</version>
     </parent>
 
     <artifactId>hologres-connector-flink-base</artifactId>
@@ -87,7 +87,7 @@
             </activation>
             <properties>
                 <flinkVvrVersion>1.15-vvr-6.0.7-1</flinkVvrVersion>
-                <flinkVersion>1.15.3</flinkVersion>
+                <flinkVersion>1.15.4</flinkVersion>
             </properties>
         </profile>
         <profile>

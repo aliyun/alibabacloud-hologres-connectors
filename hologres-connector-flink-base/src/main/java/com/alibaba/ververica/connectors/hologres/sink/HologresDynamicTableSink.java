@@ -50,7 +50,7 @@ public class HologresDynamicTableSink implements DynamicTableSink {
         HologresTableSchema hologresTableSchema = HologresTableSchema.get(param.getJdbcOptions());
         HologresWriter<RowData> hologresWriter;
         if (jdbcCopy) {
-            param.setCopyWriteDirectConnect(JDBCUtils.couldDirectConnect(param.getJdbcOptions()));
+            param.setDirectConnect(JDBCUtils.couldDirectConnect(param.getJdbcOptions()));
             int numFrontends = JDBCUtils.getNumberFrontends(param.getJdbcOptions());
             int frontendOffset =
                     numFrontends > 0 ? (Math.abs(new Random().nextInt()) % numFrontends) : 0;

@@ -23,7 +23,6 @@ public class HologresJDBCWriter<T> extends HologresWriter<T> {
     private static final transient Logger LOG = LoggerFactory.getLogger(HologresJDBCWriter.class);
 
     private transient HologresJDBCClientProvider clientProvider;
-    private transient HologresTableSchema schema;
     private HologresRecordConverter<T, Record> recordConverter;
 
     public HologresJDBCWriter(
@@ -53,17 +52,11 @@ public class HologresJDBCWriter<T> extends HologresWriter<T> {
     @Override
     public void open(RuntimeContext runtimeContext) throws IOException {
         LOG.info(
-                "Initiating connection to database [{}] / table[{}]",
+                "Initiating connection to database [{}] / table[{}], whole connection params: {}",
                 param.getJdbcOptions().getDatabase(),
-                param.getTable());
-        try {
-            this.clientProvider = new HologresJDBCClientProvider(param);
-            schema =
-                    new HologresTableSchema(
-                            clientProvider.getClient().getTableSchema(param.getTable()));
-        } catch (HoloClientException e) {
-            throw new IOException(e);
-        }
+                param.getTable(),
+                param);
+        this.clientProvider = new HologresJDBCClientProvider(param);
         LOG.info(
                 "Successfully initiated connection to database [{}] / table[{}]",
                 param.getJdbcOptions().getDatabase(),

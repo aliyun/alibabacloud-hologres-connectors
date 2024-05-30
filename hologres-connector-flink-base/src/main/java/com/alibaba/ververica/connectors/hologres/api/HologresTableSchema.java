@@ -1,5 +1,6 @@
 package com.alibaba.ververica.connectors.hologres.api;
 
+import com.alibaba.hologres.client.Command;
 import com.alibaba.hologres.client.HoloClient;
 import com.alibaba.hologres.client.HoloConfig;
 import com.alibaba.hologres.client.exception.HoloClientException;
@@ -12,9 +13,11 @@ import java.io.Serializable;
 /** A class wrapper of Hologres TableSchema class to distinguish with Flink's TableSchema class. */
 public class HologresTableSchema implements Serializable {
     private final TableSchema hologresSchema;
+    private final int shardCount;
 
-    public HologresTableSchema(TableSchema hologresSchema) {
+    public HologresTableSchema(TableSchema hologresSchema, int shardCount) {
         this.hologresSchema = hologresSchema;
+        this.shardCount = shardCount;
     }
 
     public static HologresTableSchema get(JDBCOptions jdbcOptions) {
@@ -25,8 +28,9 @@ public class HologresTableSchema implements Serializable {
         try {
             HoloClient client = new HoloClient(holoConfig);
             TableSchema tableSchema = client.getTableSchema(jdbcOptions.getTable());
+            int shardCount = Command.getShardCount(client, tableSchema);
             client.close();
-            return new HologresTableSchema(tableSchema);
+            return new HologresTableSchema(tableSchema, shardCount);
         } catch (HoloClientException e) {
             throw new RuntimeException(e);
         }
@@ -42,5 +46,9 @@ public class HologresTableSchema implements Serializable {
             throw new RuntimeException("Hologres table does not have column " + columnName);
         }
         return hologresSchema.getColumn(index);
+    }
+
+    public int getShardCount() {
+        return shardCount;
     }
 }

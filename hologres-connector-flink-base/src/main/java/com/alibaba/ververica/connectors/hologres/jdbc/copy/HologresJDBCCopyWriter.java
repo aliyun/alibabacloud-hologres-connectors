@@ -32,6 +32,9 @@ import java.io.IOException;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Collectors;
 
 import static com.alibaba.hologres.client.model.WriteMode.INSERT_OR_IGNORE;
 import static com.alibaba.hologres.client.model.WriteMode.INSERT_OR_UPDATE;
@@ -43,6 +46,8 @@ public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
     private final int frontendOffset;
     private final int numFrontends;
     private int taskNumber;
+    private int numTasks;
+    private final int shardCount;
     private final boolean bulkLoad;
     private transient CopyContext copyContext;
     private boolean checkDirtyData = true;
@@ -53,12 +58,14 @@ public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
             TableSchema tableSchema,
             HologresRecordConverter<T, Record> converter,
             int numFrontends,
-            int frontendOffset) {
+            int frontendOffset,
+            int shardCount) {
         super(param, tableSchema);
         this.recordConverter = converter;
         this.numFrontends = numFrontends;
         this.frontendOffset = frontendOffset;
         this.bulkLoad = param.isBulkLoad();
+        this.shardCount = shardCount;
     }
 
     public static HologresJDBCCopyWriter<RowData> createRowDataWriter(
@@ -78,16 +85,19 @@ public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
                                 tableSchema.getFieldNames(), hologresTableSchema),
                         hologresTableSchema),
                 numFrontends,
-                frontendOffset);
+                frontendOffset,
+                hologresTableSchema.getShardCount());
     }
 
     @Override
     public void open(RuntimeContext runtimeContext) {
         LOG.info(
-                "Initiating connection to database [{}] / table[{}]",
+                "Initiating connection to database [{}] / table[{}], whole connection params: {}",
                 param.getJdbcOptions().getDatabase(),
-                param.getTable());
+                param.getTable(),
+                param);
         taskNumber = runtimeContext.getIndexOfThisSubtask();
+        numTasks = runtimeContext.getNumberOfParallelSubtasks();
         copyContext = new CopyContext();
         copyContext.init(param);
         LOG.info(
@@ -220,7 +230,7 @@ public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
                         choseFrontendId);
                 url += ("?options=fe=" + choseFrontendId);
                 // for none public cloud, we connect to holo fe with inner ip:port directly
-                if (param.isCopyWriteDirectConnect()) {
+                if (param.isDirectConnect()) {
                     url = JDBCUtils.getJdbcDirectConnectionUrl(param.getJdbcOptions(), url);
                     LOG.info("will connect directly to fe id {} with url {}", choseFrontendId, url);
                 }
@@ -239,6 +249,34 @@ public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
                     stat.execute("set statement_timeout = '8h';");
                 } catch (SQLException e) {
                     throw new RuntimeException("set statement_timeout to 8h failed because", e);
+                }
+                try (Statement stat = pgConn.createStatement()) {
+                    stat.execute(
+                            "set hg_experimental_enable_fixed_dispatcher_affected_rows = off;");
+                } catch (SQLException ignored) {
+                    // 不抛出异常: copy不需要返回影响行数所以默认关闭,但此guc仅部分版本支持,而且设置失败不影响程序运行
+                    LOG.warn(
+                            "set hg_experimental_enable_fixed_dispatcher_affected_rows failed because ",
+                            ignored);
+                }
+                if (param.isEnableTargetShards()) {
+                    String result =
+                            getTargetShardList().stream()
+                                    .map(String::valueOf)
+                                    .collect(Collectors.joining(","));
+                    LOG.info(
+                            "enable target-shards, numTasks: {}, this taskNumber: {}, target shard list: {}",
+                            numTasks,
+                            taskNumber,
+                            result);
+                    try (Statement stat = pgConn.createStatement()) {
+                        stat.execute(
+                                String.format(
+                                        "set hg_experimental_target_shard_list = '%s'", result));
+                    } catch (SQLException e) {
+                        throw new RuntimeException(
+                                "set hg_experimental_target_shard_list failed because ", e);
+                    }
                 }
                 manager = new CopyManager(pgConn);
                 LOG.info("init new manager success");
@@ -272,5 +310,14 @@ public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
     private int chooseFrontendId() {
         // hologres frontend id starts from 1
         return (taskNumber + frontendOffset) % numFrontends + 1;
+    }
+
+    private List<Integer> getTargetShardList() {
+        List<Integer> targetShardList = new ArrayList<>();
+        for (int i = 0; i * numTasks + taskNumber <= shardCount; i++) {
+            int p = i * numTasks + taskNumber;
+            targetShardList.add(p);
+        }
+        return targetShardList;
     }
 }
