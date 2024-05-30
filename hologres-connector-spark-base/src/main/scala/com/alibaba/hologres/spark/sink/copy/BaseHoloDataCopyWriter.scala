@@ -21,11 +21,12 @@ import java.io.IOException
 abstract class BaseHoloDataCopyWriter(
                                        hologresConfigs: HologresConfigs,
                                        sparkSchema: StructType,
-                                       holoSchema: TableSchema) extends Logging {
+                                       holoSchema: TableSchema,
+                                       targetShardList: String = "") extends Logging {
   private val logger = LoggerFactory.getLogger(getClass)
 
   private val copyContext: CopyContext = new CopyContext
-  copyContext.init(hologresConfigs)
+  copyContext.init(hologresConfigs, targetShardList)
   private val binary: Boolean = hologresConfigs.copy_write_format == "binary"
 
   private val recordLength: Int = sparkSchema.fields.length

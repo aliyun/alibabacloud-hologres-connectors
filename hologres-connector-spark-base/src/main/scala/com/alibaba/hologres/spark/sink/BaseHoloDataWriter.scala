@@ -92,7 +92,7 @@ abstract class BaseHoloDataWriter(
         }
       }
     } catch {
-      case e :Exception =>
+      case e: Exception =>
         // 打印convert失败的数据行
         logger.error(s"convert spark InternalRow to Hologres Record failed, InternalRow $row, record $put.getRecord")
         throw new SparkHoloException(e)

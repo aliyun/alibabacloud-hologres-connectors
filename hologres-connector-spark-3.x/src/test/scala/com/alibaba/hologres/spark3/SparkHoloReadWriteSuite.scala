@@ -1,8 +1,9 @@
 package com.alibaba.hologres.spark3
 
+import com.alibaba.hologres.client.{Command, HoloClient, HoloConfig}
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.{Row, SaveMode}
-import com.alibaba.hologres.spark.WriteType
+import com.alibaba.hologres.spark.{CustomerPartition, HoloKeySelector, WriteType}
 
 import java.sql.{Date, Timestamp}
 
@@ -212,6 +213,126 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
       .option(SourceProvider.WRITE_MODE, "insertOrUpdate")
       .option(SourceProvider.COPY_WRITE_MODE, "true")
       .option(SourceProvider.BULK_LOAD, "true")
+      .option(SourceProvider.COPY_WRITE_DIRTY_DATA_CHECK, "true")
+      .mode(SaveMode.Overwrite)
+      .save()
+
+    val readDf = spark.read
+      .format("hologres")
+      .schema(newSchema) // 指定读取哪些字段
+      .option(SourceProvider.USERNAME, testUtils.username)
+      .option(SourceProvider.PASSWORD, testUtils.password)
+      .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
+      .option(SourceProvider.TABLE, table)
+      .load().orderBy("pk").cache()
+
+    assert(df.count() == 4)
+    // compare read and write
+    if (df.except(readDf).count() > 0) {
+      df.show()
+      readDf.show()
+      throw new Exception("The data read is inconsistent with the data written！！！")
+    }
+  }
+
+  test("SaveMode = overwrite child table with schema") {
+    val parentTable = "test.\"Table-Parent\""
+    val partitionValue = "20240527"
+    val table = "test.\"Table-Child_20240527\""
+
+    testUtils.dropTable(parentTable)
+    testUtils.createSchema("test")
+    testUtils.createPartitionTable(defaultCreateHoloParentTableDDL, parentTable, table, partitionValue)
+
+    val byteA = Array(4.toByte, 5.toByte, 6.toByte, 'q'.toByte, 'e'.toByte)
+    val intA = Array(4, 5, 6)
+    val doubleA = Array(2.333, 3.444, 4.555)
+    val date = Date.valueOf("2024-05-27")
+
+    val data1 = Seq(
+      Row(0L, -7L, 20, "phone1", 6.7F, Timestamp.valueOf("2021-03-29 00:00:00"), byteA, intA, doubleA, date),
+      Row(1L, 6L, -30, "phone2", 7.8F, Timestamp.valueOf("2021-04-01 12:00:00"), byteA, intA, doubleA, date)
+    )
+
+    val data2 = Seq(
+      Row(0L, -7L, 20, "phone1", 6.7F, Timestamp.valueOf("2021-03-29 00:00:00"), byteA, intA, doubleA, date),
+      Row(1L, -7L, 20, "phone1", 6.7F, Timestamp.valueOf("2021-03-29 00:00:00"), byteA, intA, doubleA, date),
+      Row(2L, 6L, -30, "phone2", 7.8F, Timestamp.valueOf("2021-04-01 12:00:00"), byteA, intA, doubleA, date),
+      Row(3L, 6L, -30, "phone2", 7.8F, Timestamp.valueOf("2021-04-01 12:00:00"), byteA, intA, doubleA, date)
+    )
+
+    val newSchema = StructType(Array(
+      StructField("pk", LongType),
+      StructField("id", LongType),
+      StructField("count", IntegerType),
+      StructField("name", StringType),
+      StructField("thick", FloatType),
+      StructField("time", TimestampType),
+      StructField("by", BinaryType),
+      StructField("inta", ArrayType(IntegerType)),
+      StructField("doublea", ArrayType(DoubleType)),
+      StructField("dt", DateType)
+    ))
+
+    val holoConf = new HoloConfig
+    holoConf.setUsername(testUtils.username)
+    holoConf.setPassword(testUtils.password)
+    holoConf.setJdbcUrl(testUtils.jdbcUrl)
+    val client = new HoloClient(holoConf)
+    val holoSchema = client.getTableSchema(table)
+    val shardCount = Command.getShardCount(client, holoSchema)
+
+    val keySelector = new HoloKeySelector(shardCount, newSchema, holoSchema)
+    val partitioner = new CustomerPartition(shardCount)
+
+    var df = spark.createDataFrame(
+      spark.sparkContext.parallelize(data1),
+      newSchema
+    ).orderBy("pk").cache()
+
+    var rdd =
+      df.rdd.map(row => {
+          (keySelector.getKey(row), row)
+        })
+        .partitionBy(partitioner)
+        .map(_._2)
+
+    spark.createDataFrame(rdd, newSchema)
+      .write
+      .format("hologres")
+      .option(SourceProvider.USERNAME, testUtils.username)
+      .option(SourceProvider.PASSWORD, testUtils.password)
+      .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
+      .option(SourceProvider.TABLE, table)
+      .option(SourceProvider.WRITE_MODE, "insertOrUpdate")
+      .option(SourceProvider.COPY_WRITE_MODE, "true")
+      .option(SourceProvider.ENABLE_TARGET_SHARDS, "true")
+      .option(SourceProvider.COPY_WRITE_DIRTY_DATA_CHECK, "true")
+      .mode(SaveMode.Overwrite)
+      .save()
+
+    df = spark.createDataFrame(
+      spark.sparkContext.parallelize(data2),
+      newSchema
+    ).orderBy("pk").cache()
+
+    rdd = df.rdd.map(row => {
+        (keySelector.getKey(row), row)
+      })
+      .partitionBy(partitioner)
+      .map(_._2)
+
+    spark.createDataFrame(rdd, newSchema)
+      .write
+      .format("hologres")
+      .option(SourceProvider.USERNAME, testUtils.username)
+      .option(SourceProvider.PASSWORD, testUtils.password)
+      .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
+      .option(SourceProvider.TABLE, table)
+      .option(SourceProvider.WRITE_MODE, "insertOrUpdate")
+      .option(SourceProvider.COPY_WRITE_MODE, "true")
+      .option(SourceProvider.BULK_LOAD, "true")
+      .option(SourceProvider.ENABLE_TARGET_SHARDS, "true")
       .option(SourceProvider.COPY_WRITE_DIRTY_DATA_CHECK, "true")
       .mode(SaveMode.Overwrite)
       .save()

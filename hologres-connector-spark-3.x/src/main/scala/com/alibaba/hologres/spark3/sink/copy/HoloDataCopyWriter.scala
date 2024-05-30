@@ -11,6 +11,7 @@ import org.apache.spark.sql.types._
 class HoloDataCopyWriter(
                           hologresConfigs: HologresConfigs,
                           sparkSchema: StructType,
-                          holoSchema: TableSchema)
-  extends BaseHoloDataCopyWriter(hologresConfigs, sparkSchema, holoSchema)
+                          holoSchema: TableSchema,
+                          targetShardList: String = "")
+  extends BaseHoloDataCopyWriter(hologresConfigs, sparkSchema, holoSchema, targetShardList)
     with DataWriter[InternalRow]

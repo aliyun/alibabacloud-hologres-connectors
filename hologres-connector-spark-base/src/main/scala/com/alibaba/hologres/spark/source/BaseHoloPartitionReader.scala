@@ -33,7 +33,7 @@ class BaseHoloPartitionReader(hologresConfigs: HologresConfigs,
   init()
 
   def init(): Unit = {
-    val queryTemplate: String = JDBCUtil.getSimpleSelectFromStatement(holoSchema.getTableName, sparkSchema.fields.map(_.name))
+    val queryTemplate: String = JDBCUtil.getSimpleSelectFromStatement(holoSchema.getTableNameObj.getFullName, sparkSchema.fields.map(_.name))
     val query: String = queryTemplate + " WHERE hg_shard_id >= " + shardIdRange._1 + " and hg_shard_id < " + shardIdRange._2
     logger.info("the bulk read query: {}", query)
     logger.info("the sparkSchema: {}", sparkSchema)

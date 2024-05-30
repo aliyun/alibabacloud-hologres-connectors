@@ -26,15 +26,21 @@ class HoloWriter(
   logger.info("HoloWriter begin: " + LocalDateTime.now())
   val hologresConfigs: HologresConfigs = new HologresConfigs(holoOptions)
   var is_overwrite: Boolean = mode == SaveMode.Overwrite
+  private var partitionInfo: (String, String) = _
+
   if (is_overwrite) {
-    hologresConfigs.tempTableForOverwrite = hologresConfigs.table + new Random().nextInt(Int.MaxValue) + "_temp"
+    hologresConfigs.tempTableForOverwrite = JDBCUtil.generateTempTableNameForOverwrite(hologresConfigs)
     JDBCUtil.createTempTableForOverWrite(hologresConfigs)
   }
 
   override def commit(messages: Array[WriterCommitMessage]): Unit = {
     logger.info("HoloWriter commit: " + LocalDateTime.now())
     if (is_overwrite) {
-      JDBCUtil.renameTempTableForOverWrite(hologresConfigs)
+      if (partitionInfo.eq(null)) {
+        JDBCUtil.renameTempTableForOverWrite(hologresConfigs)
+      } else {
+        JDBCUtil.renameTempTableForOverWrite(hologresConfigs, partitionInfo._1, partitionInfo._2)
+      }
     }
   }
 
@@ -56,12 +62,15 @@ class HoloWriter(
   override def createWriterFactory(): DataWriterFactory[InternalRow] = {
     val holoClient: HoloClient = new HoloClient(hologresConfigs.holoConfig)
     try {
-      var holoSchema: TableSchema = null
+      var holoSchema = holoClient.getTableSchema(TableName.valueOf(hologresConfigs.table))
+      if (holoSchema.isPartitionParentTable && is_overwrite) {
+        throw new IOException("Partition parent table can not be insert overwrite now.")
+      }
+      partitionInfo = JDBCUtil.getChildTablePartitionInfo(hologresConfigs)
+
       if (is_overwrite) {
         // insert overwrite 会先写在一张临时表中，写入成功时替换原表。
         holoSchema = holoClient.getTableSchema(TableName.valueOf(hologresConfigs.tempTableForOverwrite))
-      } else {
-        holoSchema = holoClient.getTableSchema(TableName.valueOf(hologresConfigs.table))
       }
 
       var holoVersion: HoloVersion = null

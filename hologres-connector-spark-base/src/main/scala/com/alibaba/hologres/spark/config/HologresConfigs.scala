@@ -4,6 +4,7 @@ import com.alibaba.hologres.client.HoloConfig
 import com.alibaba.hologres.client.model.{WriteFailStrategy, WriteMode}
 import com.alibaba.hologres.spark.utils.JDBCUtil
 import com.alibaba.hologres.spark.utils.JDBCUtil._
+import org.apache.spark.SparkContext
 
 /** Hologres config parameters process. */
 class HologresConfigs(sourceOptions: Map[String, String]) extends Serializable {
@@ -63,6 +64,7 @@ class HologresConfigs(sourceOptions: Map[String, String]) extends Serializable {
   val copy_write_dirty_data_check: Boolean = sourceOptions.getOrElse("copy_write_dirty_data_check", "false").toBoolean
   var copy_write_direct_connect: Boolean = sourceOptions.getOrElse("copy_write_direct_connect", "true").toBoolean
   val max_cell_buffer_size: Int = sourceOptions.getOrElse("max_cell_buffer_size", "20971520").toInt
+  val enable_target_shards: Boolean = sourceOptions.getOrElse("enable_target_shards", "false").toBoolean
 
   // overwrite来自于用户对SaveMode参数的设置，写入开始会创建临时表并写入，写入成功时会清理原表的数据。
   var tempTableForOverwrite: String = _
@@ -71,5 +73,9 @@ class HologresConfigs(sourceOptions: Map[String, String]) extends Serializable {
   var bulkLoad: Boolean = sourceOptions.getOrElse("bulk_load", "false").toBoolean
 
   holoConfig.setInputNumberAsEpochMsForDatetimeColumn(true)
-  holoConfig.setAppName("hologres-connector-spark")
+  var sparkAppName: String = SparkContext.getOrCreate().appName
+  if (sparkAppName == null || "".eq(sparkAppName)) {
+    sparkAppName = "default"
+  }
+  holoConfig.setAppName("hologres-connector-spark-" + sparkAppName)
 }

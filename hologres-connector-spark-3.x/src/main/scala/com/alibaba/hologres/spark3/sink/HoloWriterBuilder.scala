@@ -1,5 +1,6 @@
 package com.alibaba.hologres.spark3.sink
 
+import com.alibaba.hologres.client.Command.getShardCount
 import com.alibaba.hologres.client.HoloClient
 import com.alibaba.hologres.client.model.{HoloVersion, TableName, TableSchema}
 import com.alibaba.hologres.spark.config.HologresConfigs
@@ -14,12 +15,13 @@ import org.slf4j.LoggerFactory
 
 import java.io.IOException
 import java.time.LocalDateTime
-import java.util.Random
+import scala.collection.mutable.ListBuffer
 
 /** HoloWriterBuilder. */
 class HoloWriterBuilder(sourceOptions: Map[String, String],
                         schema: StructType) extends WriteBuilder with SupportsOverwrite {
   var is_overwrite: Boolean = false
+
   override def overwrite(filters: Array[Filter]): WriteBuilder = {
     is_overwrite = true
     this
@@ -39,16 +41,22 @@ class HoloBatchWriter(
                        is_overwrite: Boolean) extends BatchWrite {
   private val logger = LoggerFactory.getLogger(getClass)
   val hologresConfigs: HologresConfigs = new HologresConfigs(sourceOptions)
+  private var partitionInfo: (String, String) = _
   logger.info("HoloBatchWriter begin: " + LocalDateTime.now())
 
   if (is_overwrite) {
-    hologresConfigs.tempTableForOverwrite = hologresConfigs.table + new Random().nextInt(Int.MaxValue) + "_temp"
+    hologresConfigs.tempTableForOverwrite = JDBCUtil.generateTempTableNameForOverwrite(hologresConfigs)
     JDBCUtil.createTempTableForOverWrite(hologresConfigs)
   }
+
   override def commit(messages: Array[WriterCommitMessage]): Unit = {
     logger.info("HoloBatchWriter commit: " + LocalDateTime.now())
     if (is_overwrite) {
-      JDBCUtil.renameTempTableForOverWrite(hologresConfigs)
+      if (partitionInfo.eq(null)) {
+        JDBCUtil.renameTempTableForOverWrite(hologresConfigs)
+      } else {
+        JDBCUtil.renameTempTableForOverWrite(hologresConfigs, partitionInfo._1, partitionInfo._2)
+      }
     }
   }
 
@@ -60,14 +68,18 @@ class HoloBatchWriter(
   }
 
   override def createBatchWriterFactory(physicalWriteInfo: PhysicalWriteInfo): HoloWriterFactory = {
+    val numPartitions = physicalWriteInfo.numPartitions()
     val holoClient: HoloClient = new HoloClient(hologresConfigs.holoConfig)
     try {
-      var holoSchema: TableSchema = null
+      var holoSchema = holoClient.getTableSchema(TableName.valueOf(hologresConfigs.table))
+      if (holoSchema.isPartitionParentTable && is_overwrite) {
+        throw new IOException("Partition parent table can not be insert overwrite now.")
+      }
+      partitionInfo = JDBCUtil.getChildTablePartitionInfo(hologresConfigs)
+
       if (is_overwrite) {
         // insert overwrite 会先写在一张临时表中，写入成功时替换原表。
         holoSchema = holoClient.getTableSchema(TableName.valueOf(hologresConfigs.tempTableForOverwrite))
-      } else {
-        holoSchema = holoClient.getTableSchema(TableName.valueOf(hologresConfigs.table))
       }
 
       var holoVersion: HoloVersion = null
@@ -76,6 +88,8 @@ class HoloBatchWriter(
         case e: Exception =>
           throw new IOException("Failed to get holo version", e)
       }
+
+      val shardCount = getShardCount(holoClient, holoSchema)
 
       // 用户设置bulkLoad或者发现表无主键且实例版本支持无主键并发COPY，都走bulkLoad
       val supportBulkLoad = holoSchema.getPrimaryKeys.length == 0 && holoVersion.compareTo(new HoloVersion(2, 1, 0)) > 0
@@ -92,7 +106,7 @@ class HoloBatchWriter(
         // 尝试直连，无法直连则各个tasks内的copy writer不需要进行尝试
         hologresConfigs.copy_write_direct_connect = JDBCUtil.couldDirectConnect(hologresConfigs)
       }
-      HoloWriterFactory(hologresConfigs, sparkSchema, holoSchema)
+      HoloWriterFactory(hologresConfigs, sparkSchema, holoSchema, numPartitions, shardCount)
     } finally {
       if (holoClient != null) {
         holoClient.close()
@@ -105,12 +119,29 @@ class HoloBatchWriter(
 case class HoloWriterFactory(
                               hologresConfigs: HologresConfigs,
                               sparkSchema: StructType,
-                              holoSchema: TableSchema) extends DataWriterFactory {
+                              holoSchema: TableSchema,
+                              numPartitions: Int,
+                              shardCount: Int) extends DataWriterFactory {
+  private def getTargetShardList(partitionId: Int): String = {
+    val targetShardList = ListBuffer[Int]()
+    val maxI = (shardCount - partitionId) / numPartitions
+
+    for (i <- 0 to maxI) {
+      val p = i * numPartitions + partitionId
+      targetShardList += p
+    }
+    targetShardList.mkString(",")
+  }
+
   override def createWriter(
                              partitionId: Int,
                              taskId: Long): DataWriter[InternalRow] = {
     if (hologresConfigs.copy_write_mode) {
-      new HoloDataCopyWriter(hologresConfigs, sparkSchema, holoSchema)
+      if (hologresConfigs.enable_target_shards) {
+        new HoloDataCopyWriter(hologresConfigs, sparkSchema, holoSchema, getTargetShardList(partitionId))
+      } else {
+        new HoloDataCopyWriter(hologresConfigs, sparkSchema, holoSchema)
+      }
     } else {
       new HoloDataWriter(hologresConfigs, sparkSchema, holoSchema)
     }

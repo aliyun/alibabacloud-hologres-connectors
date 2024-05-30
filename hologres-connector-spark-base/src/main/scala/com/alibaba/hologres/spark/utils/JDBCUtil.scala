@@ -2,13 +2,13 @@ package com.alibaba.hologres.spark.utils
 
 import com.alibaba.hologres.client.function.FunctionWithSQLException
 import com.alibaba.hologres.client.impl.util.ConnectionUtil
-import com.alibaba.hologres.client.model.HoloVersion
+import com.alibaba.hologres.client.model.{HoloVersion, TableName}
 import com.alibaba.hologres.org.postgresql.PGProperty
 import com.alibaba.hologres.spark.config.HologresConfigs
 import org.apache.commons.lang3.exception.ExceptionUtils
 import org.slf4j.LoggerFactory
-
-import java.sql.{Connection, DriverManager, SQLException}
+import com.alibaba.hologres.client.utils.IdentifierUtil
+import java.sql.{Connection, DriverManager, ResultSet, SQLException}
 import java.util.{Objects, Properties}
 
 /** JDBC utils. */
@@ -118,6 +118,20 @@ object JDBCUtil {
     }
   }
 
+  def generateTempTableNameForOverwrite(hologresConfigs: HologresConfigs): String = {
+    val tableName: TableName = TableName.valueOf(hologresConfigs.table)
+    val tempTableName = String.format("tmp_spark_to_holo_overwrite_%s_%s_%s"
+      , System.currentTimeMillis.toString
+      , hologresConfigs.sparkAppName
+      , tableName.getTableName)
+
+    TableName.valueOf(
+      IdentifierUtil.quoteIdentifier(tableName.getSchemaName, true),
+      // holo表名长度限制127个字符
+      IdentifierUtil.quoteIdentifier(tempTableName.substring(0, math.min(tempTableName.length, 127)), true)
+    ).getFullName
+  }
+
   def createTempTableForOverWrite(hologresConfigs: HologresConfigs): Unit = {
     /*
     BEGIN ;
@@ -132,12 +146,16 @@ object JDBCUtil {
     try {
       conn = createConnection(hologresConfigs)
       val statement = conn.createStatement()
-      statement.execute(String.format("BEGIN;\n"
+      val sql = String.format("BEGIN;\n"
         + "DROP TABLE IF EXISTS %s;\n"
         + "set hg_experimental_enable_create_table_like_properties=on;\n"
         + "CALL HG_CREATE_TABLE_LIKE ('%s', 'select * from %s');\n"
-        + "COMMIT;", hologresConfigs.tempTableForOverwrite, hologresConfigs.tempTableForOverwrite, hologresConfigs.table))
-
+        + "COMMIT;", hologresConfigs.tempTableForOverwrite, hologresConfigs.tempTableForOverwrite, hologresConfigs.table)
+      logger.info("create temp table for overwrite DDL: \n{}", sql)
+      statement.execute(sql)
+    } catch {
+      case e: SQLException =>
+        throw new RuntimeException(e)
     } finally {
       if (conn != null) {
         conn.close()
@@ -145,7 +163,7 @@ object JDBCUtil {
     }
   }
 
-  def renameTempTableForOverWrite(hologresConfigs: HologresConfigs): Unit = {
+  def renameTempTableForOverWrite(hologresConfigs: HologresConfigs, parentTable: String = null, partitionValue: String = null): Unit = {
     /*
     BEGIN ;
     -- 删除旧表
@@ -158,10 +176,27 @@ object JDBCUtil {
     try {
       conn = createConnection(hologresConfigs)
       val statement = conn.createStatement()
-      statement.execute(String.format("BEGIN;\n"
-        + "DROP TABLE IF EXISTS %s;\n"
-        + "ALTER TABLE %s RENAME TO %s;\n"
-        + "COMMIT;", hologresConfigs.table, hologresConfigs.tempTableForOverwrite, hologresConfigs.table))
+      var sql: String = null
+      val tableName: TableName = TableName.valueOf(hologresConfigs.table)
+      val onlyTablename = IdentifierUtil.quoteIdentifier(tableName.getTableName)
+      if (partitionValue == null || parentTable == null) {
+        sql = String.format("BEGIN;\n"
+          + "DROP TABLE IF EXISTS %s;\n"
+          + "ALTER TABLE %s RENAME TO %s;\n"
+          + "COMMIT;", hologresConfigs.table, hologresConfigs.tempTableForOverwrite, onlyTablename)
+      } else {
+        sql = String.format("BEGIN;\n"
+          + "DROP TABLE IF EXISTS %s;\n"
+          + "ALTER TABLE %s RENAME TO %s;\n"
+          + "ALTER TABLE %s ATTACH PARTITION %s FOR VALUES IN(\'%s\');\n"
+          + "COMMIT;", hologresConfigs.table, hologresConfigs.tempTableForOverwrite, onlyTablename,
+          parentTable, hologresConfigs.table, partitionValue)
+      }
+      logger.info("rename temp table for overwrite DDL: \n{}", sql)
+      statement.execute(sql)
+    } catch {
+      case e: SQLException =>
+        throw new RuntimeException(e)
     } finally {
       if (conn != null) {
         conn.close()
@@ -180,9 +215,46 @@ object JDBCUtil {
     try {
       conn = createConnection(hologresConfigs)
       val statement = conn.createStatement()
-      statement.execute(String.format("BEGIN;\n"
+      val sql = String.format("BEGIN;\n"
         + "DROP TABLE IF EXISTS %s;\n"
-        + "COMMIT;", hologresConfigs.tempTableForOverwrite))
+        + "COMMIT;", hologresConfigs.tempTableForOverwrite)
+      logger.info("drop temp table for overwrite DDL: \n{}", sql)
+      statement.execute(sql)
+    } catch {
+      case e: SQLException =>
+        throw new RuntimeException(e)
+    } finally {
+      if (conn != null) {
+        conn.close()
+      }
+    }
+  }
+
+  def getChildTablePartitionInfo(hologresConfigs: HologresConfigs): (String, String) = {
+    /*
+    -- 获取父表名称(test_table)和当前子表的分区值(20230527)
+    CREATE TABLE public.test_table_20230527 PARTITION OF test_table
+      FOR VALUES IN ('20230527');
+    */
+    var conn: Connection = null
+    try {
+      conn = createConnection(hologresConfigs)
+      val statement = conn.createStatement()
+      val rs: ResultSet = statement.executeQuery(String.format("select hg_dump_script('%s');", hologresConfigs.table))
+      if (rs.next) {
+        val pattern = "PARTITION OF ([^']*)\n  FOR VALUES IN \\('([^']*)'\\);".r
+        val dumpScript = rs.getString(1)
+        logger.info("got dump script : \n{}", dumpScript)
+        val matchOption = pattern.findFirstMatchIn(dumpScript)
+        matchOption match {
+          case Some(m) => return (m.group(1), m.group(2))
+          case _ =>
+        }
+      }
+      null
+    } catch {
+      case e: SQLException =>
+        throw new RuntimeException(e)
     } finally {
       if (conn != null) {
         conn.close()

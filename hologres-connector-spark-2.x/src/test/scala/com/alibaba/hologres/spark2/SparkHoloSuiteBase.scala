@@ -78,4 +78,32 @@ abstract class SparkHoloSuiteBase extends QueryTest with SharedSparkSession {
     "    json_column json," +
     "    jsonb_column jsonb," +
     "    rb_column roaringbitmap);"
+
+  val defaultCreateHoloParentTableDDL =
+    "create table PARENT_TABLE_NAME (" +
+      "    pk bigint," +
+      "    st smallint," +
+      "    id bigint," +
+      "    count int," +
+      "    name text," +
+      "    price numeric(38, 12)," +
+      "    out_of_stock bool," +
+      "    weight double precision," +
+      "    thick float4," +
+      "    time timestamptz," +
+      "    dt date," +
+      "    by bytea," +
+      "    inta int4[]," +
+      "    longa int8[]," +
+      "    floata float4[]," +
+      "    doublea float8[]," +
+      "    boola boolean[]," +
+      "    stringa text[]," +
+      "    json_column json," +
+      "    jsonb_column jsonb," +
+      "    rb_column roaringbitmap" +
+      // "    primary key(pk, dt)" +
+      ") PARTITION BY LIST(dt);\n" +
+      "CREATE TABLE TABLE_NAME PARTITION OF PARENT_TABLE_NAME FOR VALUES IN ('PARTITION_VALUE');"
+
 }

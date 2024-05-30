@@ -4,7 +4,6 @@ import com.alibaba.hologres.client.Command.getShardCount
 import com.alibaba.hologres.client.HoloClient
 import com.alibaba.hologres.client.model.TableSchema
 import com.alibaba.hologres.spark.config.HologresConfigs
-import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.connector.read._
 import org.apache.spark.sql.types.StructType

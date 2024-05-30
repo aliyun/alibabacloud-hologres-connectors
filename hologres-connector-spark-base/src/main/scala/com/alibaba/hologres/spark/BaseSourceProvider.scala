@@ -27,4 +27,5 @@ class BaseSourceProvider() {
   val COPY_WRITE_DIRECT_CONNECT = "copy_write_direct_connect"
   val BULK_LOAD = "bulk_load"
   val MAX_CELL_BUFFER_SIZE = "max_cell_buffer_size"
+  val ENABLE_TARGET_SHARDS = "enable_target_shards"
 }

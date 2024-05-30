@@ -20,7 +20,7 @@ class CopyContext {
   var os: RecordOutputStream = _
   var schema: TableSchema = _
 
-  def init(configs: HologresConfigs): Unit = {
+  def init(configs: HologresConfigs, targetShards: String = ""): Unit = {
     try Class.forName("com.alibaba.hologres.org.postgresql.Driver")
     catch {
       case e: ClassNotFoundException =>
@@ -50,6 +50,36 @@ class CopyContext {
       if (conn == null) {
         logger.info("init conn success to " + url)
         conn = DriverManager.getConnection(url, info)
+      }
+
+      try {
+        val stmt = conn.createStatement()
+        stmt.execute("SET hg_experimental_enable_fixed_dispatcher_affected_rows = off")
+        stmt.close()
+      } catch {
+        // 不抛出异常: copy不需要返回影响行数所以默认关闭,但此guc仅部分版本支持,而且设置失败不影响程序运行
+        case e: SQLException =>
+          logger.warn("set hg_experimental_enable_fixed_dispatcher_affected_rows failed.", e)
+      }
+      try {
+        val stmt = conn.createStatement()
+        stmt.execute("set statement_timeout = '8h'")
+        stmt.close()
+      } catch {
+        case e: SQLException =>
+          logger.error("set statement_timeout failed.")
+          throw new RuntimeException(e)
+      }
+      if (configs.enable_target_shards && targetShards != "") {
+        try {
+          val stmt = conn.createStatement()
+          stmt.execute(s"SET hg_experimental_target_shard_list = '$targetShards'")
+          stmt.close()
+        } catch {
+          case e: SQLException =>
+            logger.error("set hg_experimental_target_shard_list failed.")
+            throw new RuntimeException(e)
+        }
       }
       pgConn = conn.unwrap(classOf[PgConnection])
       logger.info("init unwrap conn success")
