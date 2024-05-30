@@ -24,6 +24,7 @@ import static com.alibaba.hologres.client.utils.DataTypeTestUtil.FIXED_PLAN_TYPE
 
 /**
  * 特殊类型的支持测试.
+ * 测试库需要已经安装了postgis和roaringbitmap.
  */
 public class HoloClientTypesTest extends HoloClientTestBase {
 
@@ -80,7 +81,7 @@ public class HoloClientTypesTest extends HoloClientTestBase {
 			String dropSql = "drop table if exists " + tableName;
 			String createSql = "create table " + tableName + "(id int PRIMARY KEY, b geography(POINT,4326))";
 
-			execute(conn, new String[]{"create extension if not exists postgis", dropSql, createSql});
+			execute(conn, new String[]{dropSql, createSql});
 
 			try {
 				TableSchema schema = client.getTableSchema(tableName);
@@ -136,7 +137,7 @@ public class HoloClientTypesTest extends HoloClientTestBase {
 			String tableName = "\"" + "holo_client_type_" + typeName + "\"";
 			String dropSql = "drop table if exists " + tableName;
 			String createSql = "create table " + tableName + "(id " + typeCaseData.getColumnType() + ", pk int primary key)";
-			execute(conn, new String[]{"CREATE EXTENSION if not exists roaringbitmap", dropSql, createSql});
+			execute(conn, new String[]{dropSql, createSql});
 			try {
 				TableSchema schema = client.getTableSchema(tableName, true);
 
@@ -207,7 +208,7 @@ public class HoloClientTypesTest extends HoloClientTestBase {
 			String tableName = "\"" + "holo_client_type_get_" + typeName + "\"";
 			String dropSql = "drop table if exists " + tableName;
 			String createSql = "create table " + tableName + "(id " + typeCaseData.getColumnType() + ", pk int primary key)";
-			execute(conn, new String[]{"CREATE EXTENSION if not exists roaringbitmap", dropSql, createSql});
+			execute(conn, new String[]{dropSql, createSql});
 			try {
 				TableSchema schema = client.getTableSchema(tableName, true);
 

@@ -50,6 +50,7 @@ public class ConnectionHolder implements Closeable {
 	final boolean isEnableGenerateBinlog;
 
 	long lastActiveTs;
+	long connCreateTs;
 	private static List<String> preSqlList;
 	private static byte[] lock = new byte[]{};
 
@@ -132,6 +133,7 @@ public class ConnectionHolder implements Closeable {
 		PGProperty.PASSWORD.set(info, config.getPassword());
 		PGProperty.APPLICATION_NAME.set(info, Version.version + "_" + config.getAppName());
 		PGProperty.SOCKET_TIMEOUT.set(info, 360);
+		PGProperty.LOGIN_TIMEOUT.set(info, 60);
 		if (config.getSslMode() != SSLMode.DISABLE) {
 			PGProperty.SSL.set(info, true);
 			PGProperty.SSL_MODE.set(info, config.getSslMode().getPgPropertyValue());
@@ -210,6 +212,7 @@ public class ConnectionHolder implements Closeable {
 		} else {
 			LOGGER.info("Connected to {}, owner:{}, cost:{} ms, version:{}", this.connWithVersion.jdbcUrl, owner, (end - start) / 1000000L, connWithVersion.version);
 		}
+		connCreateTs = System.currentTimeMillis();
 		return conn;
 	}
 
@@ -336,12 +339,28 @@ public class ConnectionHolder implements Closeable {
 		return lastActiveTs;
 	}
 
+	public long getConnCreateTs() {
+        return connCreateTs;
+    }
+
 	public HoloVersion getVersion() throws HoloClientException {
 		if (connWithVersion.version == null) {
 			connWithVersion.version = retryExecute(conn ->
 					ConnectionUtil.getHoloVersion(conn));
 		}
 		return connWithVersion.version;
+	}
+
+	public void close(String closeReason) {
+		connWithVersion.version = null;
+		if (connWithVersion.conn != null) {
+			try {
+				LOGGER.info("Close connection to {}, owner:{}, reason:{}", connWithVersion.jdbcUrl, owner, closeReason);
+				connWithVersion.conn.close();
+				connWithVersion.conn = null;
+			} catch (SQLException ignore) {
+			}
+		}
 	}
 
 	@Override
@@ -351,7 +370,6 @@ public class ConnectionHolder implements Closeable {
 			try {
 				LOGGER.info("Close connection to {}, owner:{}", connWithVersion.jdbcUrl, owner);
 				connWithVersion.conn.close();
-				LOGGER.info("Closed connection to {}, owner:{}", connWithVersion.jdbcUrl, owner);
 				connWithVersion.conn = null;
 			} catch (SQLException ignore) {
 			}

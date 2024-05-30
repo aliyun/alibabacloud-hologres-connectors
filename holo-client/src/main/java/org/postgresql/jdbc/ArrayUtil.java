@@ -4,6 +4,7 @@ import org.postgresql.core.BaseConnection;
 import org.postgresql.core.Oid;
 import org.postgresql.util.PSQLException;
 
+import java.sql.Array;
 import java.sql.SQLException;
 import java.util.Arrays;
 import java.util.List;
@@ -15,12 +16,20 @@ import java.util.List;
 public class ArrayUtil {
 
 	public static String arrayToString(Object elements) throws PSQLException {
+		if (elements instanceof PgArray) {
+			PgArray array = (PgArray) elements;
+			return array.toString();
+		}
 		final ArrayEncoding.ArrayEncoder arraySupport = ArrayEncoding.getArrayEncoder(elements);
 		final String arrayString = arraySupport.toArrayString(',', elements);
 		return arrayString;
 	}
 
 	public static byte[] arrayToBinary(BaseConnection conn, Object elements, String typeName) throws SQLException {
+		if (elements instanceof PgArray) {
+			PgArray array = (PgArray) elements;
+			return array.toBytes();
+		}
 		final ArrayEncoding.ArrayEncoder arraySupport = ArrayEncoding.getArrayEncoder(elements);
 		int oid = arraySupport.getDefaultArrayTypeOid();
 		// When element is type of String[], the getDefaultArrayTypeOid geturn Oid.VARCHAR_ARRAY.
@@ -32,6 +41,17 @@ public class ArrayUtil {
 		}
 		final byte[] arrayBytes = arraySupport.toBinaryRepresentation(conn, elements, oid);
 		return arrayBytes;
+	}
+
+	public static Array objectToArray(BaseConnection conn, Object obj, String typeName) throws SQLException {
+		Array array = null;
+		if (obj instanceof List) {
+			List<?> list = (List<?>) obj;
+			array = conn.createArrayOf(typeName.substring(1), list.toArray());
+		} else if (obj instanceof Object[]) {
+			array = conn.createArrayOf(typeName.substring(1), (Object[]) obj);
+		}
+		return array;
 	}
 
 	public static void reverse(byte[] array) {

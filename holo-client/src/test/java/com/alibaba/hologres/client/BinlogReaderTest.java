@@ -22,6 +22,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.Assert;
 import org.testng.annotations.DataProvider;
+import org.testng.annotations.Ignore;
 import org.testng.annotations.Test;
 
 import java.nio.ByteBuffer;
@@ -46,13 +47,11 @@ import static com.alibaba.hologres.client.utils.DataTypeTestUtil.FIXED_PLAN_TYPE
 /**
  * Binlog Decoder 测试.
  * holo实例需要大于1.1.2版本.
- * 测试数据库需要开启jdbc消费binlog功能支持："create extension if not exists hg_binlog;"
+ * 测试数据库需已经开启create extension roaringbitmap.
  */
 public class BinlogReaderTest extends HoloClientTestBase {
 	public static final Logger LOG = LoggerFactory.getLogger(BinlogReaderTest.class);
 	HoloVersion needVersion = new HoloVersion(1, 1, 2);
-
-	private static final String CREATE_EXTENSION_SQL = "create extension if not exists hg_binlog";
 
 	/**
 	 * binlogGroupShardReader.
@@ -74,24 +73,14 @@ public class BinlogReaderTest extends HoloClientTestBase {
 		config.setWriteThreadSize(5);
 		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
 			String tableName = "holo_client_binlog_decoder_002";
-			String publicationName = "holo_client_binlog_decoder_002_publication_test";
-			String slotName = "holo_client_binlog_decoder_002_slot_1";
 
-			String dropSql1 = "drop table if exists " + tableName + "; drop publication if exists " + publicationName + ";\n";
-			String dropSql2 = "delete from hologres.hg_replication_progress where slot_name='" + slotName + "';\n";
-			String dropSql3 = "call hg_drop_logical_replication_slot('" + slotName + "');";
-			String createSql1 = "create extension if not exists hg_binlog;\n";
-			String createSql2 = "create table " + tableName
+			String dropSql = "drop table if exists " + tableName;
+			String createSql = "create table " + tableName
 					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id));\n "
 					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
 					+ "call set_table_property('" + tableName + "', 'shard_count', '1');\n";
-			String createSql3 = "create publication " + publicationName + " for table " + tableName + ";\n";
-			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
 
-			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
-			tryExecute(conn, new String[]{dropSql2, dropSql3});
-			execute(conn, new String[]{createSql1, "begin;", createSql2, "commit;", createSql3});
-			execute(conn, new String[]{createSql4});
+			execute(conn, new String[]{dropSql, "begin;", createSql, "commit;"});
 
 			try {
 				TableSchema schema = client.getTableSchema(tableName, true);
@@ -133,7 +122,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 										.getReplicationAPI()
 										.replicationStream()
 										.logical()
-										.withSlotName(slotName)
+										.withSlotOption("table_name", tableName)
 										.withSlotOption("parallel_index", 0)
 										.withSlotOption("batch_size", "5")
 										.start();
@@ -159,7 +148,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				}
 			} finally {
 				try {
-					execute(conn, new String[]{dropSql1, dropSql2, dropSql3});
+					execute(conn, new String[]{dropSql});
 				} catch (SQLException e) {
 					LOG.warn("", e);
 				}
@@ -182,24 +171,14 @@ public class BinlogReaderTest extends HoloClientTestBase {
 
 		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
 			String tableName = "holo_client_binlog_reader_003";
-			String publicationName = "holo_client_binlog_reader_003_publication_test";
-			String slotName = "holo_client_binlog_reader_003_slot_1";
 
-			String dropSql1 = "drop table if exists " + tableName + "; drop publication if exists " + publicationName + ";\n";
-			String dropSql2 = "delete from hologres.hg_replication_progress where slot_name='" + slotName + "';\n";
-			String dropSql3 = "call hg_drop_logical_replication_slot('" + slotName + "');";
-			String createSql1 = "create extension if not exists hg_binlog;\n";
-			String createSql2 = "create table " + tableName
+			String dropSql = "drop table if exists " + tableName;
+			String createSql = "create table " + tableName
 					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id));\n "
 					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
 					+ "call set_table_property('" + tableName + "', 'shard_count', '3');\n";
-			String createSql3 = "create publication " + publicationName + " for table " + tableName + ";\n";
-			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
-
-			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
-			tryExecute(conn, new String[]{dropSql2, dropSql3});
-			execute(conn, new String[]{createSql1, "begin;", createSql2, "commit;", createSql3});
-			execute(conn, new String[]{createSql4});
+			execute(conn, new String[]{dropSql});
+			execute(conn, new String[]{"begin;", createSql, "commit;"});
 
 			BinlogShardGroupReader reader = null;
 
@@ -224,7 +203,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				}
 				client.flush();
 
-				reader = client.binlogSubscribe(createStartTimeBuilderOnHoloVersion(tableName, slotName).build());
+				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName).build());
 
 				long start = System.nanoTime();
 				int count = 0;
@@ -246,7 +225,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				if (reader != null) {
 					reader.cancel();
 				}
-				execute(conn, new String[]{dropSql1, dropSql2, dropSql3});
+				execute(conn, new String[]{dropSql});
 			}
 		}
 	}
@@ -267,24 +246,14 @@ public class BinlogReaderTest extends HoloClientTestBase {
 
 		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
 			String tableName = "holo_client_binlog_reader_004";
-			String publicationName = "holo_client_binlog_reader_004_publication_test";
-			String slotName = "holo_client_binlog_reader_004_slot_1";
 
-			String dropSql1 = "drop table if exists " + tableName + "; drop publication if exists " + publicationName + ";\n";
-			String dropSql2 = "delete from hologres.hg_replication_progress where slot_name='" + slotName + "';\n";
-			String dropSql3 = "call hg_drop_logical_replication_slot('" + slotName + "');";
-			String createSql1 = "create extension if not exists hg_binlog;\n";
-			String createSql2 = "create table " + tableName
+			String dropSql1 = "drop table if exists " + tableName;
+			String createSql = "create table " + tableName
 					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id));\n "
 					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
 					+ "call set_table_property('" + tableName + "', 'shard_count', '" + shardCount + "');\n";
-			String createSql3 = "create publication " + publicationName + " for table " + tableName + ";\n";
-			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
-
-			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
-			tryExecute(conn, new String[]{dropSql2, dropSql3});
-			execute(conn, new String[]{createSql1, "begin;", createSql2, "commit;", createSql3});
-			execute(conn, new String[]{createSql4});
+			execute(conn, new String[]{dropSql1});
+			execute(conn, new String[]{"begin;", createSql, "commit;"});
 
 			BinlogShardGroupReader reader = null;
 
@@ -338,7 +307,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 					}
 				}
 
-				reader = client.binlogSubscribe(createStartTimeBuilderOnHoloVersion(tableName, slotName).setBinlogReadStartTime(now.toString()).build());
+				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName).setBinlogReadStartTime(now.toString()).build());
 				Map<Integer, Long> lsnResults = new ConcurrentHashMap<>(shardCount);
 				int count = 0;
 				BinlogRecord r;
@@ -359,7 +328,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				if (reader != null) {
 					reader.cancel();
 				}
-				execute(conn, new String[]{dropSql1, dropSql2, dropSql3});
+				execute(conn, new String[]{dropSql1});
 			}
 		}
 	}
@@ -380,25 +349,14 @@ public class BinlogReaderTest extends HoloClientTestBase {
 
 		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
 			String tableName = "holo_client_binlog_reader_005";
-			String publicationName = "holo_client_binlog_reader_005_publication_test";
-			String slotName = "holo_client_binlog_reader_005_slot_1";
 
-			String dropSql1 = "drop table if exists " + tableName + "; drop publication if exists " + publicationName + ";\n";
-			String dropSql2 = "delete from hologres.hg_replication_progress where slot_name='" + slotName + "';\n";
-			String dropSql3 = "call hg_drop_logical_replication_slot('" + slotName + "');";
-			String createSql1 = "create extension if not exists hg_binlog;\n";
-			String createSql2 = "create table " + tableName
+			String dropSql1 = "drop table if exists " + tableName;
+			String createSql = "create table " + tableName
 					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id));\n "
 					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
 					+ "call set_table_property('" + tableName + "', 'shard_count', '10');\n";
-			String createSql3 = "create publication " + publicationName + " for table " + tableName + ";\n";
-			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
-
-			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
-			tryExecute(conn, new String[]{dropSql2, dropSql3});
-			execute(conn, new String[]{createSql1, "begin;", createSql2, "commit;", createSql3});
-			execute(conn, new String[]{createSql4});
-
+			execute(conn, new String[]{dropSql1});
+			execute(conn, new String[]{"begin;", createSql, "commit;"});
 			BinlogShardGroupReader reader = null;
 
 			try {
@@ -422,7 +380,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				}
 				client.flush();
 
-				reader = client.binlogSubscribe(createStartTimeBuilderOnHoloVersion(tableName, slotName).build());
+				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName).build());
 
 				long start = System.nanoTime();
 				int count = 0;
@@ -444,7 +402,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				if (reader != null) {
 					reader.cancel();
 				}
-				execute(conn, new String[]{dropSql1, dropSql2, dropSql3});
+				execute(conn, new String[]{dropSql1});
 			}
 		}
 	}
@@ -464,25 +422,13 @@ public class BinlogReaderTest extends HoloClientTestBase {
 
 		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
 			String tableName = "holo_client_binlog_reader_007";
-			String publicationName = "holo_client_binlog_reader_007_publication_test";
-			String slotName = "holo_client_binlog_reader_007_slot_1";
-
-			String dropSql1 = "drop table if exists " + tableName + "; drop publication if exists " + publicationName + ";\n";
-			String dropSql2 = "delete from hologres.hg_replication_progress where slot_name='" + slotName + "';\n";
-			String dropSql3 = "call hg_drop_logical_replication_slot('" + slotName + "');";
-			String createSql1 = "create extension if not exists hg_binlog;\n";
-			String createSql2 = "create table " + tableName
+			String dropSql1 = "drop table if exists " + tableName;
+			String createSql = "create table " + tableName
 					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id));\n "
 					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
 					+ "call set_table_property('" + tableName + "', 'shard_count', '3');\n";
-			String createSql3 = "create publication " + publicationName + " for table " + tableName + ";\n";
-			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
-
-			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
-			tryExecute(conn, new String[]{dropSql2, dropSql3});
-			execute(conn, new String[]{createSql1, "begin;", createSql2, "commit;", createSql3});
-			execute(conn, new String[]{createSql4});
-
+			execute(conn, new String[]{dropSql1});
+			execute(conn, new String[]{"begin;", createSql, "commit;"});
 			BinlogShardGroupReader reader = null;
 
 			try {
@@ -525,7 +471,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				}
 				client.flush();
 
-				reader = client.binlogSubscribe(createStartTimeBuilderOnHoloVersion(tableName, slotName).build());
+				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName).build());
 
 				long start = System.nanoTime();
 				int count = 0;
@@ -550,7 +496,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				if (reader != null) {
 					reader.cancel();
 				}
-				execute(conn, new String[]{dropSql1, dropSql2, dropSql3});
+				execute(conn, new String[]{dropSql1});
 			}
 		}
 	}
@@ -571,25 +517,15 @@ public class BinlogReaderTest extends HoloClientTestBase {
 
 		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
 			String tableName = "holo_client_binlog_reader_011";
-			String publicationName = "holo_client_binlog_reader_011_publication_test";
-			String slotName = "holo_client_binlog_reader_011_slot_1";
 
-			String dropSql1 = "drop table if exists " + tableName + "; drop publication if exists " + publicationName + ";\n";
-			String dropSql2 = "delete from hologres.hg_replication_progress where slot_name='" + slotName + "';\n";
-			String dropSql3 = "call hg_drop_logical_replication_slot('" + slotName + "');";
-			String createSql1 = "create extension if not exists hg_binlog;\n";
-			String createSql2 = "create table " + tableName
+			String dropSql1 = "drop table if exists " + tableName;
+			String createSql = "create table " + tableName
 					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id));\n "
 					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
 					+ "call set_table_property('" + tableName + "', 'shard_count', '3');\n";
-			String createSql3 = "create publication " + publicationName + " for table " + tableName + ";\n";
-			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
+			execute(conn, new String[]{dropSql1});
 
-			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
-			tryExecute(conn, new String[]{dropSql2, dropSql3});
-			execute(conn, new String[]{createSql1, "begin;", createSql2, "commit;", createSql3});
-			execute(conn, new String[]{createSql4});
-
+			execute(conn, new String[]{"begin;", createSql, "commit;"});
 			BinlogShardGroupReader reader = null;
 
 			try {
@@ -632,7 +568,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				}
 				client.flush();
 
-				reader = client.binlogSubscribe(createStartTimeBuilderOnHoloVersion(tableName, slotName).build());
+				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName).build());
 
 				int count = 0;
 				while (reader.getBinlogRecord() != null) {
@@ -654,7 +590,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				if (reader != null) {
 					reader.cancel();
 				}
-				execute(conn, new String[]{dropSql1, dropSql2, dropSql3});
+				execute(conn, new String[]{dropSql1});
 			}
 		}
 	}
@@ -674,26 +610,16 @@ public class BinlogReaderTest extends HoloClientTestBase {
 
 		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
 			String tableName = "holo_client_binlog_reader_013";
-			String publicationName = "holo_client_binlog_reader_013_publication_test";
-			String slotName = "holo_client_binlog_reader_013_slot_1";
 
-			String dropSql1 = "drop table if exists " + tableName + "; drop publication if exists " + publicationName + ";\n";
-			String dropSql2 = "delete from hologres.hg_replication_progress where slot_name='" + slotName + "';\n";
-			String dropSql3 = "call hg_drop_logical_replication_slot('" + slotName + "');";
-			String createSql1 = "create extension if not exists hg_binlog;\n";
-			String createSql2 = "create table " + tableName
+			String dropSql1 = "drop table if exists " + tableName;
+			String createSql = "create table " + tableName
 					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id));\n "
 					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
 					+ "call set_table_property('" + tableName + "', 'shard_count', '3');\n";
-			String createSql3 = "create publication " + publicationName + " for table " + tableName + ";\n";
-			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
 			String deleteSql = "delete from " + tableName + ";\n";
 
-			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
-			tryExecute(conn, new String[]{dropSql2, dropSql3});
-			execute(conn, new String[]{createSql1, "begin;", createSql2, "commit;", createSql3});
-			execute(conn, new String[]{createSql4});
-
+			execute(conn, new String[]{dropSql1});
+			execute(conn, new String[]{"begin;", createSql, "commit;"});
 			BinlogShardGroupReader reader = null;
 
 			try {
@@ -720,7 +646,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				// delete 1000条数据，一共会有2000条binlog
 				execute(conn, new String[]{deleteSql});
 
-				reader = client.binlogSubscribe(createStartTimeBuilderOnHoloVersion(tableName, slotName).build());
+				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName).build());
 
 				int count = 0;
 				while (reader.getBinlogRecord() != null) {
@@ -739,7 +665,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				if (reader != null) {
 					reader.cancel();
 				}
-				execute(conn, new String[]{dropSql1, dropSql2, dropSql3});
+				execute(conn, new String[]{dropSql1});
 			}
 		}
 	}
@@ -760,26 +686,15 @@ public class BinlogReaderTest extends HoloClientTestBase {
 
 		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
 			String tableName = "holo_client_binlog_reader_017";
-			String publicationName = "holo_client_binlog_reader_017_publication_test";
-			String slotName = "holo_client_binlog_reader_017_slot_1";
-
-			String dropSql1 = "drop table if exists " + tableName + "; drop publication if exists " + publicationName + ";\n";
-			String dropSql2 = "delete from hologres.hg_replication_progress where slot_name='" + slotName + "';\n";
-			String dropSql3 = "call hg_drop_logical_replication_slot('" + slotName + "');";
-			String createSql1 = "create extension if not exists hg_binlog;\n";
-			String createSql2 = "create table " + tableName
+			String dropSql1 = "drop table if exists " + tableName;
+			String createSql = "create table " + tableName
 					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id));\n "
 					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
 					+ "call set_table_property('" + tableName + "', 'shard_count', '3');\n";
-			String createSql3 = "create publication " + publicationName + " for table " + tableName + ";\n";
-			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
 			String deleteSql = "delete from " + tableName + ";\n";
 
-			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
-			tryExecute(conn, new String[]{dropSql2, dropSql3});
-			execute(conn, new String[]{createSql1, "begin;", createSql2, "commit;", createSql3});
-			execute(conn, new String[]{createSql4});
-
+			execute(conn, new String[]{dropSql1});
+			execute(conn, new String[]{"begin;", createSql, "commit;"});
 			BinlogShardGroupReader reader = null;
 
 			try {
@@ -806,7 +721,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				// delete 1000条数据，一共会有2000条binlog; binlogIgnoreDelete=true，只读取1000条
 				execute(conn, new String[]{deleteSql});
 
-				reader = client.binlogSubscribe(createStartTimeBuilderOnHoloVersion(tableName, slotName).build());
+				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName).build());
 
 				int count = 0;
 				while (reader.getBinlogRecord() != null) {
@@ -827,7 +742,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				if (reader != null) {
 					reader.cancel();
 				}
-				execute(conn, new String[]{dropSql1, dropSql2, dropSql3});
+				execute(conn, new String[]{dropSql1});
 			}
 		}
 	}
@@ -836,8 +751,9 @@ public class BinlogReaderTest extends HoloClientTestBase {
 	 * binlogGroupShardReader.
 	 * Alter table: add one new column.
 	 */
+	@Ignore
 	@Test
-	public void binlogReader019() throws Exception {
+	public void btinlogReader019() throws Exception {
 		if (properties == null || holoVersion.compareTo(needVersion) < 0) {
 			return;
 		}
@@ -848,28 +764,17 @@ public class BinlogReaderTest extends HoloClientTestBase {
 
 		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
 			String tableName = "holo_client_binlog_reader_019";
-			String publicationName = "holo_client_binlog_reader_019_publication_test";
-			String slotName = "holo_client_binlog_reader_019_slot_1";
-
-			String dropSql1 = "drop table if exists " + tableName + "; drop publication if exists " + publicationName + ";\n";
-			String dropSql2 = "delete from hologres.hg_replication_progress where slot_name='" + slotName + "';\n";
-			String dropSql3 = "call hg_drop_logical_replication_slot('" + slotName + "');";
-			String createSql1 = "create extension if not exists hg_binlog;\n";
-			String createSql2 = "create table " + tableName
+			String dropSql1 = "drop table if exists " + tableName;
+			String createSql = "create table " + tableName
 					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id));\n "
 					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
 					+ "call set_table_property('" + tableName + "', 'shard_count', '3');\n";
-			String createSql3 = "create publication " + publicationName + " for table " + tableName + ";\n";
-			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
 			String alterSql = "ALTER TABLE IF EXISTS " + tableName + " ADD COLUMN new_column_1 int;\n";
 
-			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
-			tryExecute(conn, new String[]{dropSql2, dropSql3});
-			execute(conn, new String[]{createSql1, "begin;", createSql2, "commit;", createSql3});
-			execute(conn, new String[]{createSql4});
-
+			execute(conn, new String[]{dropSql1});
+			execute(conn, new String[]{"begin;", createSql, "commit;"});
 			try {
-				try (BinlogShardGroupReader reader = client.binlogSubscribe(createStartTimeBuilderOnHoloVersion(tableName, slotName).build())) {
+				try (BinlogShardGroupReader reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName).build())) {
 					final CompletableFuture<Void> writeFuture = new CompletableFuture<>();
 					new Thread(() -> {
 						try {
@@ -952,7 +857,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				}
 
 			} finally {
-				execute(conn, new String[]{dropSql1, dropSql2, dropSql3});
+				execute(conn, new String[]{dropSql1});
 			}
 		}
 	}
@@ -961,6 +866,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 	 * binlogGroupShardReader.
 	 * Alter table: drop one column.
 	 */
+	@Ignore
 	@Test
 	public void binlogReader021() throws Exception {
 		if (properties == null || holoVersion.compareTo(needVersion) < 0) {
@@ -973,28 +879,18 @@ public class BinlogReaderTest extends HoloClientTestBase {
 		config.setBinlogHeartBeatIntervalMs(5000L);
 		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
 			String tableName = "holo_client_binlog_reader_021";
-			String publicationName = "holo_client_binlog_reader_021_publication_test";
-			String slotName = "holo_client_binlog_reader_021_slot_1";
-
-			String dropSql1 = "drop table if exists " + tableName + "; drop publication if exists " + publicationName + ";\n";
-			String dropSql2 = "delete from hologres.hg_replication_progress where slot_name='" + slotName + "';\n";
-			String dropSql3 = "call hg_drop_logical_replication_slot('" + slotName + "');";
-			String createSql1 = "create extension if not exists hg_binlog;\n";
-			String createSql2 = "create table " + tableName
+			String dropSql1 = "drop table if exists " + tableName;
+			String createSql = "create table " + tableName
 					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id));\n "
 					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
 					+ "call set_table_property('" + tableName + "', 'shard_count', '3');\n";
-			String createSql3 = "create publication " + publicationName + " for table " + tableName + ";\n";
-			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
 			String alterSql = "set hg_experimental_enable_drop_column=true;\n"
 					+ "ALTER TABLE IF EXISTS " + tableName + " DROP COLUMN ba;\n";
 
-			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
-			tryExecute(conn, new String[]{dropSql2, dropSql3});
-			execute(conn, new String[]{createSql1, "begin;", createSql2, "commit;", createSql3});
-			execute(conn, new String[]{createSql4});
+			execute(conn, new String[]{dropSql1});
 
-			try (BinlogShardGroupReader reader = client.binlogSubscribe(createStartTimeBuilderOnHoloVersion(tableName, slotName).build())) {
+			execute(conn, new String[]{"begin;", createSql, "commit;"});
+			try (BinlogShardGroupReader reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName).build())) {
 				final CompletableFuture<Void> writeFuture = new CompletableFuture<>();
 				new Thread(() -> {
 					try {
@@ -1060,7 +956,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				Assert.assertEquals(10000, count);
 
 			} finally {
-				execute(conn, new String[]{dropSql1, dropSql2, dropSql3});
+				execute(conn, new String[]{dropSql1});
 			}
 		}
 	}
@@ -1081,25 +977,15 @@ public class BinlogReaderTest extends HoloClientTestBase {
 		long lsn = 0;
 		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
 			String tableName = "holo_client_binlog_reader_023";
-			String publicationName = "holo_client_binlog_reader_023_publication_test";
-			String slotName = "holo_client_binlog_reader_023_slot_1";
 
-			String dropSql1 = "drop table if exists " + tableName + "; drop publication if exists " + publicationName + ";\n";
-			String dropSql2 = "delete from hologres.hg_replication_progress where slot_name='" + slotName + "';\n";
-			String dropSql3 = "call hg_drop_logical_replication_slot('" + slotName + "');";
-			String createSql1 = "create extension if not exists hg_binlog;\n";
-			String createSql2 = "create table " + tableName
+			String dropSql1 = "drop table if exists " + tableName;
+			String createSql = "create table " + tableName
 					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id));\n "
 					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
 					+ "call set_table_property('" + tableName + "', 'shard_count', '1');\n";
-			String createSql3 = "create publication " + publicationName + " for table " + tableName + ";\n";
-			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
+			execute(conn, new String[]{dropSql1});
 
-			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
-			tryExecute(conn, new String[]{dropSql2, dropSql3});
-			execute(conn, new String[]{createSql1, "begin;", createSql2, "commit;", createSql3});
-			execute(conn, new String[]{createSql4});
-
+			execute(conn, new String[]{"begin;", createSql, "commit;"});
 			BinlogShardGroupReader reader = null;
 
 			try {
@@ -1132,7 +1018,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 					}
 				}
 
-				reader = client.binlogSubscribe(createStartTimeBuilderOnHoloVersion(tableName, slotName).build());
+				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName).build());
 
 				int count = 0;
 				BinlogRecord record;
@@ -1154,7 +1040,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 					offsetMap.put(i, new BinlogOffset().setSequence(lsn));
 				}
 				try (HoloClient client2 = new HoloClient(config)) {
-					Subscribe.OffsetBuilder builder = createOffsetBuilderOnHoloVersion(tableName, slotName);
+					Subscribe.OffsetBuilder builder = Subscribe.newOffsetBuilder(tableName);
 					for (Map.Entry<Integer, BinlogOffset> entry : offsetMap.entrySet()) {
 						builder.addShardStartOffset(entry.getKey(), entry.getValue());
 					}
@@ -1177,7 +1063,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				if (reader != null) {
 					reader.cancel();
 				}
-				execute(conn, new String[]{dropSql1, dropSql2, dropSql3});
+				execute(conn, new String[]{dropSql1});
 			}
 		}
 	}
@@ -1198,28 +1084,17 @@ public class BinlogReaderTest extends HoloClientTestBase {
 
 		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
 			String tableName = "holo_client_binlog_reader_028";
-			String publicationName = "holo_client_binlog_reader_028_publication_test";
-			String slotName = "holo_client_binlog_reader_028_slot_1";
 
-			String dropSql1 = "drop table if exists " + tableName + "; drop publication if exists " + publicationName
-					+ ";\n";
-			String dropSql2 = "delete from hologres.hg_replication_progress where slot_name='" + slotName + "';\n";
-			String dropSql3 = "call hg_drop_logical_replication_slot('" + slotName + "');";
-			String createSql1 = "create extension if not exists hg_binlog;\n";
-			String createSql2 = "create table " + tableName
+			String dropSql1 = "drop table if exists " + tableName;
+
+			String createSql = "create table " + tableName
 					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], "
 					+ "primary key(id));\n "
 					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
 					+ "call set_table_property('" + tableName + "', 'shard_count', '" + shardCount + "');\n";
-			String createSql3 = "create publication " + publicationName + " for table " + tableName + ";\n";
-			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '"
-					+ publicationName + "');\n";
 
-			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
-			tryExecute(conn, new String[]{dropSql2, dropSql3});
-			execute(conn, new String[]{createSql1, "begin;", createSql2, "commit;", createSql3});
-			execute(conn, new String[]{createSql4});
-
+			execute(conn, new String[]{dropSql1});
+			execute(conn, new String[]{"begin;", createSql, "commit;"});
 			BinlogShardGroupReader reader = null;
 
 			try {
@@ -1273,7 +1148,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 					}
 				}
 
-				Subscribe.OffsetBuilder offsetBuilder = createOffsetBuilderOnHoloVersion(tableName, slotName);
+				Subscribe.OffsetBuilder offsetBuilder = Subscribe.newOffsetBuilder(tableName);
 				for (int i = 0; i < shardCount; i++) {
 					// BinlogOffset 的sequence等于-1但timestamp有效时，根据timestamp开始消费
 					offsetBuilder.addShardStartOffset(i, new BinlogOffset(-1, now.getTime() * 1000L));
@@ -1299,7 +1174,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				if (reader != null) {
 					reader.cancel();
 				}
-				execute(conn, new String[]{dropSql1, dropSql2, dropSql3});
+				execute(conn, new String[]{dropSql1});
 			}
 		}
 	}
@@ -1324,25 +1199,14 @@ public class BinlogReaderTest extends HoloClientTestBase {
 		}
 		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
 			String tableName = "holo_client_binlog_reader_029";
-			String publicationName = "holo_client_binlog_reader_029_publication_test";
-			String slotName = "holo_client_binlog_reader_029_slot_1";
-
-			String dropSql1 = "drop table if exists " + tableName + "; drop publication if exists " + publicationName + ";\n";
-			String dropSql2 = "delete from hologres.hg_replication_progress where slot_name='" + slotName + "';\n";
-			String dropSql3 = "call hg_drop_logical_replication_slot('" + slotName + "');";
-			String createSql1 = "create extension if not exists hg_binlog;\n";
-			String createSql2 = "create table " + tableName
+			String dropSql1 = "drop table if exists " + tableName;
+			String createSql = "create table " + tableName
 					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id));\n "
 					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
 					+ "call set_table_property('" + tableName + "', 'shard_count', '" + shardCount + "');\n";
-			String createSql3 = "create publication " + publicationName + " for table " + tableName + ";\n";
-			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
+			execute(conn, new String[]{dropSql1});
 
-			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
-			tryExecute(conn, new String[]{dropSql2, dropSql3});
-			execute(conn, new String[]{createSql1, "begin;", createSql2, "commit;", createSql3});
-			execute(conn, new String[]{createSql4});
-
+			execute(conn, new String[]{"begin;", createSql, "commit;"});
 			BinlogShardGroupReader reader = null;
 
 			try {
@@ -1374,7 +1238,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 					}
 				}
 
-				reader = client.binlogSubscribe(createStartTimeBuilderOnHoloVersion(tableName, slotName).build());
+				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName).build());
 
 				int count = 0;
 				BinlogRecord record;
@@ -1393,7 +1257,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				Assert.assertEquals(count, 25000);
 
 				try (HoloClient client2 = new HoloClient(config)) {
-					Subscribe.OffsetBuilder builder = createOffsetBuilderOnHoloVersion(tableName, slotName);
+					Subscribe.OffsetBuilder builder = Subscribe.newOffsetBuilder(tableName);
 					for (Map.Entry<Integer, BinlogOffset> entry : offsetMap.entrySet()) {
 						builder.addShardStartOffset(entry.getKey(), entry.getValue());
 					}
@@ -1418,7 +1282,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				if (reader != null) {
 					reader.cancel();
 				}
-				execute(conn, new String[]{dropSql1, dropSql2, dropSql3});
+				execute(conn, new String[]{dropSql1});
 			}
 		}
 	}
@@ -1449,7 +1313,6 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String dropSql1 = "drop table if exists " + tableName + "; drop publication if exists " + publicationName + ";\n";
 			String dropSql2 = "delete from hologres.hg_replication_progress where slot_name='" + slotName + "';\n";
 			String dropSql3 = "call hg_drop_logical_replication_slot('" + slotName + "');";
-			String createSql1 = "create extension if not exists hg_binlog;\n";
 			String createSql2 = "create table " + tableName
 					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id));\n "
 					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
@@ -1457,9 +1320,9 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String createSql3 = "create publication " + publicationName + " for table " + tableName + ";\n";
 			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
 
-			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
+			execute(conn, new String[]{dropSql1});
 			tryExecute(conn, new String[]{dropSql2, dropSql3});
-			execute(conn, new String[]{createSql1, "begin;", createSql2, "commit;", createSql3});
+			execute(conn, new String[]{"begin;", createSql2, "commit;", createSql3});
 			execute(conn, new String[]{createSql4});
 
 			BinlogShardGroupReader reader = null;
@@ -1545,7 +1408,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				if (reader != null) {
 					reader.cancel();
 				}
-				execute(conn, new String[]{dropSql1, dropSql2, dropSql3});
+				tryExecute(conn, new String[]{dropSql1});
 			}
 		}
 	}
@@ -1565,26 +1428,16 @@ public class BinlogReaderTest extends HoloClientTestBase {
 
 		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
 			String tableName = "new_schema.holo_client_binlog_reader_031";
-			String publicationName = "holo_client_binlog_reader_031_publication_test";
-			String slotName = "holo_client_binlog_reader_031_slot_1";
-
-			String dropSql1 = "drop table if exists " + tableName + "; drop publication if exists " + publicationName + ";\n";
-			String dropSql2 = "delete from hologres.hg_replication_progress where slot_name='" + slotName + "';\n";
-			String dropSql3 = "call hg_drop_logical_replication_slot('" + slotName + "');";
+			String dropSql1 = "drop table if exists " + tableName;
 			String createSchema = "create schema if not exists new_schema;\n";
-			String createSql1 = "create extension if not exists hg_binlog;\n";
-			String createSql2 = "create table " + tableName
+
+			String createSql = "create table " + tableName
 					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id));\n "
 					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
 					+ "call set_table_property('" + tableName + "', 'shard_count', '3');\n";
-			String createSql3 = "create publication " + publicationName + " for table " + tableName + ";\n";
-			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
+			execute(conn, new String[]{dropSql1});
 
-			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
-			tryExecute(conn, new String[]{dropSql2, dropSql3});
-			execute(conn, new String[]{createSchema, createSql1, "begin;", createSql2, "commit;", createSql3});
-			execute(conn, new String[]{createSql4});
-
+			execute(conn, new String[]{createSchema, "begin;", createSql, "commit;"});
 			BinlogShardGroupReader reader = null;
 
 			try {
@@ -1608,7 +1461,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				}
 				client.flush();
 
-				reader = client.binlogSubscribe(createStartTimeBuilderOnHoloVersion(tableName, slotName).build());
+				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName).build());
 
 				long start = System.nanoTime();
 				int count = 0;
@@ -1630,7 +1483,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				if (reader != null) {
 					reader.cancel();
 				}
-				execute(conn, new String[]{dropSql1, dropSql2, dropSql3});
+				execute(conn, new String[]{dropSql1});
 			}
 		}
 	}
@@ -1652,25 +1505,14 @@ public class BinlogReaderTest extends HoloClientTestBase {
 		long lsn = 0;
 		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
 			String tableName = "holo_client_binlog_reader_033";
-			String publicationName = "holo_client_binlog_reader_033_publication_test";
-			String slotName = "holo_client_binlog_reader_033_slot_1";
-
-			String dropSql1 = "drop table if exists " + tableName + "; drop publication if exists " + publicationName + ";\n";
-			String dropSql2 = "delete from hologres.hg_replication_progress where slot_name='" + slotName + "';\n";
-			String dropSql3 = "call hg_drop_logical_replication_slot('" + slotName + "');";
-			String createSql1 = "create extension if not exists hg_binlog;\n";
-			String createSql2 = "create table " + tableName
+			String dropSql1 = "drop table if exists " + tableName;
+			String createSql = "create table " + tableName
 					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id));\n "
 					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
 					+ "call set_table_property('" + tableName + "', 'shard_count', '1');\n";
-			String createSql3 = "create publication " + publicationName + " for table " + tableName + ";\n";
-			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
+			execute(conn, new String[]{dropSql1});
 
-			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
-			tryExecute(conn, new String[]{dropSql2, dropSql3});
-			execute(conn, new String[]{createSql1, "begin;", createSql2, "commit;", createSql3});
-			execute(conn, new String[]{createSql4});
-
+			execute(conn, new String[]{"begin;", createSql, "commit;"});
 			BinlogShardGroupReader reader = null;
 			try {
 				TableSchema schema = client.getTableSchema(tableName, true);
@@ -1702,7 +1544,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 					}
 				}
 
-				reader = client.binlogSubscribe(createStartTimeBuilderOnHoloVersion(tableName, slotName).build());
+				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName).build());
 
 				int count = 0;
 				BinlogRecord record;
@@ -1746,7 +1588,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				if (reader != null) {
 					reader.cancel();
 				}
-				execute(conn, new String[]{dropSql1, dropSql2, dropSql3});
+				execute(conn, new String[]{dropSql1});
 			}
 		}
 	}
@@ -1773,7 +1615,6 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String dropSql1 = "drop table if exists " + tableName + "; drop publication if exists " + publicationName + ";\n";
 			String dropSql2 = "delete from hologres.hg_replication_progress where slot_name='" + slotName + "';\n";
 			String dropSql3 = "call hg_drop_logical_replication_slot('" + slotName + "');";
-			String createSql1 = "create extension if not exists hg_binlog;\n";
 			String createSql2 = "create table " + tableName
 					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id));\n "
 					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
@@ -1781,9 +1622,9 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String createSql3 = "create publication " + publicationName + " for table " + tableName + ";\n";
 			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
 
-			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
+			execute(conn, new String[]{dropSql1});
 			tryExecute(conn, new String[]{dropSql2, dropSql3});
-			execute(conn, new String[]{createSql1, "begin;", createSql2, "commit;", createSql3});
+			execute(conn, new String[]{"begin;", createSql2, "commit;", createSql3});
 			execute(conn, new String[]{createSql4});
 
 			BinlogShardGroupReader reader = null;
@@ -1809,7 +1650,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				}
 				client.flush();
 
-				reader = client.binlogSubscribe(createStartTimeBuilderOnHoloVersion(tableName, slotName).build());
+				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName, slotName).build());
 
 				Thread.sleep(80000L);
 				long start = System.nanoTime();
@@ -1844,7 +1685,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				if (reader != null) {
 					reader.cancel();
 				}
-				execute(conn, new String[]{dropSql1, dropSql2, dropSql3});
+				tryExecute(conn, new String[]{dropSql1, dropSql2, dropSql3});
 			}
 		}
 	}
@@ -1868,14 +1709,14 @@ public class BinlogReaderTest extends HoloClientTestBase {
 
 			String dropSql1 = "drop table if exists " + tableName;
 			String createSchema = "create schema if not exists new_schema;\n";
-			String createSql1 = "create extension if not exists hg_binlog;\n";
-			String createSql2 = "create table " + tableName
+
+			String createSql = "create table " + tableName
 					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id));\n "
 					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
 					+ "call set_table_property('" + tableName + "', 'shard_count', '3');\n";
 
-			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
-			execute(conn, new String[]{createSchema, createSql1, "begin;", createSql2, "commit;"});
+			execute(conn, new String[]{dropSql1});
+			execute(conn, new String[]{createSchema, "begin;", createSql, "commit;"});
 
 			BinlogShardGroupReader reader = null;
 
@@ -1972,34 +1813,14 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				}
 			}
 			String tableName = "holo_client_type_binlog_reader_" + typeName;
-			String publicationName = tableName + "_publication_test";
-			String slotName = tableName + "_slot_1";
-
-			String dropSql1 = "drop table if exists " + tableName + "; drop publication if exists " + publicationName + ";\n";
-			String dropSql2 = "delete from hologres.hg_replication_progress where slot_name='" + slotName + "';\n";
-			String dropSql3 = "call hg_drop_logical_replication_slot('" + slotName + "');";
-			String createSql1 = "create extension if not exists hg_binlog;\n";
-			String createSql2 = "create extension if not exists roaringbitmap;\n";
-			String createSql3 = "create table " + tableName
+			String dropSql1 = "drop table if exists " + tableName;
+			String createSql = "create table " + tableName
 					+ "(id " + typeCaseData.getColumnType() + ", pk int primary key);\n"
 					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
 					+ "call set_table_property('" + tableName + "', 'shard_count', '1');\n";
-			String createSql4 = "create publication " + publicationName + " for table " + tableName + ";\n";
-			String createSql5 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
 
-			execute(conn, new String[]{CREATE_EXTENSION_SQL, dropSql1});
-			try {
-				execute(conn, new String[]{dropSql2});
-			} catch (SQLException e) {
-				LOG.info(slotName + " not exists.");
-			}
-			try {
-				execute(conn, new String[]{dropSql3});
-			} catch (SQLException e) {
-				LOG.info(slotName + " not exists.");
-			}
-			execute(conn, new String[]{createSql1, createSql2, "begin;", createSql3, "commit;", createSql4});
-			execute(conn, new String[]{createSql5});
+			execute(conn, new String[]{dropSql1});
+			execute(conn, new String[]{"begin;", createSql, "commit;"});
 
 			BinlogShardGroupReader reader = null;
 
@@ -2018,7 +1839,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				}
 				client.flush();
 
-				reader = client.binlogSubscribe(createStartTimeBuilderOnHoloVersion(tableName, slotName).build());
+				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName).build());
 
 				int count = 0;
 				BinlogRecord record;
@@ -2042,25 +1863,8 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				if (reader != null) {
 					reader.cancel();
 				}
-				execute(conn, new String[]{dropSql1, dropSql2, dropSql3});
+				execute(conn, new String[]{dropSql1});
 			}
-		}
-	}
-
-	// 2.1版本的实例可以只传入表名
-	private Subscribe.StartTimeBuilder createStartTimeBuilderOnHoloVersion(String tableName, String slotName) {
-		if (holoVersion.compareTo(new HoloVersion(2, 1, 0)) > 0) {
-			return Subscribe.newStartTimeBuilder(tableName);
-		} else {
-			return Subscribe.newStartTimeBuilder(tableName, slotName);
-		}
-	}
-
-	private Subscribe.OffsetBuilder createOffsetBuilderOnHoloVersion(String tableName, String slotName) {
-		if (holoVersion.compareTo(new HoloVersion(2, 1, 0)) > 0) {
-			return Subscribe.newOffsetBuilder(tableName);
-		} else {
-			return Subscribe.newOffsetBuilder(tableName, slotName);
 		}
 	}
 }

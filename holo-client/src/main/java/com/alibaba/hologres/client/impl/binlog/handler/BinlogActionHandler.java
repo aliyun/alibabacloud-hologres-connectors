@@ -64,6 +64,7 @@ public class BinlogActionHandler extends ActionHandler<BinlogAction> {
 		PGProperty.APPLICATION_NAME.set(info, "holo_client_replication");
 		PGProperty.REPLICATION.set(info, "database");
 		PGProperty.SOCKET_TIMEOUT.set(info, "120");
+		PGProperty.LOGIN_TIMEOUT.set(info, 60);
 		String jdbcUrl = config.getJdbcUrl();
 		if (isShadingEnv) {
 			if (jdbcUrl.startsWith("jdbc:postgresql:")) {
@@ -143,7 +144,7 @@ public class BinlogActionHandler extends ActionHandler<BinlogAction> {
 				if (startTime != null) {
 					logicalStreamBuilder.withSlotOption("start_time", startTime);
 				}
-				LOG.info("shard {} start, start_lsn={}, start_time={}", action.getShardId(), startLsn, startTime);
+				LOG.info("Connected to url {}, shard {} start, start_lsn={}, start_time={}", url, action.getShardId(), startLsn, startTime);
 				this.pgReplicationStream = logicalStreamBuilder.start();
 			} catch (SQLException e) {
 				close();

@@ -36,7 +36,10 @@ public class HoloClientException extends Exception {
 			code = ExceptionCode.CONNECTION_ERROR;
 		} else if (e.getMessage() != null && e.getMessage().contains("not allowed in readonly mode")) {
 			code = ExceptionCode.READ_ONLY;
-		} else if (e.getMessage() != null && e.getMessage().contains("Resource busy")) {
+		} else if (e.getMessage() != null && (e.getMessage().contains("Resource busy")
+				|| e.getMessage().contains("Fail to fetch table group meta from store master")
+		        || e.getMessage().contains("Get rundown is not allowed in recovering state")
+				|| e.getMessage().contains("the workers or shards are unhealthy"))) {
 			code = ExceptionCode.BUSY;
 		} else if (e.getMessage() != null && (e.getMessage().contains("too many clients already") || e.getMessage().contains("remaining connection slots are reserved"))) {
 			code = ExceptionCode.TOO_MANY_CONNECTIONS;
@@ -53,7 +56,7 @@ public class HoloClientException extends Exception {
 			} else if (PSQLState.SYNTAX_ERROR.getState().equals(state)) {
 				code = ExceptionCode.SYNTAX_ERROR;
 			} else if (PSQLState.UNDEFINED_COLUMN.getState().equals(state) || (e.getMessage() != null && (e.getMessage().contains("Invalid table id") || e.getMessage().contains("Refresh meta timeout") ||
-					e.getMessage().contains("mismatches the version of the table") || e.getMessage().contains("could not open relation with OID") || e.getMessage().contains("replay not finished yet")))) {
+					e.getMessage().contains("mismatches the version of the table") || e.getMessage().contains("could not open relation with OID") || e.getMessage().contains("replay not finished yet") || e.getMessage().contains("fail to execute query Table not found")))) {
 				//大量删分区的时, 查表分区是否存在 会报could not open relation with OID
 				//Invalid table id , SQLState = UNDEFINED_TABLE
 				//Check META_NOT_MATCH First.

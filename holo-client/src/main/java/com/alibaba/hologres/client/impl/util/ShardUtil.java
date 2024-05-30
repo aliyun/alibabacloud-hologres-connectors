@@ -7,9 +7,12 @@ package com.alibaba.hologres.client.impl.util;
 import com.alibaba.hologres.client.model.Record;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
+import org.postgresql.jdbc.TimestampUtil;
 
 import java.lang.reflect.Array;
 import java.nio.charset.Charset;
+import java.sql.Date;
+import java.sql.Types;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
@@ -34,10 +37,11 @@ public class ShardUtil {
 			hash = rand.nextInt();
 		} else {
 			for (int i : indexes) {
+				Object obj = getStorageValue(record, i);
 				if (first) {
-					hash = ShardUtil.hash(record.getObject(i));
+					hash = ShardUtil.hash(obj);
 				} else {
-					hash ^= ShardUtil.hash(record.getObject(i));
+					hash ^= ShardUtil.hash(obj);
 				}
 				first = false;
 			}
@@ -59,6 +63,8 @@ public class ShardUtil {
 					hash = hash * 31 + (child == null ? 0 : hash(child));
 				}
 				return hash;
+			} else if (obj instanceof Boolean) {
+				return hash(((Boolean) obj) ? 1 : 0);
 			} else {
 				return hash(String.valueOf(obj).getBytes(UTF8));
 			}
@@ -80,5 +86,21 @@ public class ShardUtil {
 			start = end;
 		}
 		return ret;
+	}
+
+	/**
+	 * 一些类型在holo中的实际存储类型并不是字面值,需要获取其存储的类型来计算shard信息.
+	 */
+	private static Object getStorageValue(Record record, int index) {
+		Object obj = record.getObject(index);
+		switch (record.getSchema().getColumn(index).getType()) {
+			case Types.TIMESTAMP:
+			case Types.TIMESTAMP_WITH_TIMEZONE:
+				return TimestampUtil.timestampToMillisecond(obj, record.getSchema().getColumn(index).getTypeName());
+			case Types.DATE:
+				return Date.valueOf(String.valueOf(obj)).toLocalDate().toEpochDay();
+			default:
+				return obj;
+		}
 	}
 }

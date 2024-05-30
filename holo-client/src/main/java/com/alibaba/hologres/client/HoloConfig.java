@@ -245,6 +245,14 @@ public class HoloConfig implements Serializable {
 	 */
 	boolean enableDeduplication = true;
 
+	/**
+	 * 激进模式,写入时发现连接空闲,即使未攒够批也立刻提交.
+	 * boolean
+	 *
+	 * @HasGetter
+	 * @HasSetter
+	 */
+	boolean enableAggressive = false;
 	//--------------------------read conf-------------------------------------------------
 	/**
 	 * 最多一次将readBatchSize条Get请求合并提交，默认128.
@@ -372,6 +380,15 @@ public class HoloConfig implements Serializable {
 	 * @HasSetter
 	 */
 	long connectionMaxIdleMs = 60000L;
+
+	/**
+	 * 每个get和put的后台连接最大存活时间,超过之后将被释放(再次使用时会自动重新连接).
+	 * 尽可能避免服务端可能存在的内存泄漏等问题.
+	 *
+	 * @HasGetter
+	 * @HasSetter
+	 */
+	long connectionMaxAliveMs = 24 * 60 * 60 * 1000L;
 
 	/**
 	 * meta信息缓存时间(ms).
@@ -647,6 +664,14 @@ public class HoloConfig implements Serializable {
 		this.connectionMaxIdleMs = connectionMaxIdleMs;
 	}
 
+	public long getConnectionMaxAliveMs() {
+        return connectionMaxAliveMs;
+    }
+
+	public void setConnectionMaxAliveMs(long connectionMaxAliveMs) {
+        this.connectionMaxAliveMs = connectionMaxAliveMs;
+    }
+
 	public int getWriteThreadSize() {
 		return writeThreadSize;
 	}
@@ -918,6 +943,14 @@ public class HoloConfig implements Serializable {
 	public void setEnableDeduplication(boolean enableDedup) {
 		this.enableDeduplication = enableDedup;
 	}
+
+	public boolean isEnableAggressive() {
+		return enableAggressive;
+	}
+
+	public void setEnableAggressive(boolean enableAggressive) {
+        this.enableAggressive = enableAggressive;
+    }
 
 	public static String[] getPropertyKeys() {
 		Field[] fields = HoloConfig.class.getDeclaredFields();

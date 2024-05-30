@@ -554,6 +554,16 @@ unnest格式相比multi values有如下优点:
 - 分区表drop column之后，自动创建子分区时，可能拿到错误的分区值，bug引入版本1.X，bug修复版本2.2.11
 - 当用户表名中有下划线时，可能获取到错误的字段信息，bug引入版本1.X，bug修复版本2.2.12
 
+## Release Note
+- 2.4.0
+  - 新建连接时会设置LOGIN_TIMEOUT为60S，之前未设置
+  - 对实例只读状态的报错增加重试
+  - 修复binlog读取timestamp类型微秒精度丢失
+  - table schema发生变化时,会强制flush
+  - 支持设置连接最大存活时间，默认为24h
+  - 支持激进模式，开启后如果连接空闲，不等攒批满就触发flush，在流量小时可以降低写入延迟
+  - 查询非utf8字符不抛出异常
+
 ## 附录
 ### HoloConfig参数说明
 #### 基础配置
@@ -593,8 +603,9 @@ unnest格式相比multi values有如下优点:
 | maxRowsPerSql                         | Integer.MAX_VALUE          | useLegacyPutHandler=false，且通过unnest形式写入时，每条sql的最大行数                                                                                                              | 2.0.1    |
 | maxBytesPerSql                        | Long.MAX_VALUE             | useLegacyPutHandler=false，且通过unnest形式写入时，每条sql的最大字节数                                                                                                             | 2.0.1    |
 | enableAffectedRows                    | false                      | 开启时 若用户用holoclient.sql执行statement.executeUpdate将会返回正确的affectrow计数，但对于行存表进行holoclient.put会有性能下降                                                                   | 2.2.5    |
-| enableGenerateBinlog                    | true                       | 关闭时，通过当前holo-client写入的数据不会生成binlog                                                                                                                               | 2.2.11   |
-| enableDeduplication                    | true                       | 写入时是否对攒批数据做去重，设置为false表示不会去重，如果数据重复非常严重，性能最差相当于writeBatchSize设置为1的逐条写入.                                                                                          | 2.3.0    |
+| enableGenerateBinlog                  | true                       | 关闭时，通过当前holo-client写入的数据不会生成binlog                                                                                                                               | 2.2.11   |
+| enableDeduplication                   | true                       | 写入时是否对攒批数据做去重，设置为false表示不会去重，如果数据重复非常严重，性能最差相当于writeBatchSize设置为1的逐条写入.                                                                                          | 2.3.0    |
+| enableAggressive                      | false                      | 写入激进模式，开启后如果连接空闲，不等攒批满就会触发flush，在流量小时可以降低写入延迟.                                                                                                                   | 2.4.0    |
 
 #### 查询配置
 | 参数名 | 默认值 | 说明 |引入版本| 
@@ -608,14 +619,15 @@ unnest格式相比multi values有如下优点:
 | readRetryCount | 1 | Get操作的尝试次数，1表示不重试 | 2.1.5 |
 
 #### 连接配置
-| 参数名 | 默认值 | 说明 |引入版本| 
-| --- | --- | --- | --- |
-| retryCount | 3 | 当连接故障时，写入和查询的重试次数 | 1.2.3|
-| retrySleepInitMs | 1000 | 每次重试的等待时间=retrySleepInitMs+retry*retrySleepStepMs | 1.2.3 |
-| retrySleepStepMs | 10000 | 每次重试的等待时间=retrySleepInitMs+retry*retrySleepStepMs |1.2.3 |
-| connectionMaxIdleMs| 60000 | 写入线程和点查线程数据库连接的最大Idle时间，超过连接将被释放| 1.2.4 |
-| metaCacheTTL | 1 min | getTableSchema信息的本地缓存时间 | 1.2.6 |
-| metaAutoRefreshFactor | 4 | 当tableSchema cache剩余存活时间短于 metaCacheTTL/metaAutoRefreshFactor 将自动刷新cache | 1.2.10.1 |
+| 参数名 | 默认值                            | 说明                                                                       | 引入版本     | 
+| --- |--------------------------------|--------------------------------------------------------------------------|----------|
+| retryCount | 3                              | 当连接故障时，写入和查询的重试次数                                                        | 1.2.3    |
+| retrySleepInitMs | 1000                           | 每次重试的等待时间=retrySleepInitMs+retry*retrySleepStepMs                        | 1.2.3    |
+| retrySleepStepMs | 10000                          | 每次重试的等待时间=retrySleepInitMs+retry*retrySleepStepMs                        | 1.2.3    |
+| connectionMaxIdleMs| 60000                          | 写入线程和点查线程数据库连接的最大Idle时间，超过连接将在空闲时被释放，使用时重建                                         | 1.2.4    |
+| connectionMaxAliveMs| 86400000(24 * 60 * 60 * 1000L) | 写入线程和点查线程数据库连接的最大存活时间，超过连接将在空闲时被释放，使用时重建                                 | 2.4.0    |
+| metaCacheTTL | 1 min                          | getTableSchema信息的本地缓存时间                                                  | 1.2.6    |
+| metaAutoRefreshFactor | 4                              | 当tableSchema cache剩余存活时间短于 metaCacheTTL/metaAutoRefreshFactor 将自动刷新cache | 1.2.10.1 |
 
 #### 消费Binlog配置
 | 参数名 | 默认值 | 说明 |引入版本 |

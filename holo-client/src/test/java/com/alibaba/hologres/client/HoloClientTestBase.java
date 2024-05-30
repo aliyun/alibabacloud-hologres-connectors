@@ -167,6 +167,7 @@ public class HoloClientTestBase {
 		config.setJdbcUrl(properties.getProperty("url"));
 		config.setUsername(properties.getProperty("user"));
 		config.setPassword(properties.getProperty("password"));
+		config.setRefreshMetaAfterConnectionCreated(true);
 		// config.setUseFixedFe(true);
 		return config;
 	}

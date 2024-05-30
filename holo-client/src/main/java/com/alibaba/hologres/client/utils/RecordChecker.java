@@ -13,8 +13,10 @@ import com.alibaba.hologres.client.model.TableSchema;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.sql.Types;
+import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.Date;
+import java.util.List;
 
 /**
  * check Input Value is valid.
@@ -65,6 +67,8 @@ public class RecordChecker {
 			checkDouble(schema, column, (Double) value);
 		} else if (value instanceof Boolean) {
 			checkBoolean(schema, column, (Boolean) value);
+		} else if (value instanceof LocalDateTime) {
+			checkLocalDateTime(schema, column, (LocalDateTime) value);
 		} else if (value instanceof Timestamp) { // Timestamp must before Date.
 			checkTimeStamp(schema, column, (Timestamp) value);
 		} else if (value instanceof Date) {
@@ -73,14 +77,27 @@ public class RecordChecker {
 			checkStringArray(schema, column, (String[]) value);
 		} else if (value instanceof int[]) {
 			checkIntegerArray(schema, column, (int[]) value);
+		} else if (value instanceof Integer[]) {
+			checkIntegerArray(schema, column, (Integer[]) value);
 		} else if (value instanceof long[]) {
 			checkLongArray(schema, column, (long[]) value);
+		} else if (value instanceof Long[]) {
+			checkLongArray(schema, column, (Long[]) value);
 		} else if (value instanceof float[]) {
 			checkFloatArray(schema, column, (float[]) value);
+		} else if (value instanceof Float[]) {
+			checkFloatArray(schema, column, (Float[]) value);
 		} else if (value instanceof double[]) {
 			checkDoubleArray(schema, column, (double[]) value);
+		} else if (value instanceof Double[]) {
+			checkDoubleArray(schema, column, (Double[]) value);
 		} else if (value instanceof boolean[]) {
 			checkBooleanArray(schema, column, (boolean[]) value);
+		} else if (value instanceof Boolean[]) {
+			checkBooleanArray(schema, column, (Boolean[]) value);
+		} else if (value instanceof List) {
+			List<?> list = (List<?>) value;
+			checkObject(schema, column, list.toArray());
 		} else if (value instanceof byte[]) {
 			switch (column.getType()) {
 				case Types.OTHER:
@@ -221,6 +238,19 @@ public class RecordChecker {
 		}
 	}
 
+	private static void checkLocalDateTime(TableSchema schema, Column column, LocalDateTime value) throws HoloClientException {
+		if (value == null) {
+			checkNull(schema, column);
+		}
+		switch (column.getType()) {
+			case Types.TIMESTAMP:
+			case Types.TIMESTAMP_WITH_TIMEZONE:
+				break;
+			default:
+				throwConstraintViolationException(schema, column, value, "unsupported type " + column.getTypeName() + " for setLocalDateTime method", null);
+		}
+	}
+
 	private static void checkString(TableSchema schema, Column column, String value) throws HoloClientException {
 		if (value == null) {
 			checkNull(schema, column);
@@ -358,7 +388,37 @@ public class RecordChecker {
 		}
 	}
 
+	private static void checkBooleanArray(TableSchema schema, Column column, Boolean[] value) throws HoloClientException {
+		if (value == null) {
+			checkNull(schema, column);
+			return;
+		}
+		switch (column.getType()) {
+			case Types.ARRAY:
+				if ("_bool".equals(column.getTypeName())) {
+					break;
+				}
+			default:
+				throwConstraintViolationException(schema, column, value, "unsupported type " + column.getTypeName() + " for setBooleanArray method", null);
+		}
+	}
+
 	private static void checkFloatArray(TableSchema schema, Column column, float[] value) throws HoloClientException {
+		if (value == null) {
+			checkNull(schema, column);
+			return;
+		}
+		switch (column.getType()) {
+			case Types.ARRAY:
+				if ("_float4".equals(column.getTypeName())) {
+					break;
+				}
+			default:
+				throwConstraintViolationException(schema, column, value, "unsupported type " + column.getTypeName() + " for setFloatArray method", null);
+		}
+	}
+
+	private static void checkFloatArray(TableSchema schema, Column column, Float[] value) throws HoloClientException {
 		if (value == null) {
 			checkNull(schema, column);
 			return;
@@ -388,6 +448,21 @@ public class RecordChecker {
 		}
 	}
 
+	private static void checkDoubleArray(TableSchema schema, Column column, Double[] value) throws HoloClientException {
+		if (value == null) {
+			checkNull(schema, column);
+			return;
+		}
+		switch (column.getType()) {
+			case Types.ARRAY:
+				if ("_float8".equals(column.getTypeName())) {
+					break;
+				}
+			default:
+				throwConstraintViolationException(schema, column, value, "unsupported type " + column.getTypeName() + " for setDoubleArray method", null);
+		}
+	}
+
 	private static void checkIntegerArray(TableSchema schema, Column column, int[] value) throws HoloClientException {
 		if (value == null) {
 			checkNull(schema, column);
@@ -403,7 +478,37 @@ public class RecordChecker {
 		}
 	}
 
+	private static void checkIntegerArray(TableSchema schema, Column column, Integer[] value) throws HoloClientException {
+		if (value == null) {
+			checkNull(schema, column);
+			return;
+		}
+		switch (column.getType()) {
+			case Types.ARRAY:
+				if ("_int4".equals(column.getTypeName())) {
+					break;
+				}
+			default:
+				throwConstraintViolationException(schema, column, value, "unsupported type " + column.getTypeName() + " for setIntegerArray method", null);
+		}
+	}
+
 	private static void checkLongArray(TableSchema schema, Column column, long[] value) throws HoloClientException {
+		if (value == null) {
+			checkNull(schema, column);
+			return;
+		}
+		switch (column.getType()) {
+			case Types.ARRAY:
+				if ("_int8".equals(column.getTypeName())) {
+					break;
+				}
+			default:
+				throwConstraintViolationException(schema, column, value, "unsupported type " + column.getTypeName() + " for setLongArray method", null);
+		}
+	}
+
+	private static void checkLongArray(TableSchema schema, Column column, Long[] value) throws HoloClientException {
 		if (value == null) {
 			checkNull(schema, column);
 			return;

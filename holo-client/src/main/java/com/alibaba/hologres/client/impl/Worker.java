@@ -31,6 +31,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -49,12 +50,15 @@ public class Worker implements Runnable {
 	private final String name;
 	Map<Class, ActionHandler> handlerMap = new HashMap<>();
 
+	final long connectionMaxAliveMs;
+
 	public Worker(HoloConfig config, AtomicBoolean started, int index, boolean isShadingEnv) {
 		this(config, started, index, isShadingEnv, false);
 	}
 
 	public Worker(HoloConfig config, AtomicBoolean started, int index, boolean isShadingEnv, boolean isFixed) {
 		this.config = config;
+		this.connectionMaxAliveMs = randomConnectionMaxAliveMs(config);
 		connectionHolder = new ConnectionHolder(config, this, isShadingEnv, isFixed);
 		this.started = started;
 		this.name = (isFixed ? "Fixed-" : "") + "Worker-" + index;
@@ -117,6 +121,7 @@ public class Worker implements Runnable {
 				 * 每个循环做2件事情：
 				 * 1 有action就执行action
 				 * 2 根据connectionMaxIdleMs释放空闲connection
+				 * 3 根据connectionMaxAliveMs释放存活时间比较久的connection
 				 * */
 				if (null != action) {
 					try {
@@ -130,8 +135,11 @@ public class Worker implements Runnable {
 					}
 				}
 				if (System.currentTimeMillis() - connectionHolder.getLastActiveTs() > config.getConnectionMaxIdleMs()) {
-					connectionHolder.close();
+					connectionHolder.close("close connection due to max idle time exceeded.");
 				}
+				if (System.currentTimeMillis() - connectionHolder.getConnCreateTs() > connectionMaxAliveMs) {
+					connectionHolder.close("close connection due to max alive time exceeded.");
+                }
 			} catch (Throwable e) {
 				LOGGER.error("should not happen", e);
 				fatal.set(e);
@@ -143,6 +151,13 @@ public class Worker implements Runnable {
 		connectionHolder.close();
 
 	}
+
+	private long randomConnectionMaxAliveMs(HoloConfig config) {
+		// 连接至少存活5分钟
+		long connectionMaxAliveMs = Math.max(config.getConnectionMaxAliveMs(), 5 * 60 * 1000L);
+        // 防止多个连接一起关闭, 随机减少2.5%以内的时间
+        return connectionMaxAliveMs - ThreadLocalRandom.current().nextLong(connectionMaxAliveMs / 40);
+    }
 
 	@Override
 	public String toString() {

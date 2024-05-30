@@ -9,21 +9,16 @@ import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.model.TableSchema;
 import org.postgresql.core.BaseConnection;
 import org.postgresql.jdbc.ArrayUtil;
+import org.postgresql.jdbc.TimestampUtil;
 
 import java.io.IOException;
 import java.io.OutputStream;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.sql.Array;
 import java.sql.Date;
 import java.sql.SQLException;
-import java.sql.Timestamp;
 import java.sql.Types;
-import java.time.OffsetDateTime;
-import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeFormatterBuilder;
-import java.time.temporal.ChronoField;
-import java.util.TimeZone;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Record转pg binary流.
@@ -44,6 +39,16 @@ public class RecordBinaryOutputStream extends RecordOutputStream {
 		write(0);
 		writeInt(0);
 		writeInt(0);
+	}
+
+	@Override
+	public void close() throws IOException {
+		if (!fillHeader) {
+			fillHeader = true;
+			fillHeader();
+			writeCellBuffer();
+		}
+		super.close();
 	}
 
 	@Override
@@ -183,50 +188,8 @@ public class RecordBinaryOutputStream extends RecordOutputStream {
 				}
 				break;
 			case Types.TIMESTAMP:
-				if (obj instanceof Timestamp) {
-					Timestamp ts = (Timestamp) obj;
-					long seconds = javaEpochToPg(ts.getTime() / 1000, TimeUnit.SECONDS);
-					// Convert to micros rounding nanoseconds
-					long micros =
-							TimeUnit.SECONDS.toMicros(seconds)
-									+ TimeUnit.NANOSECONDS.toMicros(ts.getNanos() + 500);
-					if ("timestamp".equals(typeName)) {
-						micros += TimeZone.getDefault().getRawOffset() * 1000L;
-					}
-					writeInt(8);
-					writeLong(micros);
-				} else if (obj instanceof String) {
-					OffsetDateTime dateTime =
-							OffsetDateTime.parse((String) obj, DATE_TIME_FORMATTER);
-					long seconds = javaEpochToPg(dateTime.toEpochSecond(), TimeUnit.SECONDS);
-					// Convert to micros rounding nanoseconds
-					long micros =
-							TimeUnit.SECONDS.toMicros(seconds)
-									+ TimeUnit.NANOSECONDS.toMicros(dateTime.getNano() + 500);
-					writeInt(8);
-					writeLong(micros);
-				} else if (obj instanceof Number) {
-					long ms = ((Number) obj).longValue();
-					long seconds = javaEpochToPg(ms / 1000L, TimeUnit.SECONDS);
-					// Convert to micros rounding nanoseconds
-					long micros =
-							TimeUnit.SECONDS.toMicros(seconds)
-									+ TimeUnit.NANOSECONDS.toMicros((ms % 1000) * 1000000L + 500);
-					writeInt(8);
-					writeLong(micros);
-				} else if (obj instanceof java.util.Date) {
-					long ms = ((java.util.Date) obj).getTime();
-					long seconds = javaEpochToPg(ms / 1000L, TimeUnit.SECONDS);
-					// Convert to micros rounding nanoseconds
-					long micros =
-							TimeUnit.SECONDS.toMicros(seconds)
-									+ TimeUnit.NANOSECONDS.toMicros((ms % 1000) * 1000000L + 500);
-					writeInt(8);
-					writeLong(micros);
-				} else {
-					throw new RuntimeException(
-							"unsupported type for timestamp " + obj.getClass().getName());
-				}
+				writeInt(8);
+				writeLong(TimestampUtil.timestampToPgEpochMicroSecond(obj, typeName));
 				break;
 			case Types.BINARY:
 				if (obj instanceof byte[]) {
@@ -296,7 +259,9 @@ public class RecordBinaryOutputStream extends RecordOutputStream {
 					throw new IOException("unsupported type:" + typeName + "(" + type + "). Please call RecordBinaryOutputSteam constructor with BaseConnection Param");
 				}
 				try {
-					byte[] arrayBytes = ArrayUtil.arrayToBinary(conn, obj, column.getTypeName());
+					// obj如果是List<>或Object[]，都尝试转成Array
+					Array array = ArrayUtil.objectToArray(conn, obj, column.getTypeName());
+					byte[] arrayBytes = ArrayUtil.arrayToBinary(conn, array != null ? ArrayUtil.objectToArray(conn, obj, column.getTypeName()) : obj, column.getTypeName());
 					writeInt(arrayBytes.length);
 					write(arrayBytes);
 				} catch (SQLException e) {
@@ -386,30 +351,5 @@ public class RecordBinaryOutputStream extends RecordOutputStream {
 		info[1] = sign;
 		info[2] = displayScale;
 		return digits;
-	}
-
-	public static final DateTimeFormatter DATE_TIME_FORMATTER =
-			new DateTimeFormatterBuilder()
-					.optionalStart()
-					.append(DateTimeFormatter.ISO_LOCAL_DATE)
-					.optionalEnd()
-					.optionalStart()
-					.appendLiteral(' ')
-					.optionalEnd()
-					.optionalStart()
-					.appendLiteral('T')
-					.optionalEnd()
-					.appendPattern("HH:mm:ss")
-					.appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true)
-					.optionalStart()
-					.appendOffset("+HH", "Z")
-					.optionalEnd()
-					.toFormatter();
-
-	private static final long PG_EPOCH_SECS = 946684800L;
-
-	static long javaEpochToPg(long value, TimeUnit timeUnit) {
-
-		return value - timeUnit.convert(PG_EPOCH_SECS, TimeUnit.SECONDS);
 	}
 }

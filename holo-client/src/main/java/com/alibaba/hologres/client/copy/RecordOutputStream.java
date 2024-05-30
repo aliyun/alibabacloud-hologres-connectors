@@ -64,9 +64,12 @@ public abstract class RecordOutputStream implements Closeable {
 			throw new IOException("RecordOutputFormat already closed");
 		}
 		fillByteBuffer(record);
+		writeCellBuffer();
+	}
+
+	protected void writeCellBuffer() throws IOException {
 		cellBuffer.flip();
 		os.write(cellBuffer.array(), cellBuffer.position(), cellBuffer.remaining());
-
 		cellBuffer.clear();
 	}
 

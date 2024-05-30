@@ -15,6 +15,8 @@ import java.sql.Timestamp;
 import java.text.DateFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.UUID;
 import java.util.function.BiFunction;
@@ -36,6 +38,8 @@ public class DataTypeTestUtil {
 			new TypeCaseData("float8", (i, conn) -> i.doubleValue(), (i, rs) -> Assert.assertEquals(rs.getDouble(1), i.doubleValue())),
 			new TypeCaseData("timestamp", (i, conn) -> new Timestamp(i * 1000L + 123L), (i, rs) -> Assert.assertEquals(rs.getTimestamp(1), new Timestamp(i * 1000L + 123L))),
 			new TypeCaseData("timestamptz", (i, conn) -> new Timestamp(i * 1000L + 123L), (i, rs) -> Assert.assertEquals(rs.getTimestamp(1), new Timestamp(i * 1000L + 123L))),
+			new TypeCaseData("timestamp", (i, conn) -> LocalDateTime.ofEpochSecond((long) i, 123 * 1000000, ZoneOffset.systemDefault().getRules().getOffset(LocalDateTime.now())), (i, rs) -> Assert.assertEquals(rs.getTimestamp(1), new Timestamp(i * 1000L + 123L))),
+			new TypeCaseData("timestamptz", (i, conn) -> LocalDateTime.ofEpochSecond((long) i, 123 * 1000000, ZoneOffset.systemDefault().getRules().getOffset(LocalDateTime.now())), (i, rs) -> Assert.assertEquals(rs.getTimestamp(1), new Timestamp(i * 1000L + 123L))),
 			new TypeCaseData("date", (i, conn) -> java.sql.Date.valueOf("1900-01-02"), (i, rs) -> Assert.assertEquals(rs.getString(1), Date.valueOf("1900-01-02").toString())),
 			new TypeCaseData("json", (i, conn) -> "{\"a\":\"" + i + "\"}", (i, rs) -> Assert.assertEquals(rs.getString(1), "{\"a\":\"" + i + "\"}")),
 			new TypeCaseData("jsonb", (i, conn) -> "{\"a\":\"" + i + "\"}", (i, rs) -> Assert.assertEquals(rs.getString(1), "{\"a\": \"" + i + "\"}")),
@@ -48,6 +52,11 @@ public class DataTypeTestUtil {
 			new TypeCaseData("_float4", "float4[]", (i, conn) -> new float[]{i, i + 1}, (i, rs) -> Assert.assertEquals(rs.getString(1), "{" + i + "," + (i + 1) + "}")),
 			new TypeCaseData("_float8", "float8[]", (i, conn) -> new double[]{i, i + 1}, (i, rs) -> Assert.assertEquals(rs.getString(1), "{" + i + "," + (i + 1) + "}")),
 			new TypeCaseData("_bool", "bool[]", (i, conn) -> new boolean[]{i % 2 == 0, i % 2 != 0}, (i, rs) -> Assert.assertEquals(rs.getString(1), "{" + (i % 2 == 0 ? "t" : "f") + "," + (i % 2 != 0 ? "t" : "f") + "}")),
+			new TypeCaseData("_int", "int[]", (i, conn) -> new Integer[]{i, i + 1}, (i, rs) -> Assert.assertEquals(rs.getString(1), "{" + i + "," + (i + 1) + "}")),
+			new TypeCaseData("_int8", "int8[]", (i, conn) -> new Long[]{(long) i, (long) (i + 1)}, (i, rs) -> Assert.assertEquals(rs.getString(1), "{" + i + "," + (i + 1) + "}")),
+			new TypeCaseData("_float4", "float4[]", (i, conn) -> new Float[]{(float) i, (float) (i + 1)}, (i, rs) -> Assert.assertEquals(rs.getString(1), "{" + i + "," + (i + 1) + "}")),
+			new TypeCaseData("_float8", "float8[]", (i, conn) -> new Double[]{(double) i, (double) i + 1}, (i, rs) -> Assert.assertEquals(rs.getString(1), "{" + i + "," + (i + 1) + "}")),
+			new TypeCaseData("_bool", "bool[]", (i, conn) -> new Boolean[]{i % 2 == 0, i % 2 != 0}, (i, rs) -> Assert.assertEquals(rs.getString(1), "{" + (i % 2 == 0 ? "t" : "f") + "," + (i % 2 != 0 ? "t" : "f") + "}")),
 			new TypeCaseData("_text", "text[]", (i, conn) -> new String[]{i.toString(), String.valueOf(i + 1)}, (i, rs) -> Assert.assertEquals(rs.getString(1), "{" + i + "," + (i + 1) + "}")),
 			new TypeCaseData("_varchar", "varchar[]", (i, conn) -> new String[]{String.valueOf(i), String.valueOf(i + 1)}, (i, rs) -> Assert.assertEquals(rs.getString(1), "{" + i + "," + (i + 1) + "}")),
 			new TypeCaseData("roaringbitmap", (i, conn) -> new byte[]{58, 48, 0, 0, 1, 0, 0, 0, 0, 0, 2, 0, 16, 0, 0, 0, 1, 0, 4, 0, 5, 0} /*{1,4,5}*/, (i, rs) -> Assert.assertEquals(rs.getLong(1), 3L))
@@ -61,8 +70,9 @@ public class DataTypeTestUtil {
 			new TypeCaseData("time", (i, conn) -> new Time(i * 1000L + 123L), (i, rs) -> Assert.assertEquals(rs.getTime(1), new Time(i * 1000L + 123L))),
 			new TypeCaseData("oid", (i, conn) -> i, (i, rs) -> Assert.assertEquals(rs.getInt(1), i.intValue())),
 			new TypeCaseData("uuid", (i, conn) -> "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a1" + i, (i, rs) -> Assert.assertEquals(rs.getString(1), "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a1" + i)),
-			new TypeCaseData("bit", (i, conn) -> "0", (i, rs) -> Assert.assertEquals(rs.getString(1), "0")),
-			new TypeCaseData("varbit", "varbit(3)", (i, conn) -> "101", (i, rs) -> Assert.assertEquals(rs.getString(1), "101"))
+			// 注意bit(n)和varbit(n)会截断
+			new TypeCaseData("bit", "bit(3)", (i, conn) -> "101111", (i, rs) -> Assert.assertEquals(rs.getString(1), "101")),
+			new TypeCaseData("varbit", "varbit(3)", (i, conn) -> "101111", (i, rs) -> Assert.assertEquals(rs.getString(1), "101"))
 			//不支持的类型
 			// , "MONEY" // 难搞，不支持了
 	});
@@ -76,7 +86,7 @@ public class DataTypeTestUtil {
 			new TypeCaseDataWithRecord("bool", (i, conn) -> i % 2 == 0, (i, r) -> Assert.assertEquals(r.getObject(0), i % 2 == 0)),
 			new TypeCaseDataWithRecord("float4", (i, conn) -> i.floatValue(), (i, r) -> Assert.assertEquals(r.getObject(0), (float) (i))),
 			new TypeCaseDataWithRecord("float8", (i, conn) -> i.doubleValue(), (i, r) -> Assert.assertEquals(r.getObject(0), (double) (i))),
-			new TypeCaseDataWithRecord("timestamp", (i, conn) -> new Timestamp(i * 1000L + 123L), (i, r) -> Assert.assertEquals(r.getObject(0), new Timestamp(i * 1000L + 123L))),
+			new TypeCaseDataWithRecord("timestamp", (i, conn) -> createTimestampWithNanos(i), (i, r) -> Assert.assertEquals(r.getObject(0), createTimestampWithNanos(i))),
 			new TypeCaseDataWithRecord("timestamptz", (i, conn) -> new Timestamp(i * 1000L + 123L), (i, r) -> Assert.assertEquals(r.getObject(0), new Timestamp(i * 1000L + 123L))),
 			new TypeCaseDataWithRecord("date", (i, conn) -> java.sql.Date.valueOf("1900-01-02"), (i, r) -> Assert.assertEquals(r.getObject(0).toString(), Date.valueOf("1900-01-02").toString())),
 			new TypeCaseDataWithRecord("json", (i, conn) -> "{\"a\":\"" + i + "\"}", (i, r) -> Assert.assertEquals(r.getObject(0).toString(), "{\"a\":\"" + i + "\"}")),
@@ -268,5 +278,12 @@ public class DataTypeTestUtil {
 		}
 
 		return object;
+	}
+
+	private static Timestamp createTimestampWithNanos(int i) {
+		Timestamp timestamp = new Timestamp(i * 1000L + 123L);
+		// holo的timestamp类型精度到微秒
+		timestamp.setNanos(123456 * 1000);
+		return timestamp;
 	}
 }

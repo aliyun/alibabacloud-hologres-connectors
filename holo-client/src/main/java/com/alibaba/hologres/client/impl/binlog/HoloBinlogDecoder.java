@@ -181,7 +181,10 @@ public class HoloBinlogDecoder {
 				if ("timestamptz".equals(column.getTypeName())) {
 					currentRecord.setObject(index, new Timestamp(currentRow.getLong(offsetIndex)));
 				} else {
-					currentRecord.setObject(index, new Timestamp(currentRow.getLong(offsetIndex) / 1000L - TIMEZONE_OFFSET));
+					long microseconds = currentRow.getLong(offsetIndex);
+					Timestamp timestamp = new Timestamp(microseconds / 1000L - TIMEZONE_OFFSET);
+					timestamp.setNanos((int) ((microseconds % 1_000_000L) * 1_000));
+					currentRecord.setObject(index, timestamp);
 				}
 				break;
 			case Types.SMALLINT:

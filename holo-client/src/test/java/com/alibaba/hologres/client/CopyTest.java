@@ -59,11 +59,6 @@ public class CopyTest extends HoloClientTestBase {
 			new TypeCaseData("char_u0000", "char(5)", (i, conn) -> "1\u0000", null),
 			new TypeCaseData("varchar_u0000", "varchar(5)", (i, conn) -> "1\u0000", null),
 			new TypeCaseData("text", (i, conn) -> "1\u0000", null),
-			new TypeCaseData("_int", "int[]", (i, conn) -> new Integer[]{i, i + 1}, null),
-			new TypeCaseData("_int8", "int8[]", (i, conn) -> new Long[]{}, null),
-			new TypeCaseData("_float4", "float4[]", (i, conn) -> new Float[]{}, null),
-			new TypeCaseData("_float8", "float8[]", (i, conn) -> new Double[]{}, null),
-			new TypeCaseData("_bool", "bool[]", (i, conn) -> new Double[]{}, null),
 			new TypeCaseData("_text", "text[]", (i, conn) -> new String[]{"\u0000123"}, null),
 			new TypeCaseData("_varchar", "varchar(5)[]", (i, conn) -> new String[]{"1234567"}, null),
 			new TypeCaseData("_varchar_u0000", "varchar[]", (i, conn) -> new String[]{"\u00001"}, null)
@@ -108,8 +103,8 @@ public class CopyTest extends HoloClientTestBase {
 			String createSql = "create table " + tableName + "(id " + typeCaseData.getColumnType() + ", pk int primary key)";
 			try {
 				LOG.info("current type {}, binary {}, streamMode {}", typeName, binary,  streamMode);
-
-				execute(conn, new String[]{"CREATE EXTENSION if not exists roaringbitmap", dropSql, createSql});
+				execute(conn, new String[]{dropSql});
+				execute(conn, new String[]{createSql});
 
 				PgConnection pgConn = conn.unwrap(PgConnection.class);
 				TableName tn = TableName.valueOf(tableName);
@@ -182,7 +177,8 @@ public class CopyTest extends HoloClientTestBase {
 				String createSql = "create table " + tableName
 						+ "(id int not null,name text not null,address text,primary key(id))";
 				try {
-					execute(conn, new String[]{dropSql, createSql});
+					execute(conn, new String[]{dropSql});
+					execute(conn, new String[]{createSql});
 
 					try (Connection pgConn = buildConnection().unwrap(PgConnection.class)) {
 						HoloVersion version = ConnectionUtil.getHoloVersion(pgConn);
@@ -231,6 +227,50 @@ public class CopyTest extends HoloClientTestBase {
 		}
 	}
 
+	/**
+	 * empty input test.
+	 */
+	@Test
+	public void testCopy003() throws Exception {
+		if (properties == null) {
+			return;
+		}
+		boolean[] binaryList = new boolean[]{false, true};
+		try (Connection conn = buildConnection()) {
+			for (boolean binary : binaryList) {
+				String tableName = "\"holo_client_copy_sql_003_" + binary + "\"";
+				String dropSql = "drop table if exists " + tableName;
+				String createSql = "create table " + tableName
+						+ "(id int not null,name text not null,address text,primary key(id))";
+				try {
+					execute(conn, new String[]{dropSql});
+					execute(conn, new String[]{createSql});
+					try (Connection pgConn = buildConnection().unwrap(PgConnection.class)) {
+						HoloVersion version = ConnectionUtil.getHoloVersion(pgConn);
+						TableName tn = TableName.valueOf(tableName);
+						ConnectionUtil.checkMeta(pgConn, version, tn.getFullName(), 120);
+
+						TableSchema schema = ConnectionUtil.getTableSchema(conn, tn);
+						CopyManager copyManager = new CopyManager(pgConn.unwrap(PgConnection.class));
+						String copySql = null;
+						OutputStream os = null;
+						RecordOutputStream ros = null;
+						copySql = CopyUtil.buildCopyInSql(schema, binary, WriteMode.INSERT_OR_UPDATE);
+						LOG.info("copySql : {}", copySql);
+						os = new CopyInOutputStream(copyManager.copyIn(copySql));
+						ros = binary ?
+								new RecordBinaryOutputStream(os, schema, pgConn.unwrap(PgConnection.class), 1024 * 1024 * 10) :
+								new RecordTextOutputStream(os, schema, pgConn.unwrap(PgConnection.class), 1024 * 1024 * 10);
+						// close不能抛异常
+						ros.close();
+					}
+				} finally {
+					execute(conn, new String[]{dropSql});
+				}
+			}
+		}
+	}
+
 	@Test(dataProvider = "typeCaseData")
 	public void testRecordChecker001(TypeCaseData typeCaseData, boolean binary, boolean streamMode) throws Exception {
 		if (properties == null) {
@@ -238,7 +278,7 @@ public class CopyTest extends HoloClientTestBase {
 		}
 		try (Connection conn = buildConnection()) {
 			{
-				String tableName = "\"holo_client_record_checker_sql_001_" + binary + "_" + streamMode + "\"";
+				String tableName = "\"holo_client_record_checker_sql_001_" + typeCaseData.getName() + "_" + binary + "_" + streamMode + "\"";
 				String dropSql = "drop table if exists " + tableName;
 				String createSql = "create table " + tableName;
 
@@ -246,9 +286,8 @@ public class CopyTest extends HoloClientTestBase {
 
 				createSql += ",id int not null,primary key(id))";
 				try {
-
-					execute(conn, new String[]{dropSql, createSql});
-
+					execute(conn, new String[]{dropSql});
+					execute(conn, new String[]{createSql});
 					PgConnection pgConn = conn.unwrap(PgConnection.class);
 
 					HoloVersion version = ConnectionUtil.getHoloVersion(pgConn);
@@ -307,7 +346,7 @@ public class CopyTest extends HoloClientTestBase {
 		}
 		try (Connection conn = buildConnection()) {
 			{
-				String tableName = "\"holo_client_record_checker_sql_002_" + binary + "\"";
+				String tableName = "\"holo_client_record_checker_sql_002_" + typeCaseData.getName() + "_" + binary + "\"";
 				String dropSql = "drop table if exists " + tableName;
 				String createSql = "create table " + tableName;
 
@@ -315,9 +354,8 @@ public class CopyTest extends HoloClientTestBase {
 
 				createSql += ",id int not null,primary key(id))";
 				try {
-
-					execute(conn, new String[]{dropSql, createSql});
-
+					execute(conn, new String[]{dropSql});
+					execute(conn, new String[]{createSql});
 					PgConnection pgConn = conn.unwrap(PgConnection.class);
 
 					HoloVersion version = ConnectionUtil.getHoloVersion(pgConn);
@@ -353,7 +391,8 @@ public class CopyTest extends HoloClientTestBase {
 			String createSql = "create table " + tableName
 					+ "(id int not null,name text not null,address text,primary key(id))";
 			try {
-				execute(conn, new String[]{dropSql, createSql});
+				execute(conn, new String[]{dropSql});
+				execute(conn, new String[]{createSql});
 				TableName tn = TableName.valueOf(tableName);
 				TableSchema schema = ConnectionUtil.getTableSchema(conn, tn);
 

@@ -666,14 +666,15 @@ public class HoloClient implements Closeable {
 		this.asyncCommit = asyncCommit;
 	}
 
-	private void closeInternal() {
-
+	private void closeInternal() throws HoloClientException{
+		HoloClientException exception = null;
 		if (pool != null && pool.isRegister(this)) {
 			try {
 				tryThrowException();
 				flush();
 			} catch (HoloClientException e) {
 				LOGGER.error("fail when close", e);
+				exception = e;
 			}
 			pool.unregister(this);
 			if (isEmbeddedPool) {
@@ -686,10 +687,17 @@ public class HoloClient implements Closeable {
 				fixedPool.close();
 			}
 		}
+		if (null != exception) {
+			throw exception;
+		}
 	}
 
 	@Override
 	public void close() {
-		closeInternal();
+		try {
+			closeInternal();
+		} catch (HoloClientException e) {
+			throw new RuntimeException(e);
+		}
 	}
 }

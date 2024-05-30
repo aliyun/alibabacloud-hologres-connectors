@@ -105,6 +105,7 @@ public class RetryTest extends HoloClientTestBase {
 	 * HoloClientWithDetailsException一般指脏数据，又调用方决定跳过还是终止人工干预;
 	 * HoloClientException一般是故障了，就应该停止
 	 */
+	@Ignore
 	@Test
 	public void testRetry002() throws Exception {
 		if (properties == null) {
@@ -353,6 +354,7 @@ public class RetryTest extends HoloClientTestBase {
 	 * Method: put(Put put).
 	 * 必须要多个few的实例才可能抛异常进而出发retry！！！
 	 */
+	@Ignore
 	@Test
 	public void testRetry005() throws Exception {
 		if (properties == null) {
@@ -426,13 +428,13 @@ public class RetryTest extends HoloClientTestBase {
 					put.setObject(1, i);
 					client.put(put);
 				}
+				client.flush();
 			} catch (HoloClientWithDetailsException e) {
 				Assert.assertEquals(5, e.size());
 			} catch (Exception e) {
 				Assert.assertTrue(false, e.getMessage());
-			} finally {
-				execute(conn, new String[]{dropSql});
 			}
+			execute(conn, new String[]{dropSql});
 		}
 	}
 

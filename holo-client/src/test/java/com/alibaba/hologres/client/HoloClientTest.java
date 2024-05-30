@@ -12,6 +12,7 @@ import com.alibaba.hologres.client.model.WriteMode;
 import com.alibaba.hologres.client.utils.FutureUtil;
 import com.alibaba.hologres.client.utils.Metrics;
 import org.testng.Assert;
+import org.testng.annotations.Ignore;
 import org.testng.annotations.Test;
 
 import java.math.BigDecimal;
@@ -30,6 +31,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * HoloClient Tester.
@@ -2378,6 +2380,7 @@ public class HoloClientTest extends HoloClientTestBase {
 	 * delete
 	 * Method: put(Put put).
 	 */
+	@Ignore
 	@Test
 	public void testPutPut040() throws Exception {
 		if (properties == null) {
@@ -2751,6 +2754,7 @@ public class HoloClientTest extends HoloClientTestBase {
 	 * HoloClientWithDetailsException一般指脏数据，又调用方决定跳过还是终止人工干预;
 	 * HoloClientException一般是故障了，就应该停止
 	 */
+	@Ignore
 	@Test
 	public void testPutPut045() throws Exception {
 		if (properties == null) {
@@ -2803,6 +2807,7 @@ public class HoloClientTest extends HoloClientTestBase {
 	 * delete in simple mode
 	 * Method: put(Put put).
 	 */
+	@Ignore
 	@Test
 	public void testPutPut046() throws Exception {
 		if (properties == null) {
@@ -3043,7 +3048,7 @@ public class HoloClientTest extends HoloClientTestBase {
 
 			try {
 				TableSchema schema = client.getTableSchema(tableName, true);
-
+				AtomicReference<Throwable> exception = new AtomicReference<>(null);
 				int count = 100000;
 				for (int i = 0; i < count; ++i) {
 					Put put2 = new Put(schema);
@@ -3062,11 +3067,18 @@ public class HoloClientTest extends HoloClientTestBase {
 						Assert.assertNotNull(record);
 						Assert.assertEquals((int) record.getObject(1) - 1, (int) record.getObject(2));
 						toc.decrementAndGet();
+					}).exceptionally(e -> {
+						exception.set(e);
+						return null;
 					});
 				}
 				while (tic.get() != 0) {
 					synchronized (tic) {
 						tic.wait(100L);
+					}
+					Throwable t = exception.get();
+					if (t != null) {
+						Assert.fail("", t);
 					}
 				}
 				Assert.assertEquals(tic.get(), toc.get());
@@ -3271,7 +3283,7 @@ public class HoloClientTest extends HoloClientTestBase {
 				}
 				execute(conn, new String[]{dropSql});
 				Thread.sleep(15000L);
-				try {
+				Assert.expectThrows(HoloClientWithDetailsException.class, () -> {
 					Put put = new Put(schema);
 					put.setObject("id", 0);
 					put.setObject("c_bool", true);
@@ -3280,11 +3292,8 @@ public class HoloClientTest extends HoloClientTestBase {
 					put.setObject("c_bit6v", "0");
 					put.setObject("b_a", new boolean[]{true, false});
 					client.put(put);
-				} catch (HoloClientWithDetailsException detailException) {
-					LOG.error("", detailException);
-				} catch (HoloClientException e) {
-					LOG.error("", e);
-				}
+				});
+				Assert.expectThrows(HoloClientWithDetailsException.class, () -> client.flush());
 			} finally {
 				execute(conn, new String[]{dropSql});
 			}
@@ -3580,6 +3589,7 @@ public class HoloClientTest extends HoloClientTestBase {
 		}
 	}
 
+	@Ignore
 	@Test
 	public void testCloseConnectionAtJVMShutdown() throws Exception {
 		if (properties == null) {

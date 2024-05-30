@@ -130,8 +130,8 @@ public class ExecutionPoolTest extends HoloClientTestBase {
 		config1.setAppName("executionPool001");
 		try (Connection conn = buildConnection(); ExecutionPool pool = ExecutionPool.buildOrGet("testExecutionPool002", config0,
 				false)) {
-			String tableName0 = "holo_execution_pool_000";
-			String tableName1 = "holo_execution_pool_001";
+			String tableName0 = "holo_execution_pool_002_1";
+			String tableName1 = "holo_execution_pool_002_2";
 			String dropSql0 = "drop table if exists " + tableName0;
 			String dropSql1 = "drop table if exists " + tableName1;
 			String createSql0 = "create table " + tableName0
@@ -213,7 +213,7 @@ public class ExecutionPoolTest extends HoloClientTestBase {
 		fixedConfig.setAppName("executionPool001");
 		fixedConfig.setUseFixedFe(true);
 		try (Connection conn = buildConnection(); ExecutionPool pool = ExecutionPool.buildOrGet("executionPool003", config, false, config.isUseFixedFe()); ExecutionPool fixedPool = ExecutionPool.buildOrGet("fixedExecutionPool003", fixedConfig, false, fixedConfig.isUseFixedFe())) {
-			String tableName = "test_schema.holo_execution_pool_001";
+			String tableName = "test_schema.holo_execution_pool_003";
 			String createSchema = "create schema if not exists test_schema";
 			String dropSql = "drop table if exists " + tableName;
 			String createSql = "create table " + tableName + "(id int not null,c int not null,d text,e text, primary key(id))";

@@ -8,10 +8,14 @@ import com.alibaba.hologres.client.HoloConfig;
 import com.alibaba.hologres.client.model.Column;
 import com.alibaba.hologres.client.model.Record;
 import org.postgresql.util.PGobject;
+import org.postgresql.util.PSQLException;
+import org.postgresql.util.PSQLState;
 
+import java.nio.charset.StandardCharsets;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
+import java.util.Objects;
 
 /**
  * Action处理类.
@@ -39,6 +43,27 @@ public abstract class ActionHandler<T> {
 					break;
 				}
 				record.setObject(recordIndex, rs.getObject(resultSetIndex));
+				break;
+			case Types.CHAR:
+			case Types.NCHAR:
+			case Types.CLOB:
+			case Types.NCLOB:
+			case Types.VARCHAR:
+			case Types.LONGVARCHAR:
+			case Types.NVARCHAR:
+			case Types.LONGNVARCHAR:
+				try {
+					record.setObject(recordIndex, rs.getObject(resultSetIndex));
+				} catch (PSQLException e) {
+					if (Objects.equals(e.getSQLState(), PSQLState.DATA_ERROR.getState()) &&
+							(e.getMessage().contains("Invalid character data was found") || e.getMessage().contains("发现不合法的字元"))) {
+						// 如果字符串有非utf8字符
+						byte[] bytes = rs.getBytes(resultSetIndex);
+						record.setObject(recordIndex, new String(bytes, StandardCharsets.UTF_8));
+					} else {
+						throw e;
+					}
+                }
 				break;
 			case Types.OTHER:
 				if ("roaringbitmap".equals(column.getTypeName())) {

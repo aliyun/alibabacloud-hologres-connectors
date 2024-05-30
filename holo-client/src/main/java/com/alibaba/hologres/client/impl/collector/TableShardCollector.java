@@ -42,6 +42,7 @@ public class TableShardCollector {
 	private final ExecutionPool pool;
 	private final CollectorStatistics stat;
 	private final boolean enableDeduplication;
+	private final boolean enableAggressive;
 
 	public TableShardCollector(HoloConfig config, ExecutionPool pool, CollectorStatistics stat, int size) {
 		buffer = new RecordCollector(config, pool, size);
@@ -49,6 +50,7 @@ public class TableShardCollector {
 		this.pool = pool;
 		this.stat = stat;
 		this.enableDeduplication = config.isEnableDeduplication();
+		this.enableAggressive = config.isEnableAggressive();
 	}
 
 	public synchronized void append(Record record) throws HoloClientException {
@@ -58,6 +60,7 @@ public class TableShardCollector {
 		} else if (!currentTableSchema.equals(record.getSchema())) {
 			try {
 				flush(true, false, null);
+				currentTableSchema = record.getSchema();
 			} catch (HoloClientException e) {
 				exception = e;
 			}
@@ -83,8 +86,9 @@ public class TableShardCollector {
 			commit(buffer.getBatchState());
 
 		} else {
+			boolean isActionDone = false;
 			try {
-				isActionDone();
+				isActionDone = isActionDone();
 			} catch (HoloClientWithDetailsException e) {
 				if (exception == null) {
 					exception = e;
@@ -93,6 +97,10 @@ public class TableShardCollector {
 				}
 			} catch (HoloClientException e) {
 				exception = e;
+			}
+			// 激进模式, 发现空闲直接提交
+			if (enableAggressive && isActionDone) {
+				commit(buffer.getBatchState());
 			}
 		}
 		if (exception != null) {

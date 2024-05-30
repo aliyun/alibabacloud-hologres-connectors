@@ -17,6 +17,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.io.StringWriter;
 import java.nio.charset.Charset;
+import java.sql.Array;
 import java.sql.Types;
 
 import static com.alibaba.hologres.client.copy.CopyUtil.ESCAPE;
@@ -56,7 +57,8 @@ public class RecordTextOutputStream extends RecordOutputStream {
 						case Types.ARRAY:
 							String text;
 							if (obj.getClass().getComponentType() != null) {
-								text = ArrayUtil.arrayToString(obj);
+								Array array = ArrayUtil.objectToArray(conn, obj, column.getTypeName());
+								text = ArrayUtil.arrayToString(array != null ? ArrayUtil.objectToArray(conn, obj, column.getTypeName()) : obj);
 							} else {
 								text = String.valueOf(obj);
 							}
