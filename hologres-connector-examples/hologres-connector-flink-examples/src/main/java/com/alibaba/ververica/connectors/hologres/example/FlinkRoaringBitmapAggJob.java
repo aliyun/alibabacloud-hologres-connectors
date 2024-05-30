@@ -3,23 +3,25 @@ package com.alibaba.ververica.connectors.hologres.example;
 import org.apache.flink.api.common.functions.AggregateFunction;
 import org.apache.flink.api.common.typeinfo.Types;
 import org.apache.flink.api.java.io.TupleCsvInputFormat;
-import org.apache.flink.api.java.tuple.Tuple;
-import org.apache.flink.api.java.tuple.Tuple5;
-import org.apache.flink.api.java.tuple.Tuple6;
+import org.apache.flink.api.java.functions.KeySelector;
+import org.apache.flink.api.java.typeutils.RowTypeInfo;
 import org.apache.flink.api.java.typeutils.TupleTypeInfo;
 import org.apache.flink.core.fs.Path;
 import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.DataStreamSource;
+import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.api.functions.timestamps.BoundedOutOfOrdernessTimestampExtractor;
 import org.apache.flink.streaming.api.functions.windowing.WindowFunction;
-import org.apache.flink.streaming.api.windowing.assigners.TumblingProcessingTimeWindows;
+import org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows;
 import org.apache.flink.streaming.api.windowing.time.Time;
-import org.apache.flink.streaming.api.windowing.triggers.ContinuousProcessingTimeTrigger;
+import org.apache.flink.streaming.api.windowing.triggers.ContinuousEventTimeTrigger;
 import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
 import org.apache.flink.table.api.EnvironmentSettings;
 import org.apache.flink.table.api.Table;
 import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
+import org.apache.flink.types.Row;
 import org.apache.flink.util.Collector;
 
 import org.apache.commons.cli.CommandLine;
@@ -30,11 +32,16 @@ import org.roaringbitmap.RoaringBitmap;
 
 import java.nio.ByteBuffer;
 import java.sql.Timestamp;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Properties;
 
+import static org.apache.flink.api.common.typeinfo.SqlTimeTypeInfo.TIMESTAMP;
 import static org.apache.flink.table.api.Expressions.$;
 
-/** UV deduplication statistics based on RoaringBitmap. */
+/**
+ * UV deduplication statistics based on RoaringBitmap.
+ */
 public class FlinkRoaringBitmapAggJob {
     public static void main(String[] args) throws Exception {
         // 从执行命令中获取配置文件及数据源文件路径
@@ -57,7 +64,7 @@ public class FlinkRoaringBitmapAggJob {
         String database = props.getProperty("database");
         String dimTableName = props.getProperty("dimTableName");
         String dwsTableName = props.getProperty("dwsTableName");
-        String connectionSize = props.getProperty("connectionSize");
+        int windowSize = Integer.parseInt(props.getProperty("windowSize"));
 
         // flink env设置
         EnvironmentSettings.Builder settingsBuilder =
@@ -65,19 +72,20 @@ public class FlinkRoaringBitmapAggJob {
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         StreamTableEnvironment tableEnv =
                 StreamTableEnvironment.create(env, settingsBuilder.build());
-        env.setStreamTimeCharacteristic(TimeCharacteristic.ProcessingTime);
+        env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
 
         // fieldsMask 为感兴趣的fields序号,fields类型在如下TupleTypeInfo中设置，其名称如注释所示
         // 此处使用csv文件作为数据源，也可以是kafka等；csv文件参考src/main/resources/ods_app_example.csv
-        int[] fieldsMask = {0, 1, 2, 3, 12};
+        int[] fieldsMask = {0, 1, 2, 3, 8, 12};
         TupleTypeInfo typeInfo =
                 new TupleTypeInfo<>(
                         Types.STRING, // uid
                         Types.STRING, // country
                         Types.STRING, // prov
                         Types.STRING, // city
+                        TIMESTAMP,    // click_time
                         Types.STRING // ymd
-                        );
+                );
         TupleCsvInputFormat csvInput = csvInputFormatBuilder(filePath, fieldsMask, typeInfo);
         // createInput函数需要typeInfo设置输出格式
         DataStreamSource odsStream = env.createInput(csvInput, typeInfo);
@@ -90,6 +98,7 @@ public class FlinkRoaringBitmapAggJob {
                         $("country"),
                         $("prov"),
                         $("city"),
+                        $("click_time"),
                         $("ymd"),
                         $("proctime").proctime());
         // 注册到catalog环境
@@ -115,105 +124,107 @@ public class FlinkRoaringBitmapAggJob {
 
         // 源表与维表join
         String odsJoinDim =
-                "SELECT ods.country, ods.prov, ods.city, ods.ymd, dim.uid_int32"
+                "SELECT ods.country, ods.prov, ods.city, ods.click_time, ods.ymd, dim.uid_int32"
                         + "  FROM odsTable AS ods JOIN uid_mapping_dim FOR SYSTEM_TIME AS OF ods.proctime AS dim"
                         + "  ON ods.uid = dim.uid";
         Table joinRes = tableEnv.sqlQuery(odsJoinDim);
 
         // 将join的结果转换为DataStream进行计算
-        DataStream<Tuple5<String, String, String, String, Integer>> source =
-                tableEnv.toAppendStream(
-                        joinRes,
-                        new TupleTypeInfo<>(
-                                Types.STRING, // country
-                                Types.STRING, // prov
-                                Types.STRING, // city
-                                Types.STRING, // ymd
-                                Types.INT // uid_int32
-                                ));
+        DataStream<Row> source =
+                tableEnv.toDataStream(joinRes);
 
         // 使用RoaringBitmap进行去重处理
-        DataStream<Tuple6<String, String, String, String, Timestamp, byte[]>> processedSource =
-                source
-                        // 筛选需要统计的维度（country, prov, city, ymd）
-                        .keyBy(0, 1, 2, 3)
-                        // 滚动时间窗口；此处由于使用读取csv模拟输入流，采用ProcessingTime，实际使用中可使用EventTime
-                        .window(TumblingProcessingTimeWindows.of(Time.minutes(5)))
-                        // 触发器，可以在窗口未结束时获取聚合结果
-                        .trigger(ContinuousProcessingTimeTrigger.of(Time.minutes(1)))
-                        // 窗口聚合函数，根据keyBy筛选的维度，进行聚合
-                        .aggregate(
-                                new AggregateFunction<
-                                        Tuple5<String, String, String, String, Integer>,
-                                        RoaringBitmap,
-                                        RoaringBitmap>() {
+        SingleOutputStreamOperator<Row> processedSource = source
+                // 数据源中的click_time字段当做EventTime,注册watermarks.
+                // 实际使用中,event_time期望是基本有序的,比如上游数据源是kafka或者hologres binlog表,否则建议使用ProcessingTimeWindow
+                .assignTimestampsAndWatermarks(new BoundedOutOfOrdernessTimestampExtractor<Row>(Time.seconds(0)) {
+                    @Override
+                    public long extractTimestamp(Row element) {
+                        // 将LocalDateTime转换为毫秒时间戳
+                        LocalDateTime localDateTime = LocalDateTime.parse(element.getField(3).toString());
+                        return localDateTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
+                    }
+                })
+                // 筛选需要统计的维度（country, prov, city, ymd）
+                .keyBy(new KeySelector<Row, Row>() {
+                    @Override
+                    public Row getKey(Row row) throws Exception {
+                        return Row.of(row.getField(0), row.getField(1), row.getField(2), row.getField(4));
+                    }
+                })
+                // 滚动事件时间窗口
+                .window(TumblingEventTimeWindows.of(Time.seconds(windowSize)))
+                // 触发器，可以在窗口未结束时获取聚合结果
+                .trigger(ContinuousEventTimeTrigger.of(Time.seconds(Math.max(1, windowSize / 20))))
+                // 允许延迟半个窗口的时间
+                .allowedLateness(Time.seconds(Math.max(1, windowSize / 2)))
+                // 窗口聚合函数，根据keyBy筛选的维度，进行聚合
+                .aggregate(
+                        new AggregateFunction<
+                                Row,
+                                RoaringBitmap,
+                                RoaringBitmap>() {
 
-                                    @Override
-                                    public RoaringBitmap createAccumulator() {
-                                        return new RoaringBitmap();
-                                    }
+                            @Override
+                            public RoaringBitmap createAccumulator() {
+                                return new RoaringBitmap();
+                            }
 
-                                    @Override
-                                    public RoaringBitmap add(
-                                            Tuple5<String, String, String, String, Integer> in,
-                                            RoaringBitmap acc) {
-                                        // 将32位的uid添加到RoaringBitmap进行去重
-                                        acc.add(in.f4);
-                                        return acc;
-                                    }
+                            @Override
+                            public RoaringBitmap add(
+                                    Row value,
+                                    RoaringBitmap acc) {
+                                // 将32位的uid添加到RoaringBitmap进行去重
+                                acc.add((Integer) value.getField(5));
+                                return acc;
+                            }
 
-                                    @Override
-                                    public RoaringBitmap getResult(RoaringBitmap acc) {
-                                        return acc;
-                                    }
+                            @Override
+                            public RoaringBitmap getResult(RoaringBitmap acc) {
+                                return acc;
+                            }
 
-                                    @Override
-                                    public RoaringBitmap merge(
-                                            RoaringBitmap acc1, RoaringBitmap acc2) {
-                                        return RoaringBitmap.or(acc1, acc2);
-                                    }
-                                },
-                                new WindowFunction<
-                                        RoaringBitmap,
-                                        Tuple6<String, String, String, String, Timestamp, byte[]>,
-                                        Tuple,
-                                        TimeWindow>() {
-                                    @Override
-                                    public void apply(
-                                            Tuple keys,
-                                            TimeWindow timeWindow,
-                                            Iterable<RoaringBitmap> iterable,
-                                            Collector<
-                                                            Tuple6<
-                                                                    String,
-                                                                    String,
-                                                                    String,
-                                                                    String,
-                                                                    Timestamp,
-                                                                    byte[]>>
-                                                    out)
-                                            throws Exception {
+                            @Override
+                            public RoaringBitmap merge(
+                                    RoaringBitmap acc1, RoaringBitmap acc2) {
+                                return RoaringBitmap.or(acc1, acc2);
+                            }
+                        },
+                        new WindowFunction<
+                                RoaringBitmap,
+                                Row,
+                                Row,
+                                TimeWindow>() {
 
-                                        RoaringBitmap result = iterable.iterator().next();
+                            @Override
+                            public void apply(
+                                    Row keys,
+                                    TimeWindow timeWindow,
+                                    Iterable<RoaringBitmap> iterable,
+                                    Collector<Row> out)
+                                    throws Exception {
 
-                                        // 优化RoaringBitmap
-                                        result.runOptimize();
-                                        // 将RoaringBitmap转化为字节数组以存入Holo中
-                                        byte[] byteArray = new byte[result.serializedSizeInBytes()];
-                                        result.serialize(ByteBuffer.wrap(byteArray));
+                                RoaringBitmap result = iterable.iterator().next();
 
-                                        // 其中 Tuple6.f4(Timestamp) 字段表示以窗口长度为周期进行统计，以秒为单位
-                                        out.collect(
-                                                new Tuple6<>(
-                                                        keys.getField(0),
-                                                        keys.getField(1),
-                                                        keys.getField(2),
-                                                        keys.getField(3),
-                                                        new Timestamp(
-                                                                timeWindow.getEnd() / 1000 * 1000),
-                                                        byteArray));
-                                    }
-                                });
+                                // 优化RoaringBitmap
+                                result.runOptimize();
+                                // 将RoaringBitmap转化为字节数组以存入Holo中
+                                byte[] byteArray = new byte[result.serializedSizeInBytes()];
+                                result.serialize(ByteBuffer.wrap(byteArray));
+
+                                // 其中 Timestamp字段表示以窗口长度为周期进行统计
+                                out.collect(
+                                        Row.of(
+                                                keys.getField(0),
+                                                keys.getField(1),
+                                                keys.getField(2),
+                                                keys.getField(3),
+                                                new Timestamp(
+                                                        timeWindow.getEnd() / 1000 * 1000),
+                                                byteArray));
+                            }
+                        }).returns(new RowTypeInfo(Types.STRING, Types.STRING, Types.STRING, Types.STRING, TIMESTAMP, Types.PRIMITIVE_ARRAY(Types.BYTE)));
+
 
         // 计算结果转换为表
         Table resTable =
@@ -223,7 +234,7 @@ public class FlinkRoaringBitmapAggJob {
                         $("prov"),
                         $("city"),
                         $("ymd"),
-                        $("timest"),
+                        $("event_window_time"),
                         $("uid32_bitmap"));
 
         // 创建holo结果表, 其中holo的roaringbitmap类型通过byte数组存入
@@ -234,7 +245,7 @@ public class FlinkRoaringBitmapAggJob {
                                 + "  prov string,"
                                 + "  city string,"
                                 + "  ymd string,"
-                                + "  timetz timestamp,"
+                                + "  event_window_time timestamp,"
                                 + "  uid32_bitmap BYTES"
                                 + ") with ("
                                 + "  'connector'='hologres',"
@@ -243,10 +254,9 @@ public class FlinkRoaringBitmapAggJob {
                                 + "  'username' = '%s',"
                                 + "  'password' = '%s',"
                                 + "  'endpoint' = '%s',"
-                                + "  'connectionSize' = '%s',"
                                 + "  'mutatetype' = 'insertOrReplace'"
                                 + ")",
-                        database, dwsTableName, username, password, endpoint, connectionSize);
+                        database, dwsTableName, username, password, endpoint);
         tableEnv.executeSql(createHologresTable);
 
         // 写入计算结果到dws表

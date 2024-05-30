@@ -7,11 +7,11 @@
 
     <groupId>com.alibaba.hologres</groupId>
     <artifactId>hologres-connector-flink-examples</artifactId>
-    <version>1.4.0-SNAPSHOT</version>
+    <version>1.4.1-SNAPSHOT</version>
 
     <properties>
         <java.version>1.8</java.version>
-        <flink.version>1.15.3</flink.version>
+        <flink.version>1.15.4</flink.version>
     </properties>
 
     <dependencies>
@@ -23,8 +23,13 @@
         <dependency>
             <groupId>com.alibaba.hologres</groupId>
             <artifactId>hologres-connector-flink-1.15</artifactId>
-            <version>1.4.0-SNAPSHOT</version>
+            <version>1.4.1-SNAPSHOT</version>
             <classifier>jar-with-dependencies</classifier>
+        </dependency>
+        <dependency>
+            <groupId>com.alibaba.hologres</groupId>
+            <artifactId>holo-client</artifactId>
+            <version>2.4.0</version>
         </dependency>
         <dependency>
             <groupId>org.apache.flink</groupId>
@@ -79,6 +84,20 @@
             <artifactId>flink-table-planner_2.12</artifactId>
             <version>${flink.version}</version>
             <type>test-jar</type>
+            <scope>provided</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>1.7.25</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-log4j12</artifactId>
+            <version>1.7.25</version>
+            <scope>provided</scope>
         </dependency>
     </dependencies>
 

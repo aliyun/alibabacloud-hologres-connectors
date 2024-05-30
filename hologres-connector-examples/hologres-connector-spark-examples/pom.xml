@@ -10,16 +10,16 @@
 
     <properties>
         <java.version>1.8</java.version>
-        <scala.version>2.11.12</scala.version>
-        <scala.binary.version>2.11</scala.binary.version>
-        <spark.version>2.4.4</spark.version>
+        <scala.version>2.12.15</scala.version>
+        <scala.binary.version>2.12</scala.binary.version>
+        <spark.version>3.3.0</spark.version>
     </properties>
 
     <dependencies>
         <dependency>
             <groupId>com.alibaba.hologres</groupId>
-            <artifactId>hologres-connector-spark-2.x</artifactId>
-            <version>1.4.0-SNAPSHOT</version>
+            <artifactId>hologres-connector-spark-3.x</artifactId>
+            <version>1.4.1-SNAPSHOT</version>
             <classifier>jar-with-dependencies</classifier>
         </dependency>
         <dependency>
