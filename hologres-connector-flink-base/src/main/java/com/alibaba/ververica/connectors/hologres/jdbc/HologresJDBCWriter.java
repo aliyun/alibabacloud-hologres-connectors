@@ -4,10 +4,12 @@ import org.apache.flink.api.common.functions.RuntimeContext;
 import org.apache.flink.table.api.TableSchema;
 import org.apache.flink.table.data.RowData;
 
+import com.alibaba.hologres.client.CheckAndPut;
 import com.alibaba.hologres.client.Put;
 import com.alibaba.hologres.client.Put.MutationType;
 import com.alibaba.hologres.client.exception.HoloClientException;
 import com.alibaba.hologres.client.model.Record;
+import com.alibaba.hologres.client.model.checkandput.CheckAndPutRecord;
 import com.alibaba.ververica.connectors.hologres.api.HologresRecordConverter;
 import com.alibaba.ververica.connectors.hologres.api.HologresTableSchema;
 import com.alibaba.ververica.connectors.hologres.api.HologresWriter;
@@ -67,7 +69,12 @@ public class HologresJDBCWriter<T> extends HologresWriter<T> {
     public long writeAddRecord(T record) throws IOException {
         Record jdbcRecord = recordConverter.convertFrom(record);
         try {
-            clientProvider.getClient().put(new Put(jdbcRecord));
+            if (param.getCheckAndPutCondition() != null) {
+                CheckAndPutRecord checkAndPutRecord = (CheckAndPutRecord) jdbcRecord;
+                clientProvider.getClient().checkAndPut(new CheckAndPut(checkAndPutRecord));
+            } else {
+                clientProvider.getClient().put(new Put(jdbcRecord));
+            }
         } catch (HoloClientException e) {
             throw new IOException(e);
         }

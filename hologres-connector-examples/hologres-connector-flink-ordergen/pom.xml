@@ -7,7 +7,7 @@
 
 	<groupId>com.alibaba.hologres</groupId>
 	<artifactId>hologres-connector-flink-ordergen</artifactId>
-	<version>1.4.1-SNAPSHOT</version>
+	<version>1.4.2-SNAPSHOT</version>
 
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>

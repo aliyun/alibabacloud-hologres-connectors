@@ -5,17 +5,19 @@ import org.apache.flink.table.data.StringData;
 import org.apache.flink.table.data.TimestampData;
 
 import com.alibaba.hologres.client.model.Record;
+import com.alibaba.hologres.client.model.checkandput.CheckAndPutRecord;
 import com.alibaba.ververica.connectors.hologres.api.HologresTableSchema;
 import com.alibaba.ververica.connectors.hologres.api.table.RowDataWriter;
 import com.alibaba.ververica.connectors.hologres.config.HologresConnectionParam;
 
 import java.sql.Date;
 import java.sql.Timestamp;
+import java.util.Objects;
 
 /** Transform RowData to Record. */
 public class HologresJDBCRecordWriter implements RowDataWriter<Record> {
     private transient HologresTableSchema tableSchema;
-    private HologresConnectionParam param;
+    private final HologresConnectionParam param;
     private transient Record record;
 
     public HologresJDBCRecordWriter(HologresConnectionParam param) {
@@ -30,7 +32,13 @@ public class HologresJDBCRecordWriter implements RowDataWriter<Record> {
         if (tableSchema == null) {
             tableSchema = HologresTableSchema.get(param.getJdbcOptions());
         }
-        this.record = new Record(tableSchema.get());
+        if (Objects.isNull(param.getCheckAndPutCondition())) {
+            this.record = new Record(tableSchema.get());
+        } else {
+            this.record =
+                    new CheckAndPutRecord(
+                            new Record(tableSchema.get()), param.getCheckAndPutCondition());
+        }
     }
 
     @Override

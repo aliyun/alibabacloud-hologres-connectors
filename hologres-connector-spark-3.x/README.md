@@ -38,7 +38,7 @@ mvn clean install -N
   mvn install -pl hologres-connector-spark-base clean package -DskipTests -Pscala-2.12 -Pspark-3
   ```
 
-打包结果名称为 hologres-connector-spark-3.x-1.4.1-SNAPSHOT-jar-with-dependencies.jar
+打包结果名称为 hologres-connector-spark-3.x-1.4.2-SNAPSHOT-jar-with-dependencies.jar
 
 #### build jar
 
@@ -64,8 +64,8 @@ hologres spark connector在进行读写时，会使用一定的jdbc连接数。�
 > spark task并发可能受到用户设置的参数影响，也可能受到hadoop对文件分块策略的影响，详情可以参考spark相关文档。
 
 ### SaveMode 
-- Append: hologres-connector1.4.0版本之前，只支持Append类型的SaveMode。
-- Overwrite: hologres-connector1.4.0版本开始，支持设置SaveMode为Overwrite类型，会创建临时表进行写入并在写入成功之后替换原始表，请谨慎使用。1.4.0版本Overwrite仅支持写public schema下的普通表。
+- Append: hologres-connector1.4.2版本之前，只支持Append类型的SaveMode。
+- Overwrite: hologres-connector1.4.2版本开始，支持设置SaveMode为Overwrite类型，会创建临时表进行写入并在写入成功之后替换原始表，请谨慎使用。1.4.2版本Overwrite仅支持写public schema下的普通表。
   hologres-connector1.4.1版本开始，OverWrite支持写入带schema的普通表和分区子表(要求写入的子表已经存在),不支持写入分区父表,建议升级到此版本再使用Overwrite。
 
 ## 使用示例-批量导入
@@ -97,7 +97,7 @@ CREATE TABLE tb008 (
 
 #### 1.2 组织数据并存入Holo
 
-- 可以 spark-shell --jars hologres-connector-spark-3.x-1.4.1-SNAPSHOT-jar-with-dependencies.jar，然后spark-shell里执行测试
+- 可以 spark-shell --jars hologres-connector-spark-3.x-1.4.2-SNAPSHOT-jar-with-dependencies.jar，然后spark-shell里执行测试
 - 可以使用 :load spark-test.scala 执行测试文件
 - spark-test.scala 文件示例：
 
@@ -232,7 +232,7 @@ df.write
 
 启动pyspark并加载connector
 ```shell
-pyspark --jars hologres-connector-spark-3.x-1.4.1-SNAPSHOT-jar-with-dependencies.jar
+pyspark --jars hologres-connector-spark-3.x-1.4.2-SNAPSHOT-jar-with-dependencies.jar
 ```
 
 与spark-shell类似，使用源数据创建DataFrame之后调用connector进行写入
@@ -253,7 +253,7 @@ df2.write.format("hologres").option(
 
 启动pyspark并加载connector
 ```shell
-spark-sql --jars hologres-connector-spark-3.x-1.4.1-SNAPSHOT-jar-with-dependencies.jar
+spark-sql --jars hologres-connector-spark-3.x-1.4.2-SNAPSHOT-jar-with-dependencies.jar
 ```
 
 通过spark sql DDL，分别创建csv 和 hologres view， 进行写入。
@@ -306,7 +306,7 @@ insert into hologresTable select * from csvTable;
 |           jdbcurl           |                          无                          | 与endpoint+database组合设置二选一 |                                                                                                                                            Hologres实时数据API的jdbcUrl                                                                                                                                            |
 |       copy_write_mode       |                        true                         |             否             |                                                               是否使用copy方式写入，默认使用fixed copy。 <br> fixed copy是hologres1.3新增的能力，相比insert方法，fixed copy方式可以更高的吞吐（因为是流模式），更低的数据延时，更低的客户端内存消耗（因为不攒批) <br> 注：需要connector版本>=1.3.0，hologres引擎版本>=r1.3.34                                                                |
 |      copy_write_format      |                       binary                        |             否             |                                                                                                                                           底层是否走二进制协议，二进制会更快，否则为文本模式                                                                                                                                           |
-|      bulk_load      | false  <br> 当Hologres实例版本大于等于2.1且写入的表是无主键表时，默认为true |             否             |             是否采用批量copy方式写入（与fixed copy不同，fixed copy是流式的, rps 相同时，bulkload模式比fixedcopy可以降低holo实例2/3的负载） <br> 推荐Hologres2.1版本且写入无主键表时使用此参数。Hologres2.1优化了无主键表写入能力，无主键表批量写入不产生表锁，改为行锁，可以与Fixed Plan同时进行。  <br> 注：需要connector版本>=1.4.0，hologres引擎版本>=r2.1.0 <br> spark3.x的bulkload支持写入无主键空表，详见3.x的文档              |
+|      bulk_load      | false  <br> 当Hologres实例版本大于等于2.1且写入的表是无主键表时，默认为true |             否             |             是否采用批量copy方式写入（与fixed copy不同，fixed copy是流式的, rps 相同时，bulkload模式比fixedcopy可以降低holo实例2/3的负载） <br> 推荐Hologres2.1版本且写入无主键表时使用此参数。Hologres2.1优化了无主键表写入能力，无主键表批量写入不产生表锁，改为行锁，可以与Fixed Plan同时进行。  <br> 注：需要connector版本>=1.4.2，hologres引擎版本>=r2.1.0 <br> spark3.x的bulkload支持写入无主键空表，详见3.x的文档              |
 |      enable_target_shards      |                       false                         |             否             | 使用bulkload模式写入有主键表时，必须开启此参数。且写入的数据已经经过repartition,相关demo见[hologres-connector-spark-examples](hologres-connector-examples/hologres-connector-spark-examples/src/main/java/com/alibaba/hologres/spark/example/SparkToHoloRepartitionExample.scala)的示例SparkToHoloRepartitionExample  <br>建议写入空的有主键表以避免去重，达到最佳性能  <br> 注：需要connector版本>=1.4.1，hologres引擎版本>=r2.1.0  |
 |      max_cell_buffer_size      |                   20971520（20MB）                    |             否             |                                                                                                                                             使用copy模式写入时，单个字段的最大长度                                                                                                                                             |
 | copy_write_dirty_data_check |                        false                        |             否             |                                                                                                                   是否进行脏数据校验，打开之后如果有脏数据，可以定位到写入失败的具体行，RecordChecker会对写入性能造成一定影响，非排查环节不建议开启.                                                                                                                    |

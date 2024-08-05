@@ -79,7 +79,11 @@ public interface RowDataReader<T> extends Serializable {
             case Types.ARRAY:
                 return createArrayFieldReader(fieldType, hologresTypeName, rowDataReader, index);
             case Types.OTHER:
-                return (obj) -> rowDataReader.readObject(obj, index);
+                if (hologresTypeName.equals("json") || hologresTypeName.equals("jsonb")) {
+                    return (obj) -> rowDataReader.readString(obj, index);
+                } else {
+                    return (obj) -> rowDataReader.readObject(obj, index);
+                }
             default:
                 throw new IllegalArgumentException(
                         String.format(

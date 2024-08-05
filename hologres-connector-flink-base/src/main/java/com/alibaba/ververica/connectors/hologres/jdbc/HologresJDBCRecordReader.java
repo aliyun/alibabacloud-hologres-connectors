@@ -69,7 +69,7 @@ public class HologresJDBCRecordReader implements RowDataReader<Record> {
     @Override
     public StringData readString(Record record, int index) {
         return StringData.fromString(
-                (String) record.getObject(flinkColumnToHologresColumn.get(index)));
+                record.getObject(flinkColumnToHologresColumn.get(index)).toString());
     }
 
     @Override

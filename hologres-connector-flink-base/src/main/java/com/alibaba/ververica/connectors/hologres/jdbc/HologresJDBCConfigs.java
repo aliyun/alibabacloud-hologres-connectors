@@ -68,6 +68,12 @@ public class HologresJDBCConfigs {
             key("aggressive.enabled".toLowerCase()).booleanType().defaultValue(false);
     public static final ConfigOption<Boolean> OPTIONAL_ENABLE_AFFECTED_ROWS =
             key("affect-rows.enabled".toLowerCase()).booleanType().defaultValue(true);
+    public static final ConfigOption<String> OPTIONAL_CHECK_AND_PUT_COLUMN =
+            key("check-and-put.column".toLowerCase()).stringType().noDefaultValue();
+    public static final ConfigOption<String> OPTIONAL_CHECK_AND_PUT_OPERATOR =
+            key("check-and-put.operator".toLowerCase()).stringType().defaultValue("GREATER");
+    public static final ConfigOption<String> OPTIONAL_CHECK_AND_PUT_NULL_AS =
+            key("check-and-put.null-as".toLowerCase()).stringType().noDefaultValue();
 
     // Dim options
     public static final ConfigOption<Boolean> INSERT_IF_NOT_EXISTS =

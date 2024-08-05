@@ -9,6 +9,8 @@ import com.alibaba.hologres.client.impl.ExecutionPool;
 import com.alibaba.ververica.connectors.hologres.config.HologresConnectionParam;
 import com.alibaba.ververica.connectors.hologres.config.JDBCOptions;
 
+import java.util.Objects;
+
 /** HoloClient factory which supports create holo client based on ak or sts. */
 public class HologresJDBCClientProvider {
     private HologresConnectionParam param;
@@ -43,10 +45,7 @@ public class HologresJDBCClientProvider {
             client = new HoloClient(holoConfig);
             // use pool name to get share connection pool.
             if (param.getJdbcSharedConnectionPoolName() != null) {
-                ExecutionPool pool =
-                        ExecutionPool.buildOrGet(
-                                "ExecutionPool-" + param.getJdbcSharedConnectionPoolName(),
-                                holoConfig);
+                ExecutionPool pool = ExecutionPool.buildOrGet(getUniquePoolName(), holoConfig);
                 client.setPool(pool);
             }
             return client;
@@ -98,5 +97,20 @@ public class HologresJDBCClientProvider {
         holoConfig.setDynamicPartition(param.isCreateMissingPartTable());
 
         return holoConfig;
+    }
+
+    protected String getUniquePoolName() {
+        // Different databases or even different instances may be used in user jobs. An exception
+        // may occur if the same pool name is used.
+        JDBCOptions jdbcOptions = param.getJdbcOptions();
+        return "ExecutionPool-"
+                + Objects.hash(
+                        jdbcOptions.getEndpoint(),
+                        jdbcOptions.getDatabase(),
+                        jdbcOptions.getUsername(),
+                        jdbcOptions.getPassword(),
+                        jdbcOptions.getSslMode(),
+                        jdbcOptions.getSslRootCertLocation())
+                + param.getJdbcSharedConnectionPoolName();
     }
 }

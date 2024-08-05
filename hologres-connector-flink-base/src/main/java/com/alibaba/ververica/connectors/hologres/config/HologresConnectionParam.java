@@ -21,8 +21,10 @@ package com.alibaba.ververica.connectors.hologres.config;
 import org.apache.flink.configuration.ReadableConfig;
 
 import com.alibaba.hologres.client.model.WriteMode;
+import com.alibaba.hologres.client.model.checkandput.CheckAndPutCondition;
 import com.alibaba.ververica.connectors.common.source.resolver.DirtyDataStrategy;
 import com.alibaba.ververica.connectors.hologres.jdbc.HologresJDBCConfigs;
+import com.alibaba.ververica.connectors.hologres.utils.HologresUtils;
 import com.alibaba.ververica.connectors.hologres.utils.JDBCUtils;
 
 import java.io.Serializable;
@@ -70,6 +72,7 @@ public class HologresConnectionParam implements Serializable {
     private final boolean enableTargetShards;
     private final Boolean jdbcUseLegacyPutHandler;
     private final boolean jdbcEnableDefaultForNotNullColumn;
+    private final CheckAndPutCondition checkAndPutCondition;
     // JDBC dim
     private final boolean insertIfNotExists;
     // JDBC copy sink
@@ -144,6 +147,7 @@ public class HologresConnectionParam implements Serializable {
         this.copyWriteFormat = properties.get(HologresJDBCConfigs.COPY_WRITE_FORMAT);
         this.directConnect = properties.get(HologresJDBCConfigs.DIRECT_CONNECT);
         this.bulkLoad = properties.get(HologresJDBCConfigs.OPTIONAL_BULK_LOAD);
+        this.checkAndPutCondition = HologresUtils.getCheckAndPutCondition(properties);
     }
 
     public static WriteMode getJDBCWriteMode(ReadableConfig tableProperties) {
@@ -336,6 +340,10 @@ public class HologresConnectionParam implements Serializable {
 
     public boolean isEnableTargetShards() {
         return enableTargetShards;
+    }
+
+    public CheckAndPutCondition getCheckAndPutCondition() {
+        return checkAndPutCondition;
     }
 
     @Override

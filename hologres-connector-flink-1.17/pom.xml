@@ -8,7 +8,7 @@
     <parent>
         <groupId>com.alibaba.hologres</groupId>
         <artifactId>hologres-connector-parent</artifactId>
-        <version>1.4.1-SNAPSHOT</version>
+        <version>1.4.2-SNAPSHOT</version>
     </parent>
 
     <artifactId>hologres-connector-flink-1.17</artifactId>
@@ -106,6 +106,12 @@
             <artifactId>flink-table-planner_2.12</artifactId>
             <version>${flink.version}</version>
             <type>test-jar</type>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-test-utils</artifactId>
+            <version>${flink.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>

@@ -162,10 +162,17 @@ public interface RowDataWriter<T> extends Serializable {
                 }
                 break;
             case Types.OTHER:
-                fieldWriter =
-                        (obj) -> {
-                            rowDataWriter.writeObject(obj, columnIndexInHologresTable);
-                        };
+                // The type check of jdbc copy writer is relatively strict, only supports
+                // java.lang.String but not BinaryStringData.
+                if (hologresTypeName.equals("json") || hologresTypeName.equals("jsonb")) {
+                    fieldWriter =
+                            (obj) ->
+                                    rowDataWriter.writeString(
+                                            (StringData) obj, columnIndexInHologresTable);
+                } else {
+                    fieldWriter =
+                            (obj) -> rowDataWriter.writeObject(obj, columnIndexInHologresTable);
+                }
                 break;
             default:
                 throw new IllegalArgumentException(
