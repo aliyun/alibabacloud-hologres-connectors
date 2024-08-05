@@ -12,10 +12,14 @@ import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.model.TableName;
 import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.model.WriteMode;
+import com.alibaba.hologres.client.model.checkandput.CheckAndPutCondition;
+import com.alibaba.hologres.client.model.checkandput.CheckAndPutRecord;
+import com.alibaba.hologres.client.model.checkandput.CheckCompareOp;
 import com.alibaba.hologres.client.type.PGroaringbitmap;
 import com.alibaba.hologres.client.utils.IdentifierUtil;
 import com.alibaba.hologres.client.utils.Tuple;
 import com.alibaba.hologres.client.utils.Tuple3;
+import com.alibaba.hologres.client.utils.Tuple4;
 import org.postgresql.util.PSQLState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -67,11 +71,11 @@ public class UpsertStatementBuilder {
 	 * 表+record.isSet的列（BitSet） -> Sql语句的映射.
 	 */
 	static class SqlCache<T> {
-		Map<Tuple3<TableSchema, TableName, WriteMode>, Map<T, SqlTemplate>> cacheMap = new HashMap<>();
+		Map<Tuple4<TableSchema, TableName, WriteMode, CheckAndPutCondition>, Map<T, SqlTemplate>> cacheMap = new HashMap<>();
 
 		int size = 0;
 
-		public SqlTemplate computeIfAbsent(Tuple3<TableSchema, TableName, WriteMode> tuple, T t, BiFunction<Tuple3<TableSchema, TableName, WriteMode>, T, SqlTemplate> b) {
+		public SqlTemplate computeIfAbsent(Tuple4<TableSchema, TableName, WriteMode, CheckAndPutCondition> tuple, T t, BiFunction<Tuple4<TableSchema, TableName, WriteMode, CheckAndPutCondition>, T, SqlTemplate> b) {
 			Map<T, SqlTemplate> subMap = cacheMap.computeIfAbsent(tuple, (s) -> new HashMap<>());
 			return subMap.computeIfAbsent(t, (bs) -> {
 				++size;
@@ -89,12 +93,13 @@ public class UpsertStatementBuilder {
 	}
 
 	SqlCache<Tuple<BitSet, BitSet>> insertCache = new SqlCache<>();
-	Map<Tuple<TableSchema, TableName>, SqlTemplate> deleteCache = new HashMap<>();
+	Map<Tuple3<TableSchema, TableName, CheckAndPutCondition>, SqlTemplate> deleteCache = new HashMap<>();
 	boolean first = true;
 
-	private SqlTemplate buildDeleteSqlTemplate(Tuple<TableSchema, TableName> tuple) {
+	private SqlTemplate buildDeleteSqlTemplate(Tuple3<TableSchema, TableName, CheckAndPutCondition> tuple) {
 		TableSchema schema = tuple.l;
-		TableName tableName = tuple.r;
+		TableName tableName = tuple.m;
+		CheckAndPutCondition checkAndPutCondition = tuple.r;
 		first = true;
 		StringBuilder sb = new StringBuilder();
 		sb.append("delete from ").append(tableName.getFullName());
@@ -109,21 +114,59 @@ public class UpsertStatementBuilder {
 			first = false;
 			sb.append(IdentifierUtil.quoteIdentifier(schema.getColumnSchema()[index].getName(), true)).append("=?");
 		}
+		if (checkAndPutCondition != null) {
+			sb.append(" and");
+			sb.append(buildCheckAndDeletePattern(checkAndPutCondition));
+		}
 		sb.append(")");
 		String rowText = sb.toString();
 		int maxLevel = 32 - Integer.numberOfLeadingZeros(Short.MAX_VALUE / schema.getKeyIndex().length) - 1;
-		return new SqlTemplate(header, null, rowText, DELIMITER_OR, maxLevel);
 
+		SqlTemplate sqlTemplate = new SqlTemplate(header, null, rowText, DELIMITER_OR, maxLevel);
+		LOGGER.debug("new sql:{}", sqlTemplate.getSql(1));
+		return sqlTemplate;
 	}
 
-	private SqlTemplate buildInsertSql(Tuple3<TableSchema, TableName, WriteMode> tuple, Tuple<BitSet, BitSet> input) {
-		TableSchema schema = tuple.l;
-		TableName tableName = tuple.m;
-		WriteMode mode = tuple.r;
+	/**
+	 * 对delete语句， check and put 方式为`delete from table where (pk = ? and checkColumn < ?) or (pk = ? and checkColumn < ?);`
+	 */
+	protected String buildCheckAndDeletePattern(CheckAndPutCondition checkAndPutCondition) {
+		Column checkColumn = checkAndPutCondition.getCheckColumn();
+		CheckCompareOp checkOp = checkAndPutCondition.getCheckOp();
+		Object checkValue = checkAndPutCondition.getCheckValue();
+		StringBuilder sb = new StringBuilder();
+
+		String oldColumnPattern = coalesceNullValue(checkAndPutCondition, IdentifierUtil.quoteIdentifier(checkAndPutCondition.getCheckColumn().getName(), true));
+		if (checkAndPutCondition.isOldValueCheckWithNull()) {
+			// 已有数据与null做比较：old column is null
+			sb.append(" ").append(oldColumnPattern).append(" ").append(checkOp.getOperatorString());
+			return sb.toString();
+		}
+		if (checkAndPutCondition.isNewValueCheckWithOldValue()) {
+			// 准备删除的数据与已有数据做比较： new column checkOp old column
+			sb.append(" ?");
+		} else {
+			// 常量与已有数据做比较：checkValue checkOp old column
+			sb.append(" '").append(checkValue).append("'::").append(checkColumn.getTypeName());
+		}
+		sb.append(" ").append(checkOp.getOperatorString()).append(" ").append(oldColumnPattern);
+		return sb.toString();
+	}
+
+	private SqlTemplate buildInsertSql(Tuple4<TableSchema, TableName, WriteMode, CheckAndPutCondition> tuple, Tuple<BitSet, BitSet> input) {
+		TableSchema schema = tuple.f0;
+		TableName tableName = tuple.f1;
+		WriteMode mode = tuple.f2;
+		CheckAndPutCondition checkAndPutCondition = tuple.f3;
 		BitSet set = input.l;
 		BitSet onlyInsertSet = input.r;
 		StringBuilder sb = new StringBuilder();
 		sb.append("insert into ").append(tableName.getFullName());
+
+		// 无论是与表中已有数据还是常量比较，都需要as重命名为old
+		if (checkAndPutCondition != null) {
+			sb.append(" as old ");
+		}
 
 		sb.append("(");
 		first = true;
@@ -185,15 +228,61 @@ public class UpsertStatementBuilder {
 					}
 				});
 			}
+			if (checkAndPutCondition != null) {
+				sb.append(" where");
+				sb.append(buildCheckAndPutPattern(checkAndPutCondition));
+			}
 		}
 
 		String tail = sb.toString();
 
 		int maxLevel = 32 - Integer.numberOfLeadingZeros(Short.MAX_VALUE / set.cardinality()) - 1;
 		SqlTemplate sqlTemplate = new SqlTemplate(header, tail, rowText, DELIMITER_DOT, maxLevel);
-		LOGGER.debug("new sql:{}", sqlTemplate.getSql(maxLevel));
+		LOGGER.debug("new sql:{}", sqlTemplate.getSql(0));
 		return sqlTemplate;
 	}
+
+	protected String buildCheckAndPutPattern(CheckAndPutCondition checkAndPutCondition) {
+		Column checkColumn = checkAndPutCondition.getCheckColumn();
+		CheckCompareOp checkOp = checkAndPutCondition.getCheckOp();
+		Object checkValue = checkAndPutCondition.getCheckValue();
+		StringBuilder sb = new StringBuilder();
+
+		String oldColumnPattern = coalesceNullValue(checkAndPutCondition, getCheckColumnNameAlias(checkAndPutCondition, /*old*/true));
+		String newColumnPattern = " " + getCheckColumnNameAlias(checkAndPutCondition, /*old*/false);
+
+		if (checkAndPutCondition.isOldValueCheckWithNull()) {
+			// 已有数据与null做比较：old column is null
+			sb.append(" ").append(oldColumnPattern).append(" ").append(checkOp.getOperatorString());
+			return sb.toString();
+		}
+		if (checkAndPutCondition.isNewValueCheckWithOldValue()) {
+			// 准备插入的数据与已有数据做比较：new column checkOp old column
+			sb.append(newColumnPattern);
+		} else {
+			// 常量与已有数据做比较：checkValue checkOp old column
+			sb.append(" '").append(checkValue).append("'::").append(checkColumn.getTypeName());
+		}
+		sb.append(" ").append(checkOp.getOperatorString()).append(" ").append(oldColumnPattern);
+		return sb.toString();
+	}
+
+	private static String getCheckColumnNameAlias(CheckAndPutCondition checkAndPutCondition, boolean old) {
+		return (old ? "old." : "excluded.") + IdentifierUtil.quoteIdentifier(checkAndPutCondition.getCheckColumn().getName(), true);
+	}
+
+	private static String coalesceNullValue(CheckAndPutCondition checkAndPutCondition, String name) {
+		StringBuilder sb = new StringBuilder();
+		if (checkAndPutCondition.getNullValue() != null) {
+			sb.append("coalesce(")
+					.append(name)
+					.append(", '").append(checkAndPutCondition.getNullValue()).append("'::").append(checkAndPutCondition.getCheckColumn().getTypeName()).append(")");
+		} else {
+			sb.append(name);
+		}
+		return sb.toString();
+	}
+
 
 	/**
 	 * 把default值解析为值和类型.
@@ -228,7 +317,7 @@ public class UpsertStatementBuilder {
 		}
 	}
 
-	private void fillDefaultValue(Record record, Column column, int i) {
+	protected void fillDefaultValue(Record record, Column column, int i) {
 
 		//当列为空并且not null时，尝试在客户端填充default值
 		if (record.getObject(i) == null && !column.getAllowNull()) {
@@ -245,6 +334,7 @@ public class UpsertStatementBuilder {
 					case Types.SMALLINT:
 						record.setObject(i, Long.parseLong(defaultValue));
 						break;
+					case Types.REAL:
 					case Types.DOUBLE:
 					case Types.FLOAT:
 						record.setObject(i, Double.parseDouble(defaultValue));
@@ -281,6 +371,7 @@ public class UpsertStatementBuilder {
 					case Types.SMALLINT:
 						record.setObject(i, 0L);
 						break;
+					case Types.REAL:
 					case Types.DOUBLE:
 					case Types.FLOAT:
 						record.setObject(i, 0D);
@@ -319,7 +410,7 @@ public class UpsertStatementBuilder {
 	 *
 	 * @param record
 	 */
-	private void fillNotSetValue(Record record, Column column, int i) {
+	protected void fillNotSetValue(Record record, Column column, int i) {
 		if (!record.isSet(i)) {
 			if (column.isSerial()) {
 				return;
@@ -328,7 +419,7 @@ public class UpsertStatementBuilder {
 		}
 	}
 
-	private void handleArrayColumn(Connection conn, Record record, Column column, int index) throws SQLException {
+	protected void handleArrayColumn(Connection conn, Record record, Column column, int index) throws SQLException {
 		Object obj = record.getObject(index);
 		if (null != obj && obj instanceof List) {
 			List<?> list = (List<?>) obj;
@@ -338,7 +429,6 @@ public class UpsertStatementBuilder {
 			Array array = conn.createArrayOf(column.getTypeName().substring(1), (Object[]) obj);
 			record.setObject(index, array);
 		}
-
 	}
 
 	public void prepareRecord(Connection conn, Record record, WriteMode mode) throws SQLException {
@@ -359,7 +449,7 @@ public class UpsertStatementBuilder {
 	}
 
 	private String removeU0000(final String in) {
-		if (in != null && in.contains("\u0000")) {
+		if (removeU0000InTextColumnValue && in != null && in.contains("\u0000")) {
 			return in.replaceAll("\u0000", "");
 		} else {
 			return in;
@@ -493,7 +583,12 @@ public class UpsertStatementBuilder {
 		if (recordList.size() == 0) {
 			return;
 		}
-		SqlTemplate sql = insertCache.computeIfAbsent(new Tuple3<>(schema, tableName, mode), columnSet, this::buildInsertSql);
+		Record r = recordList.get(0);
+		CheckAndPutCondition checkAndPutCondition = null;
+		if (r instanceof CheckAndPutRecord) {
+			checkAndPutCondition = ((CheckAndPutRecord) r).getCheckAndPutCondition();
+		}
+		SqlTemplate sql = insertCache.computeIfAbsent(new Tuple4<>(schema, tableName, mode, checkAndPutCondition), columnSet, this::buildInsertSql);
 		fillPreparedStatement(conn, sql, list, recordList, Put.MutationType.INSERT, this::fillPreparedStatementForInsert);
 	}
 
@@ -561,6 +656,15 @@ public class UpsertStatementBuilder {
 			Column column = record.getSchema().getColumn(index);
 			fillPreparedStatement(ps, ++psIndex, record.getObject(index), column);
 		}
+		if (record instanceof CheckAndPutRecord) {
+			CheckAndPutCondition checkAndPutCondition = ((CheckAndPutRecord) record).getCheckAndPutCondition();
+			// 已有数据和常量做比较，不需要传入参数
+			if (checkAndPutCondition.isNewValueCheckWithOldValue()) {
+				Column column = checkAndPutCondition.getCheckColumn();
+				int index = record.getSchema().getColumnIndex(column.getName());
+				fillPreparedStatement(ps, ++psIndex, record.getObject(index), column);
+			}
+		}
 		return psIndex;
 	}
 
@@ -568,7 +672,12 @@ public class UpsertStatementBuilder {
 		if (recordList.size() == 0) {
 			return;
 		}
-		SqlTemplate sql = deleteCache.computeIfAbsent(new Tuple<>(schema, tableName), this::buildDeleteSqlTemplate);
+		Record r = recordList.get(0);
+		CheckAndPutCondition checkAndPutCondition = null;
+		if (r instanceof CheckAndPutRecord) {
+			checkAndPutCondition = ((CheckAndPutRecord) r).getCheckAndPutCondition();
+		}
+		SqlTemplate sql = deleteCache.computeIfAbsent(new Tuple3<>(schema, tableName, checkAndPutCondition), this::buildDeleteSqlTemplate);
 		fillPreparedStatement(conn, sql, list, recordList, Put.MutationType.DELETE, this::fillPreparedStatementForDelete);
 	}
 

@@ -29,6 +29,10 @@ import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.model.RecordScanner;
 import com.alibaba.hologres.client.model.TableName;
 import com.alibaba.hologres.client.model.TableSchema;
+import com.alibaba.hologres.client.model.WriteMode;
+import com.alibaba.hologres.client.model.checkandput.CheckAndPutCondition;
+import com.alibaba.hologres.client.model.checkandput.CheckAndPutRecord;
+import com.alibaba.hologres.client.model.checkandput.CheckCompareOp;
 import com.alibaba.hologres.client.utils.IdentifierUtil;
 import com.alibaba.hologres.client.utils.Tuple;
 import org.slf4j.Logger;
@@ -199,6 +203,66 @@ public class HoloClient implements Closeable {
 		}
 		if (put.getRecord().getType() == Put.MutationType.DELETE && put.getRecord().getSchema().getPrimaryKeys().length == 0) {
 			throw new HoloClientWithDetailsException(ExceptionCode.CONSTRAINT_VIOLATION, "Delete Put table must have primary key:" + put.getRecord().getSchema().getTableNameObj().getFullName(), put.getRecord());
+		}
+	}
+
+	/** 检查CheckAndPut内容并进行重写. */
+	private void checkCheckAndPut(CheckAndPut put) throws HoloClientException {
+		if (put == null) {
+			throw new HoloClientException(ExceptionCode.CONSTRAINT_VIOLATION, "CheckAndPut cannot be null");
+		}
+		if (put.getRecord().getSchema().getPrimaryKeys().length == 0) {
+			throw new HoloClientWithDetailsException(ExceptionCode.CONSTRAINT_VIOLATION, "CheckAndPut need table have primary key:" + put.getRecord().getSchema().getTableNameObj().getFullName(), put.getRecord());
+		}
+		for (int index : put.getRecord().getKeyIndex()) {
+			if ((!put.getRecord().isSet(index) || null == put.getRecord().getObject(index)) && put.getRecord().getSchema().getColumn(index).getDefaultValue() == null) {
+				throw new HoloClientWithDetailsException(ExceptionCode.CONSTRAINT_VIOLATION, "CheckAndPut primary key cannot be null:" + put.getRecord().getSchema().getColumnSchema()[index].getName(), put.getRecord());
+			}
+		}
+		if (put.getRecord().getSchema().isPartitionParentTable() && (!put.getRecord().isSet(put.getRecord().getSchema().getPartitionIndex()) || null == put.getRecord().getObject(put.getRecord().getSchema().getPartitionIndex()))) {
+			throw new HoloClientWithDetailsException(ExceptionCode.CONSTRAINT_VIOLATION, "CheckAndPut partition key cannot be null:" + put.getRecord().getSchema().getColumnSchema()[put.getRecord().getSchema().getPartitionIndex()].getName(), put.getRecord());
+		}
+		if (config.getWriteMode() == WriteMode.INSERT_OR_IGNORE) {
+			throw new HoloClientException(ExceptionCode.NOT_SUPPORTED, "CheckAndPut not supports writeMode insertOrIgnore.");
+		}
+		CheckAndPutRecord record = put.getRecord();
+		String checkColumnName = record.getCheckAndPutCondition().getCheckColumnName();
+		CheckCompareOp checkOp = record.getCheckAndPutCondition().getCheckOp();
+		Object checkValue = record.getCheckAndPutCondition().getCheckValue();
+		Object nullValue = record.getCheckAndPutCondition().getNullValue();
+		Integer checkColumnIndex = record.getSchema().getColumnIndex(checkColumnName);
+		if (checkColumnIndex == null || checkColumnIndex < 0) {
+			throw new HoloClientWithDetailsException(ExceptionCode.INVALID_REQUEST, "checkColumn " + checkColumnName + " is not exists in table " + put.getRecord().getSchema().getTableNameObj().getFullName(), put.getRecord());
+		} else {
+			// CheckAndPutCondition 可能是通过columnName初始化的
+			put.getRecord().getCheckAndPutCondition().setCheckColumn(record.getSchema().getColumn(checkColumnIndex));
+		}
+
+		if (checkOp == CheckCompareOp.IS_NULL || checkOp == CheckCompareOp.IS_NOT_NULL) {
+			// is null,is not null不需要做coalesce,不关心nullValue,checkValue的值
+			nullValue = null;
+			checkValue = null;
+			put.getRecord().getCheckAndPutCondition().setNullValue(nullValue);
+			put.getRecord().getCheckAndPutCondition().setCheckValue(checkValue);
+		} else {
+			// >,>=,=,<>,<,<=操作符不能和null进行比较（结果恒为false），需要提供nullValue进行重写，相当于sql中的coalesce函数
+			if (nullValue == null && record.getCheckAndPutCondition().getCheckColumn().getAllowNull()) {
+				LOGGER.warn("When a field allows null, it is recommended to set nullValue to prevent null fields from being updated.");
+			}
+			// checkValue没有设置，表示要使用当前put中的checkColumn值和已有的值进行比较，所以Record的checkColumn必须被set
+			if (checkValue == null && !put.getRecord().isSet(checkColumnIndex)) {
+				throw new HoloClientWithDetailsException(ExceptionCode.INVALID_REQUEST, "checkColumn " + checkColumnName + " should be set when not set checkValue.", put.getRecord());
+			}
+			// checkValue没有设置，表示要使用当前put中的checkColumn值和已有的值进行比较，所以Record的checkColumn必须被set，且对于delete来说不能设置为null(抛出异常: internal error: binaryrow should not be empty)
+			if (checkValue == null && put.getRecord().getObject(checkColumnIndex) == null && put.getRecord().getType() == Put.MutationType.DELETE) {
+				// delete from table where (pk = $1 and $2 > checkColumn). 这里的$2不能是null
+				throw new HoloClientWithDetailsException(ExceptionCode.INVALID_REQUEST, "checkColumn " + checkColumnName + " should be set not null when not set checkValue and mutationType is delete.", put.getRecord());
+			}
+		}
+		// delete不支持攒批，直接将delete的checkValue设置为put中的checkColumn字段的值, 这样不同的Condition会分批提交
+		if (checkValue == null && put.getRecord().getType() == Put.MutationType.DELETE && checkOp != CheckCompareOp.IS_NULL && checkOp != CheckCompareOp.IS_NOT_NULL) {
+			checkValue = put.getRecord().getObject(checkColumnIndex);
+			put.getRecord().getCheckAndPutCondition().setCheckValue(checkValue);
 		}
 	}
 
@@ -436,6 +500,68 @@ public class HoloClient implements Closeable {
 		}
 		if (detailException != null) {
 			throw detailException;
+		}
+	}
+
+	/**
+	 * 假设checkOp为GREATER
+	 * 当checkValue不为null时, 用checkValue与表中checkColumn的当前值比较，满足checkOp时，则执行put，相当于sql `checkValue > old.column1`.
+	 * 当checkValue为null时, 用Put中的新值与表中checkColumn当前值和进行比较，满足checkOp时，则执行put，相当于sql `excluded.column1 > old.column1`.
+	 *
+	 * @param checkColumn column
+	 * @param checkOp     op
+	 * @param checkValue  value
+	 * @param nullValue   当前值为null时，视做nullValue。相当于sql `coalesce(old.column1, nullValue)`.
+	 * @param put         put
+	 * @throws HoloClientException e
+	 */
+	public void checkAndPut(String checkColumn, CheckCompareOp checkOp, Object checkValue, Object nullValue, Put put) throws HoloClientException {
+		TableSchema schema = put.getRecord().getSchema();
+		CheckAndPutRecord checkAndPutRecord = new CheckAndPutRecord(put.getRecord(),
+				new CheckAndPutCondition(schema.getColumn(schema.getColumnIndex(checkColumn)), checkOp, checkValue, nullValue));
+
+		checkAndPut(new CheckAndPut(checkAndPutRecord));
+	}
+
+	public void checkAndPut(String checkColumn, CheckCompareOp checkOp, Object checkValue, Put put) throws HoloClientException {
+		checkAndPut(checkColumn, checkOp, checkValue, null, put);
+	}
+
+	/**
+	 * 兼容beta版本接口. 不建议使用, checkValue会从put的record中获取, 只能每次单条写入无法攒批.
+	 */
+	public void checkAndPut(String checkColumn, CheckCompareOp checkOp, Put put) throws HoloClientException {
+		checkAndPut(checkColumn, checkOp, put.getRecord().getObject(checkColumn), null, put);
+	}
+
+	public void checkAndPut(String checkColumn, Object nullValue, CheckCompareOp checkOp, Put put) throws HoloClientException {
+		checkAndPut(checkColumn, checkOp, null, nullValue, put);
+	}
+
+	/**
+	 * 直接传入CheckAndPut.
+	 *
+	 * @param put CheckAndPut
+	 * @throws HoloClientException e
+	 */
+	public void checkAndPut(CheckAndPut put) throws HoloClientException {
+		ensurePoolOpen();
+		tryThrowException();
+		checkCheckAndPut(put);
+		final CheckAndPutRecord record = put.getRecord();
+
+		ExecutionPool execPool = useFixedFe ? fixedPool : pool;
+		if (!rewriteForPartitionTable(put.getRecord(), config.isDynamicPartition() && !Put.MutationType.DELETE.equals(put.getRecord().getType()), !Put.MutationType.DELETE.equals(put.getRecord().getType()))) {
+			if (!asyncCommit) {
+				PutAction action = new PutAction(Collections.singletonList(record), record.getByteSize(), config.getWriteMode(), BatchState.SizeEnough);
+
+				while (!execPool.submit(action)) {
+
+				}
+				action.getResult();
+			} else {
+				collector.append(put.getRecord());
+			}
 		}
 	}
 

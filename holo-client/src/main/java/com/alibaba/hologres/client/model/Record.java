@@ -27,7 +27,7 @@ public class Record implements Serializable {
 	/**
 	 * schema never change.
 	 */
-	final TableSchema schema;
+	protected final TableSchema schema;
 
 	/**
 	 * for partition table, the tableName is partition child table name.
@@ -37,7 +37,7 @@ public class Record implements Serializable {
 	Object[] values;
 	BitSet bitSet;
 	BitSet onlyInsertColumnSet;
-	List<Object> attachmentList = null;
+	protected List<Object> attachmentList = null;
 	Put.MutationType type = Put.MutationType.INSERT;
 	int shardId = -1;
 
@@ -48,7 +48,7 @@ public class Record implements Serializable {
 	 * 例：
 	 * 当前后2个Put请求的主键相同时，那么两个Put对象的Record会合并成1个，那么合并后的Record的putFutures变量将会保留2个Put对象的future
 	 */
-	transient List<CompletableFuture<Void>> putFutures;
+	protected transient List<CompletableFuture<Void>> putFutures;
 
 	private Record(TableSchema schema,
 				   TableName tableName,
@@ -288,7 +288,7 @@ public class Record implements Serializable {
 		this.addAttachmentList(record.attachmentList);
 
 		//merge putFutures
-		if (putFutures == null) {
+		if (this.putFutures == null) {
 			if (record.putFutures != null) {
 				this.putFutures = new ArrayList<>(record.putFutures);
 			}

@@ -12,6 +12,7 @@ import com.alibaba.hologres.client.model.TableSchema;
 import org.postgresql.PGProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.BeforeTest;
@@ -172,4 +173,15 @@ public class HoloClientTestBase {
 		return config;
 	}
 
+	// 包含异常信息的异常断言
+	public static void assertThrowsWithMessage(Class<? extends Throwable> expectedClass, String expectedMessage, Assert.ThrowingRunnable runnable) {
+		try {
+			runnable.run();
+			Assert.fail(String.format("Expected %s to be thrown, but nothing was thrown", expectedClass.getSimpleName()));
+		} catch (Throwable actualException) {
+			actualException.printStackTrace();
+			Assert.assertEquals(actualException.getClass(), expectedClass, String.format("Expected %s to be thrown, but %s was thrown", expectedClass.getSimpleName(), actualException.getClass()));
+			Assert.assertTrue(actualException.getMessage().contains(expectedMessage), String.format("Expected %s to be thrown, but %s was thrown", expectedMessage, actualException.getMessage()));
+		}
+	}
 }

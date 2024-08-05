@@ -14,23 +14,22 @@ import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.model.TableName;
 import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.model.WriteMode;
-import com.alibaba.hologres.client.type.PGroaringbitmap;
+import com.alibaba.hologres.client.model.checkandput.CheckAndPutCondition;
+import com.alibaba.hologres.client.model.checkandput.CheckAndPutRecord;
 import com.alibaba.hologres.client.utils.IdentifierUtil;
 import com.alibaba.hologres.client.utils.Tuple;
-import com.alibaba.hologres.client.utils.Tuple3;
+import com.alibaba.hologres.client.utils.Tuple4;
 import org.postgresql.jdbc.PgConnection;
 import org.postgresql.util.PSQLState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.math.BigDecimal;
 import java.sql.Array;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Types;
 import java.util.BitSet;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -46,24 +45,20 @@ import java.util.stream.IntStream;
  */
 public class UnnestUpsertStatementBuilder extends UpsertStatementBuilder {
 	public static final Logger LOGGER = LoggerFactory.getLogger(UnnestUpsertStatementBuilder.class);
-	boolean enableDefaultValue;
-	String defaultTimeStampText;
 
 	public UnnestUpsertStatementBuilder(HoloConfig config) {
 		super(config);
-		this.enableDefaultValue = config.isEnableDefaultForNotNullColumn();
-		this.defaultTimeStampText = config.getDefaultTimestampText();
 	}
 
 	/**
 	 * 表+record.isSet的列（BitSet） -> Sql语句的映射.
 	 */
 	static class SqlCache<T, R> {
-		Map<Tuple3<TableSchema, TableName, WriteMode>, Map<T, R>> cacheMap = new HashMap<>();
+		Map<Tuple4<TableSchema, TableName, WriteMode, CheckAndPutCondition>, Map<T, R>> cacheMap = new HashMap<>();
 
 		int size = 0;
 
-		public R computeIfAbsent(Tuple3<TableSchema, TableName, WriteMode> tuple, T t, BiFunction<Tuple3<TableSchema, TableName, WriteMode>, T, R> b) {
+		public R computeIfAbsent(Tuple4<TableSchema, TableName, WriteMode, CheckAndPutCondition> tuple, T t, BiFunction<Tuple4<TableSchema, TableName, WriteMode, CheckAndPutCondition>, T, R> b) {
 			Map<T, R> subMap = cacheMap.computeIfAbsent(tuple, (s) -> new HashMap<>());
 			return subMap.computeIfAbsent(t, (bs) -> {
 				++size;
@@ -123,15 +118,21 @@ public class UnnestUpsertStatementBuilder extends UpsertStatementBuilder {
 		return true;
 	}
 
-	private InsertSql buildInsertSql(Tuple3<TableSchema, TableName, WriteMode> tuple, Tuple<BitSet, BitSet> input) {
-		TableSchema schema = tuple.l;
-		TableName tableName = tuple.m;
-		WriteMode mode = tuple.r;
+	private InsertSql buildInsertSql(Tuple4<TableSchema, TableName, WriteMode, CheckAndPutCondition> tuple, Tuple<BitSet, BitSet> input) {
+		TableSchema schema = tuple.f0;
+		TableName tableName = tuple.f1;
+		WriteMode mode = tuple.f2;
+		CheckAndPutCondition checkAndPutCondition = tuple.f3;
 		BitSet set = input.l;
 		BitSet onlyInsertSet = input.r;
 		boolean isUnnest = false;
 		StringBuilder sb = new StringBuilder();
 		sb.append("insert into ").append(tableName.getFullName());
+
+		// 无论是与表中已有数据还是常量比较，都需要as重命名为old
+		if (checkAndPutCondition != null) {
+			sb.append(" as old ");
+		}
 
 		sb.append("(");
 		first = true;
@@ -209,6 +210,10 @@ public class UnnestUpsertStatementBuilder extends UpsertStatementBuilder {
 					}
 				});
 			}
+			if (checkAndPutCondition != null) {
+				sb.append(" where");
+				sb.append(buildCheckAndPutPattern(checkAndPutCondition));
+			}
 		}
 
 		String sql = sb.toString();
@@ -218,152 +223,6 @@ public class UnnestUpsertStatementBuilder extends UpsertStatementBuilder {
 		insertSql.isUnnest = isUnnest;
 		insertSql.sql = sql;
 		return insertSql;
-	}
-
-	/**
-	 * 把default值解析为值和类型.
-	 * 例:
-	 * text default '-'  ,  ["-",null]
-	 * timestamptz default '2021-12-12 12:12:12.123'::timestamp , ["2021-12-12 12:12:12.123","timestamp"]
-	 *
-	 * @param defaultValue 建表时设置的default值
-	 * @return 2元组，值，[类型]
-	 */
-	private static String[] handleDefaultValue(String defaultValue) {
-		String[] ret = defaultValue.split("::");
-		if (ret.length == 1) {
-			String[] temp = new String[2];
-			temp[0] = ret[0];
-			temp[1] = null;
-			ret = temp;
-		}
-		if (ret[0].startsWith("'") && ret[0].endsWith("'") && ret[0].length() > 1) {
-			ret[0] = ret[0].substring(1, ret[0].length() - 1);
-		}
-		return ret;
-	}
-
-	private static final int WARN_SKIP_COUNT = 10000;
-	long warnCount = WARN_SKIP_COUNT;
-
-	private void logWarnSeldom(String s, Object... obj) {
-		if (++warnCount > WARN_SKIP_COUNT) {
-			LOGGER.warn(s, obj);
-			warnCount = 0;
-		}
-	}
-
-	private void fillDefaultValue(Record record, Column column, int i) {
-
-		//当列为空并且not null时，尝试在客户端填充default值
-		if (record.getObject(i) == null && !column.getAllowNull()) {
-			//对于serial列不处理default值
-			if (column.isSerial()) {
-				return;
-			}
-			if (column.getDefaultValue() != null) {
-				String[] defaultValuePair = handleDefaultValue(String.valueOf(column.getDefaultValue()));
-				String defaultValue = defaultValuePair[0];
-				switch (column.getType()) {
-					case Types.INTEGER:
-					case Types.BIGINT:
-					case Types.SMALLINT:
-						record.setObject(i, Long.parseLong(defaultValue));
-						break;
-					case Types.DOUBLE:
-					case Types.FLOAT:
-						record.setObject(i, Double.parseDouble(defaultValue));
-						break;
-					case Types.DECIMAL:
-					case Types.NUMERIC:
-						record.setObject(i, new BigDecimal(defaultValue));
-						break;
-					case Types.BOOLEAN:
-					case Types.BIT:
-						record.setObject(i, Boolean.valueOf(defaultValue));
-						break;
-					case Types.CHAR:
-					case Types.VARCHAR:
-						record.setObject(i, defaultValue);
-						break;
-					case Types.TIMESTAMP:
-					case Types.TIME_WITH_TIMEZONE:
-					case Types.TIME:
-					case Types.DATE:
-						if ("now()".equalsIgnoreCase(defaultValue) || "current_timestamp".equalsIgnoreCase(defaultValue)) {
-							record.setObject(i, new Date());
-						} else {
-							record.setObject(i, defaultValue);
-						}
-						break;
-					default:
-						logWarnSeldom("unsupported default type,{}({})", column.getType(), column.getTypeName());
-				}
-			} else if (enableDefaultValue) {
-				switch (column.getType()) {
-					case Types.INTEGER:
-					case Types.BIGINT:
-					case Types.SMALLINT:
-						record.setObject(i, 0L);
-						break;
-					case Types.DOUBLE:
-					case Types.FLOAT:
-						record.setObject(i, 0D);
-						break;
-					case Types.DECIMAL:
-					case Types.NUMERIC:
-						record.setObject(i, BigDecimal.ZERO);
-						break;
-					case Types.BOOLEAN:
-					case Types.BIT:
-						record.setObject(i, false);
-						break;
-					case Types.CHAR:
-					case Types.VARCHAR:
-						record.setObject(i, "");
-						break;
-					case Types.TIMESTAMP:
-					case Types.TIME_WITH_TIMEZONE:
-					case Types.TIME:
-					case Types.DATE:
-						if (defaultTimeStampText == null) {
-							record.setObject(i, new Date(0L));
-						} else {
-							record.setObject(i, defaultTimeStampText);
-						}
-						break;
-					default:
-						logWarnSeldom("unsupported default type,{}({})", column.getType(), column.getTypeName());
-				}
-			}
-		}
-	}
-
-	/**
-	 * 給所有非serial且没有set的列都set成null.
-	 *
-	 * @param record
-	 */
-	private void fillNotSetValue(Record record, Column column, int i) {
-		if (!record.isSet(i)) {
-			if (column.isSerial()) {
-				return;
-			}
-			record.setObject(i, null);
-		}
-	}
-
-	private void handleArrayColumn(Connection conn, Record record, Column column, int index) throws SQLException {
-		Object obj = record.getObject(index);
-		if (null != obj && obj instanceof List) {
-			List<?> list = (List<?>) obj;
-			Array array = conn.createArrayOf(column.getTypeName().substring(1), list.toArray());
-			record.setObject(index, array);
-		} else if (obj != null && obj instanceof Object[]) {
-			Array array = conn.createArrayOf(column.getTypeName().substring(1), (Object[]) obj);
-			record.setObject(index, array);
-		}
-
 	}
 
 	@Override
@@ -381,36 +240,6 @@ public class UnnestUpsertStatementBuilder extends UpsertStatementBuilder {
 			}
 		} catch (Exception e) {
 			throw new SQLException(PSQLState.INVALID_PARAMETER_VALUE.getState(), e);
-		}
-	}
-
-	private void fillPreparedStatement(PreparedStatement ps, int index, Object obj, Column column) throws SQLException {
-		switch (column.getType()) {
-			case Types.OTHER:
-				if (obj instanceof byte[] && "roaringbitmap".equalsIgnoreCase(column.getTypeName())) {
-					PGroaringbitmap binaryObject = new PGroaringbitmap();
-					byte[] bytes = (byte[]) obj;
-					binaryObject.setByteValue(bytes, 0);
-					ps.setObject(index, binaryObject, column.getType());
-				} else if ("varbit".equals(column.getTypeName())) {
-					ps.setString(index, obj == null ? null : String.valueOf(obj));
-				} else {
-					ps.setObject(index, obj, column.getType());
-				}
-				break;
-			case Types.BIT:
-				if ("bit".equals(column.getTypeName())) {
-					if (obj instanceof Boolean) {
-						ps.setString(index, (Boolean) obj ? "1" : "0");
-					} else {
-						ps.setString(index, obj == null ? null : String.valueOf(obj));
-					}
-				} else {
-					ps.setObject(index, obj, column.getType());
-				}
-				break;
-			default:
-				ps.setObject(index, obj, column.getType());
 		}
 	}
 
@@ -505,7 +334,12 @@ public class UnnestUpsertStatementBuilder extends UpsertStatementBuilder {
 			super.buildInsertStatement(conn, version, schema, tableName, columnSet, recordList, list, mode);
 			return;
 		}
-		InsertSql insertSql = insertCache.computeIfAbsent(new Tuple3<>(schema, tableName, mode), columnSet, this::buildInsertSql);
+		Record re = recordList.get(0);
+		CheckAndPutCondition checkAndPutCondition = null;
+		if (re instanceof CheckAndPutRecord) {
+			checkAndPutCondition = ((CheckAndPutRecord) re).getCheckAndPutCondition();
+		}
+		InsertSql insertSql =  insertCache.computeIfAbsent(new Tuple4<>(schema, tableName, mode, checkAndPutCondition), columnSet, this::buildInsertSql);
 		PreparedStatement currentPs = null;
 		try {
 			currentPs = conn.prepareStatement(insertSql.sql);

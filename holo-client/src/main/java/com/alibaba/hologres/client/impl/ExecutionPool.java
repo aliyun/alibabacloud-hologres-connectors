@@ -78,7 +78,7 @@ public class ExecutionPool implements Closeable {
 	//----------------------------------------------------------------------
 
 	private String name;
-	private Map<HoloClient, ActionCollector> clientMap;
+	private final Map<HoloClient, ActionCollector> clientMap;
 
 	private AtomicBoolean started; //executionPool整体是否在运行中 ，false以后submit将抛异常
 	private AtomicBoolean workerStated; //worker是否在运行中，false以后worker.offer将抛异常
@@ -97,8 +97,8 @@ public class ExecutionPool implements Closeable {
 
 	ThreadFactory ontShotWorkerThreadFactory;
 
-	final int writeThreadSize;
-	final int readThreadSize;
+	int writeThreadSize;
+	int readThreadSize;
 	final boolean refreshBeforeGetTableSchema;
 	final int refreshMetaTimeout;
 	final boolean enableShutdownHook;
@@ -116,12 +116,11 @@ public class ExecutionPool implements Closeable {
 
 	public static ExecutionPool buildOrGet(String name, HoloConfig config, boolean isShadingEnv, boolean isFixedPool) {
 		synchronized (POOL_MAP) {
-			return POOL_MAP.computeIfAbsent(name, n -> new ExecutionPool(n, config, isShadingEnv, isFixedPool));
+			// 启用和未启用fixed fe的HoloConfig彻底区分开,复用仅在isUseFixedFe参数相同时发生
+			ExecutionPool pool = POOL_MAP.computeIfAbsent(name + config.isUseFixedFe(), n -> new ExecutionPool(n, config, isShadingEnv, isFixedPool));
+			pool.resizeWorkers(config);
+			return pool;
 		}
-	}
-
-	public static ExecutionPool getInstance(String name) {
-		return POOL_MAP.get(name);
 	}
 
 	public ExecutionPool(String name, HoloConfig config, boolean isShadingEnv, boolean isFixedPool) {
@@ -156,32 +155,18 @@ public class ExecutionPool implements Closeable {
 				return t;
 			}
 		};
-		this.readThreadSize = config.getReadThreadSize();
-		this.writeThreadSize = config.getWriteThreadSize();
+
 		this.refreshBeforeGetTableSchema = config.isRefreshMetaBeforeGetTableSchema();
 		this.refreshMetaTimeout = config.getRefreshMetaTimeout();
 		this.enableShutdownHook = config.isEnableShutdownHook();
 		this.queue = new ArrayBlockingQueue<>(config.getReadBatchQueueSize());
 		readActionWatcher = new ActionWatcher(config.getReadBatchSize());
-		// Fe模式: workerSize取读并发和写并发的最大值，worker会公用
-		// FixedFe模式: 分为fixedPool（workerSize取读并发和写并发的最大值，worker会公用）和fePool（workerSize设置为connectionSizeWhenUseFixedFe, 用于sql、meta等其他action）
-		int workerSize;
-		if (config.isUseFixedFe() && !isFixedPool) {
-			workerSize = config.getConnectionSizeWhenUseFixedFe();
-		} else {
-			workerSize = Math.max(readThreadSize, writeThreadSize);
-		}
-		workers = new Worker[workerSize];
+		this.readThreadSize = 0;
+		this.writeThreadSize = 0;
+		workers = new Worker[0];
 		started = new AtomicBoolean(false);
 		workerStated = new AtomicBoolean(false);
-		for (int i = 0; i < workerSize; ++i) {
-			if (isFixedPool) {
-				workers[i] = new Worker(config, workerStated, i, isShadingEnv, true);
-			} else {
-				workers[i] = new Worker(config, workerStated, i, isShadingEnv);
-			}
-		}
-
+		resizeWorkers(config);
 		clientMap = new ConcurrentHashMap<>();
 		byteSizeCache = new ByteSizeCache(config.getWriteBatchTotalByteSize());
 		backgroundJob = new BackgroundJob(config);
@@ -418,7 +403,7 @@ public class ExecutionPool implements Closeable {
 		return workers.length;
 	}
 
-	public ActionCollector register(HoloClient client, HoloConfig config) throws HoloClientException {
+	public synchronized ActionCollector register(HoloClient client, HoloConfig config) throws HoloClientException {
 		boolean needStart = false;
 		ActionCollector collector = null;
 		synchronized (clientMap) {
@@ -458,10 +443,53 @@ public class ExecutionPool implements Closeable {
 					needClose = true;
 				}
 			}
+			if (needClose) {
+				close();
+			}
 		}
-		if (needClose) {
-			close();
+	}
+
+	// VisibleForTesting
+	public synchronized int getClientMapSize() {
+		synchronized (clientMap) {
+            return clientMap.size();
+        }
+	}
+
+	public synchronized void resizeWorkers(HoloConfig config) {
+		int readThreadSize = config.getReadThreadSize();
+		int writeThreadSize = config.getWriteThreadSize();
+		// Fe模式: workerSize取读并发和写并发的最大值，worker会公用
+		// FixedFe模式: 分为fixedPool（workerSize取读并发和写并发的最大值，worker会公用）和fePool（workerSize设置为connectionSizeWhenUseFixedFe, 用于sql、meta等其他action）
+		int workerSize;
+		if (config.isUseFixedFe() && !isFixedPool) {
+			workerSize = config.getConnectionSizeWhenUseFixedFe();
+		} else {
+			workerSize = Math.max(readThreadSize, writeThreadSize);
 		}
+		// 只往大了resize
+		workerSize = Math.max(workerSize, workers.length);
+		if (workerStated.get()) {
+			((ThreadPoolExecutor) workerExecutorService).setMaximumPoolSize(workerSize);
+			((ThreadPoolExecutor) workerExecutorService).setCorePoolSize(workerSize);
+			writeSemaphore.release(Math.max(writeThreadSize - this.writeThreadSize, 0));
+			readSemaphore.release(Math.max(readThreadSize - this.readThreadSize, 0));
+		}
+		Worker[] newWorkers = new Worker[workerSize];
+		System.arraycopy(workers, 0, newWorkers, 0, workers.length);
+		for (int i = workers.length; i < workerSize; ++i) {
+			if (isFixedPool) {
+				newWorkers[i] = new Worker(config, workerStated, i, isShadingEnv, true);
+			} else {
+				newWorkers[i] = new Worker(config, workerStated, i, isShadingEnv);
+			}
+			if (workerStated.get()) {
+				workerExecutorService.execute(newWorkers[i]);
+			}
+		}
+		this.writeThreadSize = writeThreadSize;
+		this.readThreadSize = readThreadSize;
+		workers = newWorkers;
 	}
 
 	public boolean isRunning() {
@@ -471,9 +499,9 @@ public class ExecutionPool implements Closeable {
 	public void tryThrowException() throws HoloClientException {
 		if (fatalException != null) {
 			throw new HoloClientException(fatalException.r.getCode(), String.format(
-				"An exception occurred at %s and data may be lost, please restart holo-client and recover from the "
-					+ "last checkpoint",
-				fatalException.l), fatalException.r);
+					"An exception occurred at %s and data may be lost, please restart holo-client and recover from the "
+							+ "last checkpoint",
+					fatalException.l), fatalException.r);
 		}
 	}
 

@@ -49,6 +49,27 @@ public class RecordCollector {
 	long byteSize = 0L;
 	long startTimeMs = -1L;
 
+	/**
+	 *  有insert和delete两个map
+	 *  处理逻辑如下：
+	 *  - insert map中已有主键相同数据
+	 *  	1. 新的record是delete，删掉insert map中的已有数据，放入delete map
+	 *      	delete map中本来就有相同主键的数据，替换旧的把新的放入delete map
+	 *      	delete map中没有主键相同的数据，放入delete map
+     *      2. 新的record是insert，根据WriteMode进行处理
+	 *      	INSERT_OR_UPDATE 使用新的数据set过的字段覆盖旧的数据
+	 *      	INSERT_OR_IGNORE 啥也不做
+	 *          INSERT_OR_REPLACE 使用新数据直接替换旧数据
+     *  - insert map中没有主键相同数据
+     *      1. 新的record是delete
+	 *      	delete map中本来就有相同主键的数据，替换旧的把新的放入delete map
+	 *      	delete map中没有主键相同的数据，放入delete map
+	 * 		2. 新的record是insert，根据WriteMode进行处理
+	 *      	INSERT_OR_UPDATE 将新数据放入insert map
+	 *      	INSERT_OR_IGNORE 将新数据放入insert map
+	 *          INSERT_OR_REPLACE 看下delete map里有没有主键相同的，有的话从delete map删掉
+     */
+
 	public boolean append(Record record) {
 		if (startTimeMs == -1) {
 			startTimeMs = System.currentTimeMillis();
@@ -96,7 +117,11 @@ public class RecordCollector {
 							byteSize += record.getByteSize();
 							recordMap.put(key, record);
 							break;
+						default:
+							break;
 					}
+					break;
+				default:
 					break;
 			}
 		} else {
@@ -128,6 +153,8 @@ public class RecordCollector {
 					} else {
 						++size;
 					}
+					break;
+				default:
 					break;
 			}
 		}

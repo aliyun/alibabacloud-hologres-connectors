@@ -4,6 +4,7 @@
 
 package com.alibaba.hologres.client;
 
+import com.alibaba.hologres.client.exception.HoloClientWithDetailsException;
 import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.model.WriteMode;
@@ -19,6 +20,7 @@ import java.sql.Statement;
 
 import static com.alibaba.hologres.client.utils.DataTypeTestUtil.ALL_TYPE_DATA;
 import static com.alibaba.hologres.client.utils.DataTypeTestUtil.ALL_TYPE_DATA_WITH_RECORD;
+import static com.alibaba.hologres.client.utils.DataTypeTestUtil.EXCEPTION_ALL_TYPE_DATA;
 import static com.alibaba.hologres.client.utils.DataTypeTestUtil.FIXED_PLAN_TYPE_DATA;
 import static com.alibaba.hologres.client.utils.DataTypeTestUtil.FIXED_PLAN_TYPE_DATA_WITH_RECORD;
 
@@ -58,6 +60,15 @@ public class HoloClientTypesTest extends HoloClientTestBase {
 		Object[][] ret = new Object[typeToTest.length][];
 		for (int i = 0; i < typeToTest.length; ++i) {
 			ret[i] = new Object[]{typeToTest[i]};
+		}
+		return ret;
+	}
+
+	@DataProvider(name = "dirtyCaseData")
+	public Object[][] createExceptionData() {
+		Object[][] ret = new Object[EXCEPTION_ALL_TYPE_DATA.length][];
+		for (int i = 0; i < EXCEPTION_ALL_TYPE_DATA.length; ++i) {
+			ret[i] = new Object[]{EXCEPTION_ALL_TYPE_DATA[i]};
 		}
 		return ret;
 	}
@@ -237,4 +248,65 @@ public class HoloClientTypesTest extends HoloClientTestBase {
 			}
 		}
 	}
+
+	/**
+	 * allType.
+	 * Method: put(Put put).
+	 */
+	@Test(dataProvider = "dirtyCaseData")
+	public void testALLTypeInsertDirtyDataError(DataTypeTestUtil.TypeCaseData typeCaseData) throws Exception {
+		if (properties == null) {
+			return;
+		}
+
+		final int totalCount = 10;
+		String typeName = typeCaseData.getName();
+
+		HoloConfig config = buildConfig();
+		// fixed fe not support jsonb and roaringbitmap now
+		if ((typeName.equals("roaringbitmap") || typeName.equals("jsonb")) && config.isUseFixedFe()) {
+			return;
+		}
+		config.setAppName("testALLTypeInsert");
+		config.setWriteMode(WriteMode.INSERT_OR_REPLACE);
+		config.setRemoveU0000InTextColumnValue(false);
+
+		// config.setUseLegacyPutHandler(true);
+		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
+			String tableName = "\"" + "holo_client_type_" + typeName + "\"";
+			String dropSql = "drop table if exists " + tableName;
+			String createSql = "create table " + tableName + "(id " + typeCaseData.getColumnType() + ", pk int primary key)";
+			execute(conn, new String[]{"CREATE EXTENSION if not exists roaringbitmap", dropSql, createSql});
+			try {
+				TableSchema schema = client.getTableSchema(tableName, true);
+
+				for (int i = 0; i < totalCount; ++i) {
+					Record record = Record.build(schema);
+					if (i < totalCount - 2) {
+						record.setObject(0, null);
+					} else {
+						record.setObject(0, typeCaseData.getSupplier().apply(i, conn.unwrap(BaseConnection.class)));
+					}
+					record.setObject(1, i);
+					client.put(new Put(record));
+				}
+
+				try {
+					client.flush();
+					// bytea写入时，如果传过来不是byte[]，会转string然后getBytes，好像没法mock出脏数据
+					if (!typeName.equals("bytea")) {
+						Assert.fail("should throw dirty data exception");
+					}
+				} catch (HoloClientWithDetailsException e) {
+					if (!e.getCode().isDirtyDataException()) {
+						throw e;
+					}
+					System.out.println(e.getMessage());
+				}
+			} finally {
+				execute(conn, new String[]{dropSql});
+			}
+		}
+	}
+
 }

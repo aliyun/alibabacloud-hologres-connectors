@@ -10,6 +10,7 @@
     - [写入含主键表](#写入含主键表)
     - [局部更新主键表](#局部更新主键表)
     - [基于主键删除（DELETE占比提高会降低整体的每秒写入）](#基于主键删除delete占比提高会降低整体的每秒写入)
+    - [Checkandput写入](#checkandput-写入)
   - [fixed copy](#fixed-copy)
     - [fixed copy写入普通表](#fixed-copy写入普通表)
     - [fixed copy写入分区表](#fixed-copy写入分区表)
@@ -21,8 +22,10 @@
   - [自定义操作](#自定义操作)
   - [实现](#实现)
     - [写入](#写入)
+    - [checkandput](#checkandput)
   - [1.X与2.X升级说明](#1x与2x升级说明)
   - [2.X版本已知问题](#2x版本已知问题)
+  - [Release Note](#Release-Note)
   - [附录](#附录)
     - [HoloConfig参数说明](#holoconfig参数说明)
       - [基础配置](#基础配置)
@@ -53,13 +56,13 @@ select count(*) from pg_stat_activity where backend_type='client backend';
 <dependency>
   <groupId>com.alibaba.hologres</groupId>
   <artifactId>holo-client</artifactId>
-  <version>2.3.0</version>
+  <version>2.4.2</version>
 </dependency>
 ```
 
 - Gradle
 ```
-implementation 'com.alibaba.hologres:holo-client:2.3.0'
+implementation 'com.alibaba.hologres:holo-client:2.4.2'
 ```
 
 ## 连接数说明
@@ -203,6 +206,35 @@ try (HoloClient client = new HoloClient(config)) {
 } catch (HoloClientException e) {
 }
 
+```
+### Checkandput 写入
+当表有主键时，通过Checkandput接口，可以实现条件更新。例如下方示例代码，表示仅在新数据的update_time比表中原值大时才会进行写入。此接口可以在上游数据乱序时保证写入的有序性。checkandput接口同样也支持设置MutationType为delete，仅在满足check条件时删除数据。
+
+```java
+// 配置参数,url格式为 jdbc:postgresql://host:port/db
+HoloConfig config = new HoloConfig();
+config.setJdbcUrl(url);
+config.setUsername(username);
+config.setPassword(password);
+config.setWriteMode(WriteMode.INSERT_OR_UPDATE); //Checkandput接口要求WriteMode必须为INSERT_OR_UPDATE或者INSERT_OR_REPLACE
+
+try (HoloClient client = new HoloClient(config)) {
+    TableSchema schema0 = client.getTableSchema("t0");
+    CheckAndPut put = new CheckAndPut(schema, 
+            "update_time",  // checkColumnName: 需要比较的字段名，目前仅支持配置单个字段
+            CheckCompareOp.GREATER,  // checkOperator: 比较操作符，目前支持GREATER, GREATER_OR_EQUAL, EQUAL, NOT_EQUAL, LESS, LESS_OR_EQUAL, IS_NULL, IS_NOT_NULL
+            null, // checkValue: 需要比较的值，设置时表示使用此常量值与表中原有数据比较. 一般不需要设置，会直接与put中相应字段的值(put.setObject传入)做比较
+            "1970-01-01 00:08:00" // nullValue: 当表中当前值为null时，将null值视做nullValue。相当于sql `coalesce(old.column1, nullValue)`.
+    );
+    put.setObject("id", 1);
+    put.setObject("state", "ok");
+    put.setObject("update_time", "2020-01-01 00:00:00"); 
+    client.checkAndPut(put);
+    ...
+    //强制提交所有未提交put请求；HoloClient内部也会根据WriteBatchSize、WriteBatchByteSize、writeMaxIntervalMs三个参数自动提交
+    //client.flush(); 
+} catch (HoloClientException e) {
+}
 ```
 
 ## fixed copy
@@ -533,6 +565,13 @@ unnest格式相比multi values有如下优点:
 - ？个数等于列数，不再会因攒批过大导致？个数超过Short.MAX_VALUE
 - batchSize不稳定时，不会产生多个PreparedStatement，节省服务端内存
 
+### checkandput
+写入所拼sql上，增加对某个字段的check条件.详见[Fixed Plan加速SQL执行](https://help.aliyun.com/zh/hologres/user-guide/accelerate-the-execution-of-sql-statements-by-using-fixed-plans#section-jje-75s-m2w)文档中的带有条件判断的Upsert.
+```sql
+insert into test_check_and_insert(pk,c1,update_time) as old values(?, ?, ?) on conflict (pk) 
+  do update set c1 = excluded.c1, update_time = excluded.update_time where excluded.update_time > old.update_time;
+```
+
 ## 1.X与2.X升级说明
 - HoloConfig配置
   - 删除rewriteSqlMaxBatchSize，目前会自动选择最大的Size
@@ -563,6 +602,11 @@ unnest格式相比multi values有如下优点:
   - 支持设置连接最大存活时间，默认为24h
   - 支持激进模式，开启后如果连接空闲，不等攒批满就触发flush，在流量小时可以降低写入延迟
   - 查询非utf8字符不抛出异常
+- 2.4.1
+  - 丰富脏数据,提高异常信息的可读性
+- 2.4.2
+  - 支持checkandput接口,仅在数据满足条件时，才进行写入
+  - 进行连接池复用时,会根据新的HoloConfig往大了更新连接池的线程数
 
 ## 附录
 ### HoloConfig参数说明

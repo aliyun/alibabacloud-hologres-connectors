@@ -4,6 +4,7 @@
 
 package com.alibaba.hologres.client.impl.handler.jdbc;
 
+import com.alibaba.hologres.client.HoloConfig;
 import org.postgresql.jdbc.TimestampUtils;
 
 import java.sql.Clob;
@@ -14,11 +15,13 @@ import java.sql.SQLException;
  */
 public class JdbcStringColumnValues extends JdbcColumnValues {
 
+	private final HoloConfig config;
 	String[] array;
 
-	public JdbcStringColumnValues(TimestampUtils timestampUtils, int rowCount) {
+	public JdbcStringColumnValues(TimestampUtils timestampUtils, int rowCount, HoloConfig config) {
 		super(timestampUtils, rowCount);
 		array = new String[rowCount];
+		this.config = config;
 	}
 
 	@Override
@@ -27,7 +30,7 @@ public class JdbcStringColumnValues extends JdbcColumnValues {
 	}
 
 	private String removeU0000(final String in) {
-		if (in != null && in.contains("\u0000")) {
+		if (config.isRemoveU0000InTextColumnValue() && in != null && in.contains("\u0000")) {
 			return in.replaceAll("\u0000", "");
 		} else {
 			return in;

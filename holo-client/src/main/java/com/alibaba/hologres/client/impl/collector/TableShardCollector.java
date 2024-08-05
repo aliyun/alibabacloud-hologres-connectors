@@ -13,9 +13,12 @@ import com.alibaba.hologres.client.impl.action.PutAction;
 import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.model.RecordKey;
 import com.alibaba.hologres.client.model.TableSchema;
+import com.alibaba.hologres.client.model.checkandput.CheckAndPutCondition;
+import com.alibaba.hologres.client.model.checkandput.CheckAndPutRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -36,7 +39,8 @@ public class TableShardCollector {
 	/**
 	 * 当前buffer中的TableSchema.
 	 */
-	private TableSchema currentTableSchema;
+	private TableSchema tableSchemaInBuffer;
+	private CheckAndPutCondition checkAndPutConditionInBuffer;
 	private PutAction activeAction;
 	private long activeActionByteSize = 0L;
 	private final ExecutionPool pool;
@@ -55,23 +59,38 @@ public class TableShardCollector {
 
 	public synchronized void append(Record record) throws HoloClientException {
 		HoloClientException exception = null;
-		if (currentTableSchema == null) {
-			currentTableSchema = record.getSchema();
-		} else if (!currentTableSchema.equals(record.getSchema())) {
+		// 与之前的TableSchema不一致时，先commit，再append
+		if (buffer.size() > 0 && !Objects.equals(record.getSchema(), tableSchemaInBuffer)) {
 			try {
 				flush(true, false, null);
-				currentTableSchema = record.getSchema();
 			} catch (HoloClientException e) {
 				exception = e;
 			}
 		}
-		// 配置不允许去重，发现record与buffer中的record主键重复时，先commit，再append
-		boolean keyExists = !enableDeduplication && buffer.isKeyExists(new RecordKey(record));
-		boolean full = false;
-		if (!keyExists) {
-			full = buffer.append(record);
+		// 与之前的CheckAndPutRecord的condition不一致时(包括之前不是CheckAndPut)，先commit，再append
+		CheckAndPutCondition checkAndPutCondition = null;
+		if (record instanceof CheckAndPutRecord) {
+			checkAndPutCondition = ((CheckAndPutRecord) record).getCheckAndPutCondition();
 		}
-		if (full || keyExists) {
+		if (buffer.size() > 0 && !Objects.equals(checkAndPutCondition, checkAndPutConditionInBuffer)) {
+			try {
+				flush(true, false, null);
+			} catch (HoloClientException e) {
+				exception = e;
+			}
+		}
+		// 配置不允许去重(checkAndPut Record强制不允许去重)，与之前的record主键重复时，先commit，再append
+		if ((!enableDeduplication || checkAndPutCondition != null) && buffer.isKeyExists(new RecordKey(record))) {
+			try {
+				flush(true, false, null);
+			} catch (HoloClientException e) {
+				exception = e;
+			}
+		}
+		// 异常在函数末尾抛出，即使有异常，当前record也会被append到buffer中
+		boolean full = buffer.append(record);
+		setRecordInfoInBuffer(record);
+		if (full) {
 			try {
 				waitActionDone();
 			} catch (HoloClientWithDetailsException e) {
@@ -106,9 +125,6 @@ public class TableShardCollector {
 		if (exception != null) {
 			throw exception;
 		}
-		if (keyExists) {
-			append(record);
-		}
 	}
 
 	private void commit(BatchState state) throws HoloClientException {
@@ -139,10 +155,22 @@ public class TableShardCollector {
 		} finally {
 			buffer.clear();
 			// currentTableSchema = tableSchema in buffer.
-			currentTableSchema = null;
+			tableSchemaInBuffer = null;
+			checkAndPutConditionInBuffer = null;
 		}
-
 	}
+
+	/**
+	 * append到buffer之后更新.
+	 */
+	private void setRecordInfoInBuffer(Record record) {
+		tableSchemaInBuffer = record.getSchema();
+		if (record instanceof CheckAndPutRecord) {
+			checkAndPutConditionInBuffer = ((CheckAndPutRecord) record).getCheckAndPutCondition();
+        } else {
+			checkAndPutConditionInBuffer = null;
+		}
+    }
 
 	private void clearActiveAction() {
 		activeAction = null;

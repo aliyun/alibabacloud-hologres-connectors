@@ -68,7 +68,8 @@ public class HoloClientException extends Exception {
 			} else if (PSQLState.NOT_NULL_VIOLATION.getState().equals(state) || PSQLState.UNIQUE_VIOLATION.getState().equals(state) || PSQLState.CHECK_VIOLATION.getState().equals(state)) {
 				code = ExceptionCode.CONSTRAINT_VIOLATION;
 			} else if (PSQLState.DATA_ERROR.getState().equals(state) || PSQLState.STRING_DATA_RIGHT_TRUNCATION.getState().equals(state) || PSQLState.NUMERIC_VALUE_OUT_OF_RANGE.getState().equals(state) || PSQLState.BAD_DATETIME_FORMAT.getState().equals(state)
-					|| PSQLState.DATETIME_OVERFLOW.getState().equals(state) || PSQLState.INVALID_PARAMETER_VALUE.getState().equals(state) || PSQLState.NUMERIC_CONSTANT_OUT_OF_RANGE.getState().equals(state)) {
+					|| PSQLState.DATETIME_OVERFLOW.getState().equals(state) || PSQLState.INVALID_PARAMETER_VALUE.getState().equals(state) || PSQLState.NUMERIC_CONSTANT_OUT_OF_RANGE.getState().equals(state) || PSQLState.INVALID_PARAMETER_TYPE.getState().equals(state)
+					|| "22P02".equals(/*INVALID_TEXT_REPRESENTATION*/state) || "22021".equals(/*CHARACTER_NOT_IN_REPERTOIRE*/state) || "22P05".equals(/*UNTRANSLATABLE_CHARACTER*/state)){
 				code = ExceptionCode.DATA_VALUE_ERROR;
 			} else if (PSQLState.DATA_TYPE_MISMATCH.getState().equals(state) || PSQLState.INVALID_NAME.getState().equals(state) || PSQLState.DATATYPE_MISMATCH.getState().equals(state) || PSQLState.CANNOT_COERCE.getState().equals(state)) {
 				code = ExceptionCode.DATA_TYPE_ERROR;
@@ -78,7 +79,8 @@ public class HoloClientException extends Exception {
 		if (code == ExceptionCode.UNKNOWN_ERROR) {
 			msg = "[UNKNOW:" + e.getSQLState() + "]" + e.getMessage();
 		} else {
-			msg = "[" + code.getCode() + "]" + e.getMessage();
+			// 报错返回CODE NAME，方便用户理解
+			msg = "[" + code.name() + "]" + e.getMessage();
 		}
 		return new HoloClientException(code, msg, e);
 	}

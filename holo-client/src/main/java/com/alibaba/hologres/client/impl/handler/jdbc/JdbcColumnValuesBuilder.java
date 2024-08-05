@@ -40,7 +40,7 @@ public class JdbcColumnValuesBuilder {
 			case Types.CHAR:
 			case Types.VARCHAR:
 			case Types.LONGVARCHAR:
-				return new JdbcStringColumnValues(timestampUtils, rowCount);
+				return new JdbcStringColumnValues(timestampUtils, rowCount, config);
 			case Types.DATE:
 				return new JdbcDateColumnValues(timestampUtils, rowCount, config);
 			case Types.TIME:
@@ -57,7 +57,7 @@ public class JdbcColumnValuesBuilder {
 				return new JdbcByteaColumnValues(timestampUtils, rowCount);
 			case Types.OTHER:
 				if ("json".equals(typeName) || "jsonb".equals(typeName)) {
-					return new JdbcStringColumnValues(timestampUtils, rowCount);
+					return new JdbcStringColumnValues(timestampUtils, rowCount, config);
 				}
 				if ("roaringbitmap".equals(typeName)) {
 					return new JdbcByteaColumnValues(timestampUtils, rowCount);

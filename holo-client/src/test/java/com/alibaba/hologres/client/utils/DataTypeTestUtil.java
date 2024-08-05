@@ -122,6 +122,34 @@ public class DataTypeTestUtil {
 			// , "MONEY" // 不支持的类型
 	});
 
+	public static final TypeCaseData[] EXCEPTION_ALL_TYPE_DATA = new TypeCaseData[]{
+			new TypeCaseData("bigint_number_format", "bigint", (i, conn) -> "abc", null),
+			new TypeCaseData("smallint_number_format", "smallint", (i, conn) -> "abc", null),
+			new TypeCaseData("decimal_overflow", "numeric(6,5)", (i, conn) -> new BigDecimal("12.5"), null),
+			new TypeCaseData("decimal_inalid_type", "numeric(6,5)", (i, conn) -> "", null),
+			new TypeCaseData("bool_cannot_coerce", "bool", (i, conn) -> "abc", null),
+			new TypeCaseData("float4_number_format", "real", (i, conn) -> "abc", null),
+			new TypeCaseData("float8_number_format", "float8", (i, conn) -> "abc", null),
+			new TypeCaseData("timestamp_datetime_format", "timestamp", (i, conn) -> "abc", null),
+			new TypeCaseData("timestamptz_datetime_format", "timestamptz", (i, conn) -> "abc", null),
+			new TypeCaseData("date_datetime_format", "date", (i, conn) -> "abc", null),
+			new TypeCaseData("time_datetime_format", "time", (i, conn) -> "abc", null),
+			new TypeCaseData("json_u0000", "json", (i, conn) -> "{\"a\":\"" + i + "\u0000\"}", null),
+			new TypeCaseData("jsonb_u0000_case0", "jsonb", (i, conn) -> "{\"a\":\"" + i + "\\u0000\"}", null),
+			new TypeCaseData("jsonb_u0000_case1", "jsonb", (i, conn) -> "{\"a\":\"" + i + "\u0000\"}", null),
+			new TypeCaseData("bytea", (i, conn) -> "aaaa-1", null),
+			new TypeCaseData("char_too_long", "char(5)", (i, conn) -> "123456", null),
+			new TypeCaseData("varchar_too_long", "varchar(5)", (i, conn) -> "123456", null),
+			new TypeCaseData("char_u0000", "char(5)", (i, conn) -> "1\u0000", null),
+			new TypeCaseData("varchar_u0000", "varchar(5)", (i, conn) -> "1\u0000", null),
+			new TypeCaseData("text_u0000", "text", (i, conn) -> "1\u0000", null),
+			new TypeCaseData("_text_u0000", "text[]", (i, conn) -> new String[]{"\u0000123"}, null),
+			new TypeCaseData("_int_element_type", "int[]", (i, conn) -> new String[]{"abc"}, null),
+			new TypeCaseData("_varchar_element_too_long", "varchar(5)[]", (i, conn) -> new String[]{"1234567"}, null),
+			new TypeCaseData("_varchar_u0000", "varchar[]", (i, conn) -> new String[]{"\u00001"}, null)
+	};
+
+
 	/**
 	 * PredicateWithException.
 	 */

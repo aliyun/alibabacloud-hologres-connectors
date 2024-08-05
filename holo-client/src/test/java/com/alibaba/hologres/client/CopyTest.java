@@ -25,11 +25,11 @@ import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
 import java.io.OutputStream;
-import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
 
+import static com.alibaba.hologres.client.utils.DataTypeTestUtil.EXCEPTION_ALL_TYPE_DATA;
 import static com.alibaba.hologres.client.utils.DataTypeTestUtil.FIXED_PLAN_TYPE_DATA;
 import static com.alibaba.hologres.client.utils.DataTypeTestUtil.TypeCaseData;
 
@@ -37,32 +37,6 @@ import static com.alibaba.hologres.client.utils.DataTypeTestUtil.TypeCaseData;
  * Fixed Copy测试用例.
  */
 public class CopyTest extends HoloClientTestBase {
-
-	public static final TypeCaseData[] EXCEPTION_ALL_TYPE_DATA = new TypeCaseData[]{
-			new TypeCaseData("bigint", (i, conn) -> "abc", null),
-			new TypeCaseData("smallint", (i, conn) -> "abc", null),
-			new TypeCaseData("decimal_overflow", "numeric(6,5)", (i, conn) -> new BigDecimal("12.5"), null),
-			new TypeCaseData("decimal_inalid_type", "numeric(6,5)", (i, conn) -> "", null),
-			new TypeCaseData("bool", (i, conn) -> "abc", null),
-			new TypeCaseData("float4", (i, conn) -> "abc", null),
-			new TypeCaseData("float8", (i, conn) -> "abc", null),
-			new TypeCaseData("timestamp", (i, conn) -> "abc", null),
-			new TypeCaseData("timestamptz", (i, conn) -> "abc", null),
-			new TypeCaseData("date", (i, conn) -> "abc", null),
-			new TypeCaseData("json_u0000_case0", "json", (i, conn) -> "{\"a\":\"" + i + "\\u0000\"}", null),
-			new TypeCaseData("json_u0000_case1", "json", (i, conn) -> "{\"a\":\"" + i + "\u0000\"}", null),
-			new TypeCaseData("jsonb_u0000_case0", "jsonb", (i, conn) -> "{\"a\":\"" + i + "\\u0000\"}", null),
-			new TypeCaseData("jsonb_u0000_case1", "jsonb", (i, conn) -> "{\"a\":\"" + i + "\u0000\"}", null),
-			new TypeCaseData("bytea", (i, conn) -> "aaaa", null),
-			new TypeCaseData("char", "char(5)", (i, conn) -> "123456", null),
-			new TypeCaseData("varchar", "varchar(5)", (i, conn) -> "123456", null),
-			new TypeCaseData("char_u0000", "char(5)", (i, conn) -> "1\u0000", null),
-			new TypeCaseData("varchar_u0000", "varchar(5)", (i, conn) -> "1\u0000", null),
-			new TypeCaseData("text", (i, conn) -> "1\u0000", null),
-			new TypeCaseData("_text", "text[]", (i, conn) -> new String[]{"\u0000123"}, null),
-			new TypeCaseData("_varchar", "varchar(5)[]", (i, conn) -> new String[]{"1234567"}, null),
-			new TypeCaseData("_varchar_u0000", "varchar[]", (i, conn) -> new String[]{"\u00001"}, null)
-	};
 
 	@DataProvider(name = "typeCaseData")
 	public Object[][] createData() {

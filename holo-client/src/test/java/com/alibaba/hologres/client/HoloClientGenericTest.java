@@ -1,6 +1,9 @@
 package com.alibaba.hologres.client;
 
+import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.model.TableSchema;
+import com.alibaba.hologres.client.model.WriteMode;
+import com.alibaba.hologres.client.model.checkandput.CheckCompareOp;
 import org.testng.Assert;
 import org.testng.annotations.Ignore;
 import org.testng.annotations.Test;
@@ -8,6 +11,7 @@ import org.testng.annotations.Test;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.sql.Timestamp;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -363,6 +367,146 @@ public class HoloClientGenericTest extends HoloClientTestBase {
 			if (failed.get() != null) {
 				Assert.fail("fail", failed.get());
 			}
+			execute(conn, new String[]{dropSql});
+		}
+	}
+
+	@Test
+	public void testInsertWhenIgnoreDirtyData() throws Exception {
+		if (properties == null) {
+			return;
+		}
+		HoloConfig config = buildConfig();
+		config.setWriteBatchSize(256);
+		config.setWriteThreadSize(1);
+		config.setEnableDeduplication(false);
+		config.setWriteMode(WriteMode.INSERT_OR_UPDATE);
+		config.setEnableDefaultForNotNullColumn(false);
+
+		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
+			String tableName = "\"holO_client_table_version_change\"";
+			String dropSql = "drop table if exists " + tableName;
+			String createSql = "create table " + tableName + "(id int not null, name text not null, primary key(id)) with (binlog_level='replica');";
+			execute(conn, new String[]{dropSql, createSql});
+
+			TableSchema schema = client.getTableSchema(tableName, true);
+			for (int i = 0; i < 5; i++) {
+				try {
+					Put put = new Put(schema);
+					put.setObject("id", 0);
+					if (i == 2) {
+						put.setObject("name", null);
+					} else {
+						put.setObject("name", "aaa" + i);
+					}
+					client.put(put);
+				} catch (Exception e) {
+					Assert.assertTrue(e.getMessage().contains("violates not-null constraint"));
+                }
+			}
+			try {
+				client.flush();
+			} catch (Exception e) {
+                Assert.assertTrue(e.getMessage().contains("violates not-null constraint"));
+            }
+
+			try (Statement stat = conn.createStatement()) {
+                try (ResultSet rs = stat.executeQuery(String.format("select count(*) from %s where hg_binlog_event_type in (5,7) ;", tableName))) {
+                    while (rs.next()) {
+						// aaa0, aaa1, aaa3, aaa4
+                        Assert.assertEquals(4, rs.getInt(1));
+                    }
+                }
+            }
+			execute(conn, new String[]{dropSql});
+		}
+	}
+
+	/**
+	 * INSERT.
+	 * Method: checkAndPut(CheckAndPut put).
+	 * checkAndPut 和 Put 交替调用
+	 */
+	@Test
+	public void testPutWithCheckAndPutUseSameClient() throws Exception {
+		if (properties == null) {
+			return;
+		}
+		HoloConfig config = buildConfig();
+		config.setWriteThreadSize(1);
+		config.setWriteMode(WriteMode.INSERT_OR_UPDATE);
+		config.setForceFlushInterval(100000);
+		config.setWriteThreadSize(1);
+
+		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
+			String tableName = "holo_client_put_with_check_and_put_same_client_batch";
+			String dropSql = "drop table if exists " + tableName;
+			String createSql = "create table " + tableName + "(id int not null,name text,modify_time timestamptz, address text,primary key(id)) with (binlog_level='replica');";
+
+			execute(conn, new String[]{dropSql, createSql});
+
+			TableSchema schema = client.getTableSchema(tableName);
+
+			Put put = new Put(schema);
+			put.setObject(0, 0);
+			put.setObject(1, "name0");
+			put.setObject(2, "2020-01-01 00:00:00");
+			put.setObject(3, "address0");
+			client.put(put);
+			put = new Put(schema);
+			put.setObject(0, 1);
+			put.setObject(1, "name1");
+			put.setObject(2, "2020-01-01 00:00:00");
+			put.setObject(3, "address1");
+			client.put(put);
+
+			CheckAndPut checkAndPut = new CheckAndPut(schema, "modify_time", CheckCompareOp.GREATER, null, "1970-01-01 00:08:00");
+			checkAndPut.setObject(0, 0);
+			checkAndPut.setObject(1, "name0_new");
+			checkAndPut.setObject(2, "2021-01-01 00:00:00");
+			client.checkAndPut(checkAndPut);
+			checkAndPut = new CheckAndPut(schema, "modify_time", CheckCompareOp.GREATER, null, "1970-01-01 00:08:00");
+			checkAndPut.setObject(0, 1);
+			checkAndPut.setObject(1, "name1_new");
+			checkAndPut.setObject(2, "2019-01-01 00:00:00");
+			client.checkAndPut(checkAndPut);
+
+			put = new Put(schema);
+			put.setObject(0, 0);
+			put.setObject(3, "address0_new");
+			client.put(put);
+			put = new Put(schema);
+			put.setObject(0, 1);
+			put.setObject(3, "address1_new");
+			client.put(put);
+			client.flush();
+
+			// pk = 0, check通过，更新checkAndPut + put 2次
+			try (Statement stat = conn.createStatement()) {
+				try (ResultSet rs = stat.executeQuery(String.format("select count(*) from %s where id = 0 and hg_binlog_event_type in (5,7) ;", tableName))) {
+					while (rs.next()) {
+						Assert.assertEquals(3, rs.getInt(1));
+					}
+				}
+			}
+			Record r = client.get(Get.newBuilder(schema).setPrimaryKey("id", 0).build()).get();
+			Assert.assertEquals("name0_new", r.getObject(1));
+            Assert.assertEquals(Timestamp.valueOf("2021-01-01 00:00:00.0"), r.getObject(2));
+            Assert.assertEquals("address0_new", r.getObject(3));
+
+			// pk = 1, check未通过，更新put 1次
+			try (Statement stat = conn.createStatement()) {
+				try (ResultSet rs = stat.executeQuery(String.format("select count(*) from %s where id = 1 and hg_binlog_event_type in (5,7) ;", tableName))) {
+					while (rs.next()) {
+						Assert.assertEquals(2, rs.getInt(1));
+					}
+				}
+			}
+			r = client.get(Get.newBuilder(schema).setPrimaryKey("id", 1).build()).get();
+			Assert.assertEquals("name1", r.getObject(1));
+			Assert.assertEquals(Timestamp.valueOf("2020-01-01 00:00:00.0"), r.getObject(2));
+			Assert.assertEquals("address1_new", r.getObject(3));
+
 			execute(conn, new String[]{dropSql});
 		}
 	}
