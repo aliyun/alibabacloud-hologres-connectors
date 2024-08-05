@@ -1,0 +1,23 @@
+{
+  "name": "hologres-connector-kafka-sink0",
+  "config": {
+    "connector.class": "com.alibaba.hologres.kafka.HoloSinkConnector",
+    "tasks.max": "1",
+    "input_format": "json",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false",
+    "driver.class": "org.postgresql.Driver",
+    "topics": "kafka_sink_test",
+    "whole_message_info": "true",
+    "message_topic": "kafkatopic",
+    "message_partition": "kafkapartition",
+    "message_offset": "kafkaoffset",
+    "message_timestamp": "kafkatimestamp",
+    "connection.jdbcUrl": "jdbc:postgresql://hostname:port/database_name",
+    "connection.username": "",
+    "connection.password": "",
+    "table": "test_json",
+    "connection.writeMode": "INSERT_OR_REPLACE",
+    "connection.writeThreadSize": "3"
+  }
+}
