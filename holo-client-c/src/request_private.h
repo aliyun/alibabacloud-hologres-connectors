@@ -26,7 +26,7 @@ struct _HoloMutationRequest {
     int byteSize;
 };
 void holo_client_destroy_mutation_request(HoloMutation);
-bool normalize_mutation_request(HoloMutation);
+int normalize_mutation_request(HoloMutation);
 bool mutation_request_conflict(HoloMutation, HoloMutation);
 HoloMutation mutation_request_merge(HoloMutation, HoloMutation);
 
@@ -61,6 +61,6 @@ typedef SqlRequest* Sql;
 Sql holo_client_new_sql_request(SqlFunction, void*);
 void holo_client_destroy_sql_request(Sql);
 
-bool set_record_val(HoloRecord* record, int colIndex, char* ptr, int format, int length);
+int set_record_val(HoloRecord* record, int colIndex, char* ptr, int format, int length);
 
 #endif

@@ -1,6 +1,6 @@
 #include "exception.h"
 #include "utils.h"
-#include "logger.h"
+#include "logger_private.h"
 
 bool is_dirty_data_error(HoloErrCode errCode) {
     switch (errCode)
@@ -23,6 +23,7 @@ HoloErrCode get_errcode_from_pg_res(PGresult* res) {
     if (sqlState == NULL) {
         sqlState = "";
     }
+    LOG_DEBUG("Get ErrCode from PGResult. sqlState is %s, errMsg is %s", sqlState, errMsg);
 
     if (strcmp(sqlState, ERRCODE_SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION) == 0
         || strcmp(sqlState, ERRCODE_CONNECTION_DOES_NOT_EXIST) == 0
@@ -84,8 +85,6 @@ HoloErrCode get_errcode_from_pg_res(PGresult* res) {
             return INTERNAL_ERROR;
         }
     }
-
-    LOG_DEBUG("Get ErrCode from PGResult. sqlState is %s, errMsg is %s", sqlState, errMsg);
     return UNKNOWN_ERROR;
 }
 

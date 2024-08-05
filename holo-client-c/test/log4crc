@@ -13,9 +13,9 @@
 	<category name="root" priority="notice"/>
         <category name="holo-client" priority="debug" appender="stdout"/>
 	
-	<appender name="stdout" type="stream" layout="basic"/>
+	<appender name="stdout" type="stream" layout="dated"/>
 	<appender name="stderr" type="stream" layout="dated"/>
-	<appender name="syslog" type="syslog" layout="basic"/>
+	<appender name="syslog" type="syslog" layout="dated"/>
 
 	<layout name="basic" type="basic"/>
 	<layout name="dated" type="dated"/>

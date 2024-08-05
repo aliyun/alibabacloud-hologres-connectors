@@ -34,6 +34,9 @@ typedef struct _HoloTableSchema {
     int partitionColumn;
 } HoloTableSchema;
 
+const char* holo_client_get_column_name(HoloTableSchema* schema, int colIndex);
+const char* holo_client_get_column_type_name(HoloTableSchema* schema, int colIndex);
+
 //通过HoloColumn的type字段（无符号整型数字），可以获取HoloColumn的类型（字符串）
 const char* holo_client_get_type_name_with_type_oid(unsigned int typeOid);
 

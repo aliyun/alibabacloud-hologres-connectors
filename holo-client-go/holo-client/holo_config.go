@@ -85,3 +85,15 @@ func (config *holoConfig) SetDynamicPartition(dynamicPartition bool) {
 func (config *holoConfig) SetReportInterval(reportInterval int64) {
 	config.cconfig.reportInterval = C.long(reportInterval)
 }
+
+func (config *holoConfig) SetUseFixedFe(useFixedFe bool) {
+	config.cconfig.useFixedFe = C.bool(useFixedFe)
+}
+
+func (config *holoConfig) SetUnnestMode(unnestMode bool) {
+	config.cconfig.unnestMode = C.bool(unnestMode)
+}
+
+func (config *holoConfig) SetAutoFlush(autoFlush bool) {
+	config.cconfig.autoFlush = C.bool(autoFlush)
+}

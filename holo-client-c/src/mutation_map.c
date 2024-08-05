@@ -1,5 +1,5 @@
 #include "mutation_map.h"
-#include "logger.h"
+#include "logger_private.h"
 
 MutationMap* holo_client_new_mutation_map(int size) {
     MutationMap* map = MALLOC(1, MutationMap);

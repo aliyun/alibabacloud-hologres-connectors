@@ -1,5 +1,5 @@
 #include "connection_holder.h"
-#include "logger.h"
+#include "logger_private.h"
 #include "table_schema.h"
 #include "table_schema_private.h"
 #include "utils.h"
@@ -97,6 +97,7 @@ ConnectionHolder* holo_client_new_connection_holder(HoloConfig config, bool isFi
     ConnectionHolder* connHolder = MALLOC(1, ConnectionHolder);
     connHolder->conn = NULL;
     connHolder->useFixedFe = isFixedFe;
+    connHolder->unnestMode = config.unnestMode;
     if (isFixedFe) {
         connHolder->connInfo = generate_fixed_fe_conn_info(config.connInfo);
     } else {
@@ -151,7 +152,7 @@ extern PGresult *connection_holder_exec_params(ConnectionHolder *connHolder,
         stmtName = itoa(connHolder->prepareCount++);
         res = PQprepare(connHolder->conn, stmtName, command, nParams, paramTypes);
         if (PQresultStatus(res) != PGRES_COMMAND_OK){
-            LOG_WARN("Prepare command failed.");
+            LOG_ERROR("Prepare command failed.");
             FREE(stmtName);
             return res;
         }
@@ -163,7 +164,7 @@ extern PGresult *connection_holder_exec_params(ConnectionHolder *connHolder,
     res = PQexecPrepared(connHolder->conn, stmtName, nParams, paramValues, paramLengths, paramFormats, resultFormat);
     metrics_histogram_update(connHolder->metrics->execPreparedTime, current_time_ms() - before);
     if (PQresultStatus(res) != PGRES_COMMAND_OK && PQresultStatus(res) != PGRES_TUPLES_OK){
-        LOG_WARN("Exec prepared command failed. Statement name: %s", stmtName);
+        LOG_ERROR("Exec prepared command failed. Statement name: %s", stmtName);
     }
     //else LOG_DEBUG("Exec prepared successfully. Statement name: %s", stmtName);
     FREE(stmtName);
@@ -173,7 +174,7 @@ extern PGresult *connection_holder_exec_params(ConnectionHolder *connHolder,
 bool conneciton_holder_connect_or_reset_db(ConnectionHolder* connHolder){
     if (connHolder->conn != NULL && PQstatus(connHolder->conn) == CONNECTION_OK) return true;
     if (connHolder->conn == NULL) {
-        LOG_INFO("Connection creating...");
+        LOG_DEBUG("Connection creating...");
         connHolder->conn = PQconnectdb(connHolder->connInfo);
         clear_prepare_list(connHolder);
         
@@ -226,14 +227,18 @@ extern PGresult *connection_holder_exec_params_with_retry(ConnectionHolder *conn
 	const char *const *paramValues,
 	const int *paramLengths,
 	const int *paramFormats,
-	int resultFormat
+	int resultFormat,
+    char** errMsgAddr
 ){
     PGresult *res = NULL;
     for (int i = 0;i < connHolder->retryCount; ++i){
         bool needRetry = false;
         if (!conneciton_holder_connect_or_reset_db(connHolder)){
-            LOG_WARN("Connection Error.");
-            LOG_WARN("%s", PQerrorMessage(connHolder->conn));
+            LOG_ERROR("Connection Error: %s", PQerrorMessage(connHolder->conn));
+            // errMsg的地址不为NULL，并且errMsg为NULL，则深拷贝一份
+            if (errMsgAddr!= NULL && *errMsgAddr == NULL) {
+                *errMsgAddr = deep_copy_string(PQerrorMessage(connHolder->conn));
+            }
             if (strstr(PQerrorMessage(connHolder->conn), "Invalid username") != NULL || strstr(PQerrorMessage(connHolder->conn), "incorrect password") != NULL) {
                 LOG_ERROR("AUTH FAIL. No retry.");
                 connection_holder_close_conn(connHolder);
@@ -250,9 +255,16 @@ extern PGresult *connection_holder_exec_params_with_retry(ConnectionHolder *conn
         if (!needRetry) break;
         long long sleepTime = connHolder->retrySleepStepMs * i + connHolder->retrySleepInitMs;
         LOG_WARN("Execute sql failed, try again [%d/%d], sleepMs = %lldms", i + 1, connHolder->retryCount, sleepTime);
-        if (i + 1 < connHolder->retryCount) usleep(sleepTime * 1000);
+        if (i + 1 < connHolder->retryCount) {
+            struct timespec ts = get_time_spec_from_ms(sleepTime);
+            nanosleep(&ts, 0);
+        }
     }
-    if (res != NULL) LOG_ERROR("%s", PQresultErrorMessage(res));
+    if (res != NULL) LOG_ERROR("Execute sql failed: %s", PQresultErrorMessage(res));
+    // errMsg的地址不为NULL，并且errMsg为NULL，则深拷贝一份
+    if (errMsgAddr!= NULL && *errMsgAddr == NULL) {
+        *errMsgAddr = deep_copy_string(PQresultErrorMessage(res));
+    }
     return res;
 }
 
@@ -267,7 +279,7 @@ void connection_holder_close_conn(ConnectionHolder* connHolder){
     if (connHolder->conn == NULL) return;
     PQfinish(connHolder->conn);
     connHolder->conn = NULL;
-    LOG_INFO("Connection closed.");
+    LOG_DEBUG("Connection closed.");
 }
 
 int compare_holo_version(HoloVersion* a, HoloVersion* b) {
@@ -286,7 +298,7 @@ bool is_holo_version_support_unnest(ConnectionHolder* connHolder) {
         return true;
     }
     if (connHolder->holoVersion == NULL) {
-        LOG_ERROR("Check holo version failed.");
+        LOG_WARN("Check holo version failed, version is NULL.");
         return false;
     }
     HoloVersion* supportVersion = MALLOC(1, HoloVersion);
@@ -329,9 +341,9 @@ bool is_type_support_unnest(unsigned int type) {
 }
 
 bool is_batch_support_unnest(ConnectionHolder* connHolder, Batch* batch) {
-#ifdef DO_NOT_USE_UNNEST
-    return false;
-#endif
+    if (!connHolder->unnestMode) {
+        return false;
+    }
 
     if (!is_holo_version_support_unnest(connHolder)) {
         return false;
@@ -377,7 +389,7 @@ SqlCache* connection_holder_get_or_create_sql_cache_with_batch(ConnectionHolder*
         {
         case PUT:
             if (batch->isSupportUnnest && nRecords > 1) {
-                sqlCache->command = build_unnest_insert_sql_with_batch(batch, nRecords);
+                sqlCache->command = build_unnest_insert_sql_with_batch(batch);
                 break;
             }
             sqlCache->command = build_insert_sql_with_batch(batch, nRecords);
@@ -398,7 +410,6 @@ SqlCache* connection_holder_get_or_create_sql_cache_with_batch(ConnectionHolder*
                 if (!batch->valuesSet[i]) continue;
                 sqlCache->paramTypes[++count] = batch->schema->columns[i].type;
                 sqlCache->paramFormats[count] = batch->valueFormats[i];
-                sqlCache->paramLengths[count] = batch->valueLengths[i];
             }
         } else {
             int nParams = nRecords * batch->nValues;
@@ -412,8 +423,6 @@ SqlCache* connection_holder_get_or_create_sql_cache_with_batch(ConnectionHolder*
                     if (!batch->valuesSet[j]) continue;
                     sqlCache->paramTypes[++count] = batch->schema->columns[j].type;
                     sqlCache->paramFormats[count] = batch->valueFormats[j];
-                    // TODO: 去掉batch->valueLengths这个无用的字段
-                    sqlCache->paramLengths[count] = batch->valueLengths[j];
                 }
             }
         }
@@ -462,8 +471,7 @@ extern void connection_holder_exec_func_with_retry(ConnectionHolder* connHolder,
     for (int i = 0;i < connHolder->retryCount; ++i){
         bool needRetry = false;
         if (!conneciton_holder_connect_or_reset_db(connHolder)){
-            LOG_WARN("Connection Error.");
-            LOG_WARN("%s", PQerrorMessage(connHolder->conn));
+            LOG_ERROR("Connection Error: %s", PQerrorMessage(connHolder->conn));
             if (strstr(PQerrorMessage(connHolder->conn), "Invalid username") != NULL || strstr(PQerrorMessage(connHolder->conn), "incorrect password") != NULL) {
                 LOG_ERROR("AUTH FAIL. No retry.");
                 connection_holder_close_conn(connHolder);
@@ -478,7 +486,10 @@ extern void connection_holder_exec_func_with_retry(ConnectionHolder* connHolder,
         if (!needRetry) break;
         long long sleepTime = connHolder->retrySleepStepMs * i + connHolder->retrySleepInitMs;
         LOG_WARN("Execute sql failed, try again [%d/%d], sleepMs = %lldms", i + 1, connHolder->retryCount, sleepTime);
-        if (i + 1 < connHolder->retryCount) usleep(sleepTime * 1000);
+        if (i + 1 < connHolder->retryCount) {
+            struct timespec ts = get_time_spec_from_ms(sleepTime);
+            nanosleep(&ts, 0);
+        }
     }
     return;
 }

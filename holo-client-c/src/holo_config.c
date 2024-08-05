@@ -1,6 +1,6 @@
 #include "holo_config.h"
 #include "holo_config_private.h"
-#include "logger.h"
+#include "logger_private.h"
 #include "stddef.h"
 #include "string.h"
 #include "utils.h"
@@ -28,6 +28,8 @@ HoloConfig holo_client_new_config(const char* connInfo){
     config.readBatchSize = 128;
     config.dynamicPartition = false;
     config.useFixedFe = false;
+    config.unnestMode = false;
+    config.autoFlush = true;
     config.connectionSizeWhenUseFixedFe = 1;
     config.writeBatchByteSize = 2 * 1024 * 1024;
     config.writeBatchTotalByteSize = -1;
@@ -47,7 +49,7 @@ bool holo_config_is_valid(HoloConfig* config){
         strncpy(newConnInfo + len, " connect_timeout=2", 19);
         FREE(config->connInfo);
         config->connInfo = newConnInfo;
-        LOG_WARN("Holo Config - Connect timeout not set in connection info. Set to 2s.");
+        LOG_DEBUG("Holo Config - Connect timeout not set in connection info. Set to 2s.");
     }
     if (strstr(config->connInfo, "application_name=") == NULL){
         int len = strlen(config->connInfo);
@@ -58,10 +60,10 @@ bool holo_config_is_valid(HoloConfig* config){
         strncpy(newConnInfo + len + 32, BUILD_VERSION, lenVer + 1);
         FREE(config->connInfo);
         config->connInfo = newConnInfo;
-        LOG_WARN("Holo Config - Application_name not set in connection info. Set to holo-client-c");
+        LOG_DEBUG("Holo Config - Application_name not set in connection info. Set to holo-client-c");
     }
-    if (config->threadSize <= 0) {
-        LOG_ERROR("Holo Config - Thread size <= 0. Use holo_client_new_config to create config.");
+    if (config->threadSize <= 0 || config->threadSize > HOLO_CLIENT_MAX_THREAD_SIZE) {
+        LOG_ERROR("Holo Config - Thread size <= 0 or Thread size > HOLO_CLIENT_MAX_THREAD_SIZE. Use holo_client_new_config to create config.");
         rc = false;
     }
     if (config->batchSize <= 0) {
@@ -70,15 +72,14 @@ bool holo_config_is_valid(HoloConfig* config){
     }
     if (config->shardCollectorSize == -1) {
         config->shardCollectorSize = 2 * config->threadSize;
-        LOG_WARN("Holo Config - Shard collector size not set. Set to twice the thread size.");
+        LOG_DEBUG("Holo Config - Shard collector size not set. Set to twice the thread size.");
     }
     if (config->shardCollectorSize <= 0) {
         LOG_ERROR("Holo Config - Shard collector size <= 0. Use holo_client_new_config to create config.");
         rc = false;
     }
     if (config->writeMaxIntervalMs <= 0) {
-        LOG_ERROR("Holo Config - Write max interval time <= 0. Use holo_client_new_config to create config.");
-        rc = false;
+        LOG_WARN("Holo Config - Write max interval time <= 0. Will not check writeMaxIntervalMs.");
     }
     if (config->retryCount <= 0) {
         LOG_ERROR("Holo Config - Retry count <= 0. Use holo_client_new_config to create config.");
@@ -110,7 +111,7 @@ bool holo_config_is_valid(HoloConfig* config){
     }
     if (config->writeBatchTotalByteSize == -1) {
         config->writeBatchTotalByteSize = config->shardCollectorSize * config->writeBatchByteSize;
-        LOG_WARN("Holo Config - Write batch total byte size not set. Set to the product of shard collector size and write batch byte size.");
+        LOG_DEBUG("Holo Config - Write batch total byte size not set. Set to the product of shard collector size and write batch byte size.");
     }
     if (config->writeBatchTotalByteSize <= 0) {
         LOG_ERROR("Holo Config - Write batch total byte size <= 0. Use holo_client_new_config to create config.");
@@ -120,17 +121,16 @@ bool holo_config_is_valid(HoloConfig* config){
 }
 
 void log_holo_config(HoloConfig* config){
-    LOG_INFO("Holo Config - Connnection Info: %s", config->connInfo);
-    LOG_INFO("Holo Config - Thread Size: %d", config->threadSize);
-    LOG_INFO("Holo Config - Batch Size: %d", config->batchSize);
-    LOG_INFO("Holo Config - Batch Byte Size: %ld", config->writeBatchByteSize);
-    LOG_INFO("Holo Config - Total Byte Size: %ld", config->writeBatchTotalByteSize);
-    LOG_INFO("Holo Config - Shard Collector Size: %d", config->shardCollectorSize);
-    LOG_INFO("Holo Config - Write Max Interval: %ldms", config->writeMaxIntervalMs);
-    LOG_INFO("Holo Config - Max Retry Count: %d", config->retryCount);
-    LOG_INFO("Holo Config - Retry Sleep Initial Interval: %lldms", config->retrySleepInitMs);
-    LOG_INFO("Holo Config - Retry Sleep Step Interval: %lldms", config->retrySleepStepMs);
-    LOG_INFO("Holo Config - Connection Max Idle Time: %lldms", config->connectionMaxIdleMs);
-    LOG_INFO("Holo Config - Exception Handler: Already Set");
-    LOG_INFO("Holo Config - Metrics Report Interval: %ldms", config->reportInterval);
+    LOG_INFO("Holo Config - Connnection Info: %s,\
+Thread Size: %d,\
+Batch Size: %d,\
+Batch Byte Size: %ld,\
+Total Byte Size: %ld,\
+Shard Collector Size: %d,\
+Write Max Interval: %ldms,\
+Max Retry Count: %d,\
+Retry Sleep Initial Interval: %lldms,\
+Retry Sleep Step Interval: %lldms,\
+Connection Max Idle Time: %lldms,\
+Metrics Report Interval: %ldms", config->connInfo, config->threadSize, config->batchSize, config->writeBatchByteSize, config->writeBatchTotalByteSize, config->shardCollectorSize, config->writeMaxIntervalMs, config->retryCount, config->retrySleepInitMs, config->retrySleepStepMs, config->connectionMaxIdleMs, config->reportInterval);
 }

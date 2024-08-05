@@ -7,6 +7,7 @@
 typedef struct _Future {
     bool completed;
     void* retVal;
+    char* errMsg;
     pthread_mutex_t* mutex;
     pthread_cond_t* cond;
 } Future;

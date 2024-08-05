@@ -2,7 +2,7 @@
 #define _METRICS_H_
 
 #include "utils.h"
-#include "logger.h"
+#include "logger_private.h"
 #include "pthread.h"
 
 typedef struct _MetricsMeter {

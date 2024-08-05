@@ -172,7 +172,10 @@ holoclient.HoloClientLoggerClose()
 | --- | --- | --- |
 | connInfo| 无 | 必填, 格式:“host=xxxxxxxxx port=xxx dbname=xxxxx user=xxxxxxxxxx password=xxxxxxxxxx”| 
 | dynamicPartition | false | 若为true，当分区不存在时自动创建分区 |
+| unnestMode | false | 若为true，则会采用unnest模式写入，当batchSize不稳定时，不会产生多个PreparedStatement，节省服务端内存，但是会影响写入速度 |
+| useFixedFe | false | 若为true，写入将交给holo的FixedFE执行，会降低写入时的并发连接数 |
 | writeMode | INSERT_OR_REPLACE | 当INSERT目标表为有主键的表时采用不同策略<br>INSERT_OR_IGNORE 当主键冲突时，不写入<br>INSERT_OR_UPDATE 当主键冲突时，更新相应列<br>INSERT_OR_REPLACE当主键冲突时，更新所有列|
+| autoFlush | true | 是否自动触发批量提交，若为false，当合并后的插入数量达到batchSize，或合并后的插入数据字节数达到writeBatchByteSize，或距离上次提交超过writeMaxIntervalMs时，不会触发批量提交，此时再次插入会报错 |
 | batchSize | 512 | 每个写入线程的最大批次大小，在经过WriteMode合并后的插入数量达到batchSize时进行一次批量提交 |
 | threadSize | 1 | 写入并发线程数（每个并发占用1个数据库连接） |
 | shardCollectorSize | 2 * threadSize | 每个表的缓冲区个数，建议shardCollectorSize大于threadSize |

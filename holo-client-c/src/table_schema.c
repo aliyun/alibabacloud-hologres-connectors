@@ -1,6 +1,6 @@
 #include "table_schema.h"
 #include "table_schema_private.h"
-#include "logger.h"
+#include "logger_private.h"
 #include "utils.h"
 
 void holo_client_destroy_tablename(HoloTableName* tableName) {
@@ -80,4 +80,28 @@ int get_colindex_by_colname(HoloTableSchema* schema, const char* colName) {
 
 bool table_has_pk(HoloTableSchema* schema) {
     return (schema->nPrimaryKeys > 0);
+}
+
+const char* holo_client_get_column_name(HoloTableSchema* schema, int colIndex) {
+    if (schema == NULL || schema->columns == NULL) {
+        LOG_ERROR("Invalid table schema!");
+        return NULL;
+    }
+    if (colIndex < 0 || colIndex >= schema->nColumns) {
+        LOG_ERROR("Invalid column index!");
+        return NULL;
+    }
+    return schema->columns[colIndex].name;
+}
+
+const char* holo_client_get_column_type_name(HoloTableSchema* schema, int colIndex) {
+    if (schema == NULL || schema->columns == NULL) {
+        LOG_ERROR("Invalid table schema!");
+        return NULL;
+    }
+    if (colIndex < 0 || colIndex >= schema->nColumns) {
+        LOG_ERROR("Invalid column index!");
+        return NULL;
+    }
+    return holo_client_get_type_name_with_type_oid(schema->columns[colIndex].type);
 }

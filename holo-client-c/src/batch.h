@@ -13,7 +13,6 @@ typedef struct _Batch{
     HoloTableSchema *schema;
     bool* valuesSet;
     int* valueFormats;
-    int* valueLengths;
     int nValues;
     dlist_head recordList;
     int nRecords;

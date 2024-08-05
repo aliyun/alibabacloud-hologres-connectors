@@ -144,7 +144,7 @@ void testArrayTypes() {
     PQclear(PQexec(conn, createSql));
     HoloClient* client = holo_client_new_client(config);
 
-    char* textArray[] = {"hello", "world"};
+    char* textArray[] = {"hello", "world", NULL};
     int intArray[] = {1, 2, 3};
     int64_t bigintArray[] = {11111111, 222222222, 333333333};
     bool boolArray[] = {true, true, false};
@@ -159,7 +159,7 @@ void testArrayTypes() {
     holo_client_set_req_bool_array_val_by_colindex(mutation, 3, boolArray, 3);
     holo_client_set_req_float_array_val_by_colindex(mutation, 4, floatArray, 2);
     holo_client_set_req_double_array_val_by_colindex(mutation, 5, doubleArray, 2);
-    holo_client_set_req_text_array_val_by_colindex(mutation, 6, textArray, 2);
+    holo_client_set_req_text_array_val_by_colindex(mutation, 6, textArray, 3);
     holo_client_submit(client, mutation);
 
     holo_client_flush_client(client);
@@ -171,7 +171,7 @@ void testArrayTypes() {
     CU_ASSERT_STRING_EQUAL(PQgetvalue(res, 0, 3), "{t,t,f}");
     CU_ASSERT_STRING_EQUAL(PQgetvalue(res, 0, 4), "{1.23,4.56}");
     CU_ASSERT_STRING_EQUAL(PQgetvalue(res, 0, 5), "{1.234,5.678}");
-    CU_ASSERT_STRING_EQUAL(PQgetvalue(res, 0, 6), "{hello,world}");
+    CU_ASSERT_STRING_EQUAL(PQgetvalue(res, 0, 6), "{hello,world,\"\"}");
     PQclear(res);
 
     PQfinish(conn);

@@ -101,8 +101,8 @@ Connectors for Hologres
 ```xml
 <dependency>
     <groupId>com.alibaba.hologres</groupId>
-    <artifactId>hologres-connector-flink-1.13</artifactId>
-    <version>1.4.0</version>
+    <artifactId>hologres-connector-flink-1.17</artifactId>
+    <version>1.4.2</version>
     <classifier>jar-with-dependencies</classifier>
 </dependency>
 ```

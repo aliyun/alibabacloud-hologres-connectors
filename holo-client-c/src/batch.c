@@ -1,6 +1,6 @@
 #include "batch.h"
 #include "ilist.h"
-#include "logger.h"
+#include "logger_private.h"
 #include "request_private.h"
 #include "record_private.h"
 
@@ -13,14 +13,12 @@ BatchItem* create_batch_item(Batch* batch){
 Batch* holo_client_new_batch_with_record(HoloRecord* record){
     Batch* ret = MALLOC(1, Batch);
     ret->schema = record->schema;
-    void* mPool = MALLOC(ret->schema->nColumns * (sizeof(bool) + 2 * sizeof(int)), char);
+    void* mPool = MALLOC(ret->schema->nColumns * (sizeof(bool) + sizeof(int)), char); // nColumns * sizeof(valuesSet[0]) + nColumns * sizeof(valueFormats[0])
     ret->valuesSet = mPool;
     ret->valueFormats = mPool + ret->schema->nColumns * sizeof(bool);
-    ret->valueLengths = mPool + ret->schema->nColumns * (sizeof(bool) + sizeof(int));
     for (int i = 0;i < ret->schema->nColumns;i++){
         ret->valuesSet[i] = record->valuesSet[i];
         ret->valueFormats[i] = record->valueFormats[i];
-        ret->valueLengths[i] = record->valueLengths[i];
     }
     ret->nValues = record->nValues;
     dlist_init(&(ret->recordList));
@@ -43,10 +41,9 @@ Batch* holo_client_clone_batch_without_records(Batch* batch){
     ret->schema = batch->schema;
     ret->writeMode = batch->writeMode;
     ret->isSupportUnnest = batch->isSupportUnnest;
-    void* mPool = MALLOC(ret->schema->nColumns * (sizeof(bool) + 2 * sizeof(int)), char);
+    void* mPool = MALLOC(ret->schema->nColumns * (sizeof(bool) + sizeof(int)), char); // nColumns * sizeof(valuesSet[0]) + nColumns * sizeof(valueFormats[0])
     ret->valuesSet = mPool;
     ret->valueFormats = mPool + ret->schema->nColumns * sizeof(bool);
-    ret->valueLengths = mPool + ret->schema->nColumns * (sizeof(bool) + sizeof(int));
     for (int i = 0;i < ret->schema->nColumns;i++){
         ret->valuesSet[i] = batch->valuesSet[i];
         ret->valueFormats[i] = batch->valueFormats[i];
@@ -73,8 +70,16 @@ void holo_client_destroy_batch(Batch* batch){
 
 bool batch_can_apply_normalized_record(Batch* batch, HoloRecord* record){
     if (record->schema != batch->schema) return false;
-    for (int i = 0;i < record->schema->nColumns;i++){
-        if (record->valueFormats[i] != batch->valueFormats[i]) return false;
+    // DELETE只检查主键
+    if (batch->mode == DELETE) {
+        for (int i = 0;i < record->schema->nPrimaryKeys;i++){
+            int pkIndex = record->schema->primaryKeys[i];
+            if (record->valueFormats[pkIndex] != batch->valueFormats[pkIndex]) return false;
+        }
+    } else {
+        for (int i = 0;i < record->schema->nColumns;i++){
+            if (record->valueFormats[i] != batch->valueFormats[i]) return false;
+        }
     }
     return true;
 }
@@ -106,7 +111,8 @@ bool batch_try_apply_update_record(Batch* batch, HoloRecord* record){
 
 bool batch_can_apply_mutation_request(Batch* batch, HoloMutation mutation){
     if (mutation->mode != batch->mode) return false;
-    if (mutation->writeMode != batch->writeMode) return false;
+    // DELETE不用关心writeMode
+    if (mutation->mode == PUT && mutation->writeMode != batch->writeMode) return false;
     return true;
 }
 
@@ -125,7 +131,7 @@ bool batch_matches(Batch* a, Batch* b, int nRecords){
     if (a->isSupportUnnest != b->isSupportUnnest) return false;
     if (a->schema != b->schema) return false;
     if (a->nValues != b->nValues) return false;
-    if (a->nRecords != (nRecords == 0 ? b->nRecords : nRecords)) return false;
+    if (!a->isSupportUnnest && a->nRecords != (nRecords == 0 ? b->nRecords : nRecords)) return false;
     for (int i = 0;i < a->schema->nColumns;i++) {
         if (a->valuesSet[i] != b->valuesSet[i]) return false;
         if (!a->valuesSet[i]) continue;

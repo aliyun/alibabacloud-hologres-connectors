@@ -54,7 +54,6 @@ find_path (LIBPQ_INCLUDE_DIRS NAMES libpq-fe.h HINTS /usr/include/postgresql NO_
 
 ### 写入普通表
 ```c
-holo_client_logger_open();
 char* connInfo = "host=xxxx.hologres.aliyuncs.com port=xxx dbname=xxxxx user=xxxxxxxxxx password=xxxxxxxxxx";
 HoloConfig config = holo_client_new_config(connInfo);
 
@@ -76,13 +75,11 @@ holo_client_submit(client, mutation);
 holo_client_flush_client(client);
 
 holo_client_close_client(client);
-holo_client_logger_close();
 ```
 
 ### 写入分区表
 若分区已存在，不论dynamicPartition为何值，写入数据都将插入到正确的分区表中；若分区不存在，dynamicPartition设置为true时，将会自动创建不存在的分区，否则插入失败
 ```c
-holo_client_logger_open();
 char* connInfo = "host=xxxx.hologres.aliyuncs.com port=xxx dbname=xxxxx user=xxxxxxxxxx password=xxxxxxxxxx";
 HoloConfig config = holo_client_new_config(connInfo);
 config.dynamicPartition = true;
@@ -105,12 +102,10 @@ holo_client_submit(client, mutation);
 holo_client_flush_client(client);
 
 holo_client_close_client(client);
-holo_client_logger_close();
 ```
 
 ### 写入含主键表
 ```c
-holo_client_logger_open();
 char* connInfo = "host=xxxx.hologres.aliyuncs.com port=xxx dbname=xxxxx user=xxxxxxxxxx password=xxxxxxxxxx";
 HoloConfig config = holo_client_new_config(connInfo);
 config.writeMode = INSERT_OR_UPDATE;//配置主键冲突时策略
@@ -133,11 +128,9 @@ holo_client_submit(client, mutation);
 holo_client_flush_client(client);
 
 holo_client_close_client(client);
-holo_client_logger_close();
 ```
 ### 根据主键删除
 ```c
-holo_client_logger_open();
 char* connInfo = "host=xxxx.hologres.aliyuncs.com port=xxx dbname=xxxxx user=xxxxxxxxxx password=xxxxxxxxxx";
 HoloConfig config = holo_client_new_config(connInfo);
 
@@ -157,12 +150,10 @@ holo_client_submit(client, mutation);
 holo_client_flush_client(client);
 
 holo_client_close_client(client);
-holo_client_logger_close();
 ```
 
 ### 写入失败的处理
 ```c
-holo_client_logger_open();
 char* connInfo = "host=xxxx.hologres.aliyuncs.com port=xxx dbname=xxxxx user=xxxxxxxxxx password=xxxxxxxxxx";
 HoloConfig config = holo_client_new_config(connInfo);
 config.exceptionHandler = handle_failed_record; //每条插入失败的record都会调用这个函数
@@ -180,12 +171,38 @@ holo_client_submit(client, mutation);
 holo_client_flush_client(client);
 
 holo_client_close_client(client);
-holo_client_logger_close();
+```
+
+v1.3.7之后的版本，增加了 holo_client_flush_client_with_errmsg(HoloClient*, char**) 接口，可以获取一次flush中引擎返回的第一个报错的message
+```c
+char* connInfo = "host=xxxx.hologres.aliyuncs.com port=xxx dbname=xxxxx user=xxxxxxxxxx password=xxxxxxxxxx";
+HoloConfig config = holo_client_new_config(connInfo);
+HoloClient* client = holo_client_new_client(config);
+
+HoloTableSchema* schema = holo_client_get_tableschema(client, "schema_name", "table_name", true);
+HoloMutation mutation = holo_client_new_mutation_request(schema);
+holo_client_set_req_int32_val_by_colindex(mutation, 0, 0);
+holo_client_submit(client, mutation); 
+
+mutation = holo_client_new_mutation_request(schema);
+holo_client_set_req_int32_val_by_colindex(mutation, 0, 1);
+holo_client_submit(client, mutation);
+
+char* errMsg = NULL;
+int ret = holo_client_flush_client_with_errmsg(client, &errMsg); //传入参数为errMsg的地址，即char**
+if (ret != HOLO_CLIENT_RET_OK) {
+    printf("holo client flush failed!\n");
+    if (errMsg != NULL) {
+        printf("errMsg: %s\n", errMsg); //如果flush后errMsg不为NULL，则返回了flush中引擎返回的第一个报错的message
+        free(errMsg); //message需要用户手动free，否则会发生内存泄漏
+    }
+}
+
+holo_client_close_client(client);
 ```
 
 ### 根据主键点查
 ```c
-holo_client_logger_open();
 char* connInfo = "host=xxxx.hologres.aliyuncs.com port=xxx dbname=xxxxx user=xxxxxxxxxx password=xxxxxxxxxx";
 HoloConfig config = holo_client_new_config(connInfo);
 
@@ -213,7 +230,6 @@ holo_client_destroy_get_request(get); //得到结果后需要手动释放
 holo_client_flush_client(client);
 
 holo_client_close_client(client);
-holo_client_logger_close();
 ```
 
 ## 附录
@@ -222,14 +238,16 @@ holo_client_logger_close();
 | --- | --- | --- |
 | connInfo| 无 | 必填, 格式:“host=xxxxxxxxx port=xxx dbname=xxxxx user=xxxxxxxxxx password=xxxxxxxxxx”| 
 | dynamicPartition | false | 若为true，当分区不存在时自动创建分区 |
+| unnestMode | false | 若为true，则会采用unnest模式写入，当batchSize不稳定时，不会产生多个PreparedStatement，节省服务端内存，但是会影响写入速度 |
 | useFixedFe | false | 若为true，写入将交给holo的FixedFE执行，会降低写入时的并发连接数 |
 | writeMode | INSERT_OR_REPLACE | 当INSERT目标表为有主键的表时采用不同策略<br>INSERT_OR_IGNORE 当主键冲突时，不写入<br>INSERT_OR_UPDATE 当主键冲突时，更新相应列<br>INSERT_OR_REPLACE当主键冲突时，更新所有列|
+| autoFlush | true | 是否自动触发批量提交，若为false，当合并后的插入数量达到batchSize，或合并后的插入数据字节数达到writeBatchByteSize，或距离上次提交超过writeMaxIntervalMs时，不会触发批量提交，此时再次插入会报错 |
 | batchSize | 512 | 每个写入线程的最大批次大小，在经过WriteMode合并后的插入数量达到batchSize时进行一次批量提交 |
 | threadSize | 1 | 写入并发线程数（每个并发占用1个数据库连接） |
 | shardCollectorSize | 2 * threadSize | 每个表的缓冲区个数，建议shardCollectorSize大于threadSize |
 | writeBatchByteSize | 2MB | 每个写入线程的最大批次bytes大小，在经过WriteMode合并后的插入数据字节数达到writeBatchByteSize时进行一次批量提交 |
 | writeBatchTotalByteSize | writeBatchByteSize * shardCollectorSize | 所有表所有缓冲区所有数据总和最大bytes大小，达到writeBatchTotalByteSize时全部提交 |
-| writeMaxIntervalMs | 10000 ms | 距离上次提交超过writeMaxIntervalMs会触发一次批量提交 |
+| writeMaxIntervalMs | 10000 ms | 距离上次提交超过writeMaxIntervalMs会触发一次批量提交，若小于等于0表示不检查writeMaxIntervalMs |
 | exceptionHandler | handle_exception_by_doing_nothing | 对于写入失败的数据的处理函数 |
 | retryCount | 3 | 当连接故障时的重试次数 |
 | retrySleepInitMs | 1000 ms | 每次重试的等待时间 = retrySleepInitMs + retry * retrySleepStepMs |
@@ -238,15 +256,12 @@ holo_client_logger_close();
 
 
 ### LOG说明
-holo client用的是log库是log4c
-
-在所有跟holo client有关的代码开始前需要调用 holo_client_logger_open();
-结束后需要调用 holo_client_logger_close();
+holo client默认用的是log库是log4c，用户可以自己实现自己的log函数，并使用holo_client_setup_logger设置log level和自定义log函数（在调用holo_client_new_client之前），参考logger.h。
 
 *注意
-
-holo_client_logger_open()和holo_client_logger_close()在整个代码里分别只能调用一次，建议在所有和holo client有关的代码的开始前和结束后调用。
-将log4crc文件复制到最终生成的可执行文件的同一文件夹下。如果要修改log的level和打印到的地点，就修改log4crc
+默认的log4c需要在所有跟holo client有关的代码开始前调用holo_client_logger_open()，结束后调用holo_client_logger_close();
+holo_client_logger_open()和holo_client_logger_close()在整个代码里分别只能调用一次。
+log4c库需要配置log4crc文件，并将log4crc文件复制到最终生成的可执行文件的同一文件夹下。如果要修改log的level和打印到的地点，就修改log4crc
 
 log4crc example1(打印到stdout):
 ```xml
@@ -383,7 +398,6 @@ import "C"
 import "unsafe"
 
 func main() {
-	C.holo_client_logger_open()
 	connInfo := "host=xxxx port=xx dbname=xxx user=xxx password=xxxxx"
 	cInfo := C.CString(connInfo)
 	config := C.holo_client_new_config(cInfo)
@@ -409,7 +423,6 @@ func main() {
 	
 	C.holo_client_flush_client(client)
 	C.holo_client_close_client(client)
-	C.holo_client_logger_close()
 	C.free(unsafe.Pointer(cInfo))
 	C.free(unsafe.Pointer(cTableName))
 }
@@ -436,7 +449,6 @@ import (
 )
 
 func main() {
-	C.holo_client_logger_open()
 	connInfo := "host=xxxxx port=xxx dbname=xxxxx user=xxxxx password=xxxxx"
 	cInfo := C.CString(connInfo)
 	config := C.holo_client_new_config(cInfo)
@@ -465,7 +477,6 @@ func main() {
 	}
 	C.holo_client_flush_client(client)
 	C.holo_client_close_client(client)
-	C.holo_client_logger_close()
 	C.free(unsafe.Pointer(cInfo))
 	C.free(unsafe.Pointer(cTableName))
 	C.free(unsafe.Pointer(cSchemaName))
