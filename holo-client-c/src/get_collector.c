@@ -1,7 +1,7 @@
 #include "get_collector.h"
 #include "utils.h"
 #include "action.h"
-#include "logger.h"
+#include "logger_private.h"
 
 TableGetCollector* holo_client_new_table_get_collector(HoloTableSchema* schema, HoloWorkerPool* pool, int batchSize, pthread_cond_t* signal) {
     TableGetCollector* collector = MALLOC(1, TableGetCollector);

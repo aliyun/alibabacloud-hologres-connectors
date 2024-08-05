@@ -16,7 +16,9 @@ SRCS:= \
 	../src/get_collector.c \
 	../src/holo_client.c \
 	../src/holo_config.c \
+	../src/keywords.c \
 	../src/logger.c \
+	../src/logger_log4c.c \
 	../src/lp_map.c \
 	../src/meta_cache.c \
 	../src/murmur3.c \

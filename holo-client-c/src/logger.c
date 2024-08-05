@@ -1,29 +1,26 @@
-#include "logger.h"
+#include "logger_private.h"
 #include "stdio.h"
 
-log4c_category_t *log_category = NULL;
+HoloLogger holo_client_logger = holo_client_log_log4c;
+int holo_client_logger_level = HOLO_LOG_LEVEL_INFO;
 
-int logger_open() {
-    if (log_category != NULL){
-        LOG_WARN("Logger cannot be initialized multiple times. Check if multiple holo clients have been created.");
-        return -1;
-    }
-    if (log4c_init() != 0){
-        fprintf(stderr, "Log4c init failed.\n");
-        return -1;
-    }
-    log_category = log4c_category_get("holo-client");
-    return 0;
+void* holo_client_log_do_nothing(const int logLevel, const char* msg) {
+    return NULL;
 }
 
-int logger_close() {
-    if (log_category == NULL){
-        fprintf(stderr, "Logger is NULL.\n");
-        return -1;
+void holo_client_setup_logger(HoloLogger logger, int loglevel) {
+    holo_client_logger = logger;
+    holo_client_logger_level = loglevel;
+}
+
+void holo_client_logger_open() {
+    if (holo_client_logger == holo_client_log_log4c) {
+        log4c_open();
     }
-    if (log4c_fini() != 0){
-        fprintf(stderr, "Log4c destruct failed.\n");
-        return -1;
+}
+
+void holo_client_logger_close() {
+    if (holo_client_logger == holo_client_log_log4c) {
+        log4c_close();
     }
-    return 0;
 }

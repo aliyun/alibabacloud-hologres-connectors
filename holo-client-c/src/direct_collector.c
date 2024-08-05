@@ -1,6 +1,6 @@
 #include "direct_collector.h"
 #include "utils.h"
-#include "logger.h"
+#include "logger_private.h"
 
 typedef struct _DCArgs {
     DirectCollector* collector;

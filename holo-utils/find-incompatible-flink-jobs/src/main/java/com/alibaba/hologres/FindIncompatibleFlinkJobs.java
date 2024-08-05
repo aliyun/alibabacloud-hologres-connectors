@@ -51,67 +51,69 @@ public class FindIncompatibleFlinkJobs {
 
         Client client = new Client(config);
 
-        // 获取已部署作业列表。
-        ListDeploymentsRequest listDeploymentsRequest = new ListDeploymentsRequest();
-        listDeploymentsRequest.setPageIndex(1);
-        listDeploymentsRequest.setPageSize(100);
-        ListDeploymentsHeaders listDeploymentsHeaders = new ListDeploymentsHeaders();
-        listDeploymentsHeaders.setWorkspace(workspaceId);
-        ListDeploymentsResponse listDeploymentsResponse =
-                client.listDeploymentsWithOptions(namespace, listDeploymentsRequest, listDeploymentsHeaders, new RuntimeOptions());
+        for (int pageIndex = 1; pageIndex <= 20; pageIndex++) {
+            // 获取已部署作业列表。
+            ListDeploymentsRequest listDeploymentsRequest = new ListDeploymentsRequest();
+            listDeploymentsRequest.setPageIndex(pageIndex);
+            listDeploymentsRequest.setPageSize(100);
+            ListDeploymentsHeaders listDeploymentsHeaders = new ListDeploymentsHeaders();
+            listDeploymentsHeaders.setWorkspace(workspaceId);
+            ListDeploymentsResponse listDeploymentsResponse =
+                    client.listDeploymentsWithOptions(namespace, listDeploymentsRequest, listDeploymentsHeaders, new RuntimeOptions());
 
-        for (Deployment deployment : listDeploymentsResponse.getBody().getData()) {
-            String deploymentName = deployment.getName();
-            String deploymentVersion = deployment.getEngineVersion();
+            for (Deployment deployment : listDeploymentsResponse.getBody().getData()) {
+                String deploymentName = deployment.getName();
+                String deploymentVersion = deployment.getEngineVersion();
 
-            // 只看运行中的作业
-            if (deployment.getJobSummary().getRunning() != 1) {
-                System.out.println(deploymentName + " not a running job, skip");
-                continue;
-            }
-            // 只看sql作业， jar作业需要用户自行确认
-            if (!"sqlScript".equalsIgnoreCase(deployment.getArtifact().getKind())) {
-                System.out.println(deploymentName + " not sql job, skip");
-                continue;
-            }
-            // vvr-8.0.5-flink-1.17 版本之后，会有自动切换源表消费binlog为jdbc模式的逻辑
-            if (deploymentVersion.compareTo("vvr-8.0.5-flink-1.17") >= 0) {
-                System.out.println(deploymentName + " check binlog: version is " + deploymentVersion + ", skip");
-                continue;
-            }
-            // vvr-6.0.7-flink-1.15 版本之后，会有自动切换rpc模式为jdbc模式的逻辑
-            if (!binlog && deploymentVersion.compareTo("vvr-6.0.7-flink-1.17") >= 0) {
-                System.out.println(deploymentName + " check rpc: version is " + deploymentVersion + ", skip");
-                continue;
-            }
-            // 获取作业实例列表。
-            ListJobsRequest listJobsRequest = new ListJobsRequest();
-            listJobsRequest.setDeploymentId(deployment.getDeploymentId());
-            listJobsRequest.setPageIndex(1);
-            listJobsRequest.setPageSize(100);
-            ListJobsHeaders listJobsHeaders = new ListJobsHeaders();
-            listJobsHeaders.setWorkspace(workspaceId);
-            ListJobsResponse listJobsResponse =
-                    client.listJobsWithOptions(namespace, listJobsRequest, listJobsHeaders, new RuntimeOptions());
-
-            for (int i = 0; i < listJobsResponse.getBody().getData().size(); i++) {
-                Job job = listJobsResponse.getBody().getData().get(i);
                 // 只看运行中的作业
-                if (!"RUNNING".equalsIgnoreCase(job.getStatus().getCurrentJobStatus())) {
+                if (deployment.getJobSummary().getRunning() != 1) {
+                    System.out.println(deploymentName + " not a running job, skip");
                     continue;
                 }
+                // 只看sql作业， jar作业需要用户自行确认
+                if (!"sqlScript".equalsIgnoreCase(deployment.getArtifact().getKind())) {
+                    System.out.println(deploymentName + " not sql job, skip");
+                    continue;
+                }
+                // vvr-8.0.5-flink-1.17 版本之后，会有自动切换源表消费binlog为jdbc模式的逻辑
+                if (deploymentVersion.compareTo("vvr-8.0.5-flink-1.17") >= 0) {
+                    System.out.println(deploymentName + " check binlog/rpc: version is " + deploymentVersion + ", skip");
+                    continue;
+                }
+                // vvr-6.0.7-flink-1.15 版本之后，会有自动切换rpc模式为jdbc模式的逻辑
+                if (!binlog && deploymentVersion.compareTo("vvr-6.0.7-flink-1.15") >= 0) {
+                    System.out.println(deploymentName + " check rpc: version is " + deploymentVersion + ", skip");
+                    continue;
+                }
+                // 获取作业实例列表。
+                ListJobsRequest listJobsRequest = new ListJobsRequest();
+                listJobsRequest.setDeploymentId(deployment.getDeploymentId());
+                listJobsRequest.setPageIndex(1);
+                listJobsRequest.setPageSize(100);
+                ListJobsHeaders listJobsHeaders = new ListJobsHeaders();
+                listJobsHeaders.setWorkspace(workspaceId);
+                ListJobsResponse listJobsResponse =
+                        client.listJobsWithOptions(namespace, listJobsRequest, listJobsHeaders, new RuntimeOptions());
 
-                // 获取作业实例。
-                GetJobHeaders getJobHeaders = new GetJobHeaders();
-                getJobHeaders.setWorkspace(workspaceId);
-                GetJobResponse getJobResponse =
-                        client.getJobWithOptions(namespace, job.jobId, getJobHeaders, new RuntimeOptions());
+                for (int i = 0; i < listJobsResponse.getBody().getData().size(); i++) {
+                    Job job = listJobsResponse.getBody().getData().get(i);
+                    // 只看运行中的作业
+                    if (!"RUNNING".equalsIgnoreCase(job.getStatus().getCurrentJobStatus())) {
+                        continue;
+                    }
 
-                String sql = getJobResponse.getBody().getData().getArtifact().getSqlArtifact().sqlScript;
-                if (binlog) {
-                    checkBinlog(sql, deploymentName, deploymentVersion);
-                } else {
-                    checkRpc(sql, deploymentName, deploymentVersion);
+                    // 获取作业实例。
+                    GetJobHeaders getJobHeaders = new GetJobHeaders();
+                    getJobHeaders.setWorkspace(workspaceId);
+                    GetJobResponse getJobResponse =
+                            client.getJobWithOptions(namespace, job.jobId, getJobHeaders, new RuntimeOptions());
+
+                    String sql = getJobResponse.getBody().getData().getArtifact().getSqlArtifact().sqlScript;
+                    if (binlog) {
+                        checkBinlog(sql, deploymentName, deploymentVersion);
+                    } else {
+                        checkRpc(sql, deploymentName, deploymentVersion);
+                    }
                 }
             }
         }
@@ -129,7 +131,7 @@ public class FindIncompatibleFlinkJobs {
     }
 
     public static void checkBinlog(String sql, String deploymentName, String deploymentVersion) {
-        if (sql.contains("binlog")) {
+        if (sql.toLowerCase().contains("binlog")) {
             Set<Map<String, String>> allHologresTables = extractParameters(sql);
             for (Map<String, String> table : allHologresTables) {
                 String tableName = table.get("tablename");
@@ -152,18 +154,13 @@ public class FindIncompatibleFlinkJobs {
     }
 
     public static void checkRpc(String sql, String deploymentName, String deploymentVersion) {
-        if (sql.contains("rpc")) {
+        if (sql.toLowerCase().contains("rpc")) {
             Set<Map<String, String>> allHologresTables = extractParameters(sql);
             for (Map<String, String> table : allHologresTables) {
                 String tableName = table.get("tablename");
                 // 只看开启了rpc的表
                 if (table.get("userpcmode") == null && !"rpc".equals(table.get("sdkmode"))) {
                     System.out.println(tableName + " in " + deploymentName + " not a hologres rpc table, skip");
-                    continue;
-                }
-                // 手动设置了 sdkMode = jdbc, okk
-                if ("jdbc".equalsIgnoreCase(table.get("sdkmode"))) {
-                    System.out.println(tableName + " in " + deploymentName + " is a hologres binlog table and have set sdkMode = jdbc, skip");
                     continue;
                 }
                 // 其他的都是有问题的

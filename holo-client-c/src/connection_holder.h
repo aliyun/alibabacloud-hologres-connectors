@@ -28,6 +28,7 @@ typedef struct _ConnectionHolder {
     PGconn* conn;
     char* connInfo;
     bool useFixedFe;
+    bool unnestMode;
     HoloVersion* holoVersion;
 
     int retryCount;
@@ -54,7 +55,7 @@ typedef struct _ConnectionHolder {
 ConnectionHolder* holo_client_new_connection_holder(HoloConfig, bool);
 ActionStatus connection_holder_do_action(ConnectionHolder*, Action*, ActionHandler);
 extern PGresult* connection_holder_exec_params(ConnectionHolder*, const char*, int, const Oid*, const char* const*, const int*, const int*, int);
-extern PGresult* connection_holder_exec_params_with_retry(ConnectionHolder*, const char*, int, const Oid*, const char* const*, const int*, const int*, int);
+extern PGresult* connection_holder_exec_params_with_retry(ConnectionHolder*, const char*, int, const Oid*, const char* const*, const int*, const int*, int, char**);
 extern void connection_holder_exec_func_with_retry(ConnectionHolder*, SqlFunction, void*, void**);
 void connection_holder_close_conn(ConnectionHolder*);
 

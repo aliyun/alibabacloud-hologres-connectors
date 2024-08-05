@@ -1,6 +1,6 @@
 #include "action.h"
 #include "utils.h"
-#include "logger.h"
+#include "logger_private.h"
 
 ActionItem* create_action_item(Action* action) {
     ActionItem* item = MALLOC(1, ActionItem);

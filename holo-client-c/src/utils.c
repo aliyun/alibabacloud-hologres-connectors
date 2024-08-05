@@ -1,8 +1,9 @@
 #include "utils.h"
 #include "sys/time.h"
-#include "logger.h"
+#include "logger_private.h"
 #include "time.h"
 #include "inttypes.h"
+#include "keywords.h"
 
 char* deep_copy_string(const char* s) {
     int length;
@@ -42,6 +43,14 @@ struct timespec get_out_time(long long time_interval_ms){
     }
 
     return outtime;
+}
+
+struct timespec get_time_spec_from_ms(long long ms) {
+    struct timespec ts = { 
+        .tv_sec  = (long int) (ms / 1000), 
+        .tv_nsec = (long int) (ms % 1000) * 1000000ul 
+    };
+    return ts;
 }
 
 char* itoa(int x){
@@ -88,7 +97,19 @@ void to_lower_case(char* str, int len){
     }
 }
 
+bool compare_strings(const char *str1, const char *str2) {
+    if (str1 == NULL && str2 == NULL) {
+        return true;
+    }
+    if (str1 == NULL || str2 == NULL) {
+        return false;
+    }
+    return strcmp(str1, str2) == 0;
+}
+
 int get_max_pow(int num) {
+    if (num <= 0)
+        return 0;
     int flag = num & (num - 1);
     if (flag == 0)
         flag = num;
@@ -123,7 +144,7 @@ char* quote_table_name(const char* schema_name, const char* table_name) {
 }
 
 /*
- * Copy from ruleutils.c, remove ScanKeyWords
+ * Copy from ruleutils.c
  */
 char* quote_identifier(const char *ident)
 {
@@ -154,6 +175,24 @@ char* quote_identifier(const char *ident)
 				nquotes++;
 		}
 	}
+
+    if (safe) {
+		/*
+		 * Check for keyword.  We quote keywords except for unreserved ones.
+		 * (In some cases we could avoid quoting a col_name or type_func_name
+		 * keyword, but it seems much harder than it's worth to tell that.)
+		 *
+		 * Note: ScanKeywordLookup() does case-insensitive comparison, but
+		 * that's fine, since we already know we have all-lower-case.
+		 */
+		const ScanKeyword *keyword = ScanKeywordLookup(ident,
+													   ScanKeywords,
+													   NumScanKeywords);
+
+		if (keyword != NULL && keyword->category != UNRESERVED_KEYWORD)
+			safe = false;
+	}
+
 	if (safe)
 		return deep_copy_string(ident);			/* no change needed */
 	result = MALLOC(strlen(ident) + nquotes + 2 + 1, char);

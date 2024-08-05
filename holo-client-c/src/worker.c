@@ -1,5 +1,5 @@
 #include "worker.h"
-#include "logger.h"
+#include "logger_private.h"
 #include <libpq-fe.h>
 #include "utils.h"
 #include "action.h"
@@ -8,22 +8,26 @@
 #include "batch.h"
 #include "sql_builder.h"
 #include "exception.h"
+#include "inttypes.h"
 
 #define MAX_PARAM_NUM 32767 // max number of parameters in PG's prepared statement
 
-typedef ActionStatus (*BatchHandler)(ConnectionHolder*, Batch*, dlist_node**, int);
+typedef ActionStatus (*BatchHandler)(ConnectionHolder*, Batch*, dlist_node**, int, char**);
 
 ActionStatus get_holo_version(ConnectionHolder*);
-ActionStatus get_table_schema(ConnectionHolder*, HoloTableSchema*, HoloTableName);
-ActionStatus handle_mutations(ConnectionHolder*, dlist_head*);
-ActionStatus handle_batch(Batch*, int, BatchHandler, ConnectionHolder*);
-ActionStatus exec_batch(ConnectionHolder*, Batch*, dlist_node**, int);
-ActionStatus exec_batch_one_by_one(ConnectionHolder*, Batch*, dlist_node**, int);
+ActionStatus get_table_schema(ConnectionHolder*, HoloTableSchema*, HoloTableName, char**);
+ActionStatus handle_mutations(ConnectionHolder*, dlist_head*, char**);
+void add_mutation_item_to_batch_list(MutationItem*, dlist_head*);
+ActionStatus handle_batch_list(dlist_head*, ConnectionHolder*, char**);
+ActionStatus handle_batch(Batch*, int, BatchHandler, ConnectionHolder*, char**);
+ActionStatus exec_batch(ConnectionHolder*, Batch*, dlist_node**, int, char**);
+ActionStatus exec_batch_one_by_one(ConnectionHolder*, Batch*, dlist_node**, int, char**);
 ActionStatus delete_batch(ConnectionHolder*, Batch*, dlist_node**, int);
 ActionStatus handle_sql(ConnectionHolder* connHolder, SqlFunction sqlFunction, void* arg, void** retAddr);
 ActionStatus handle_gets(ConnectionHolder*, HoloTableSchema*, dlist_head*, int);
 
-extern void unnest_convert_array_to_postgres_binary(char*, void*, int, int, int, int);
+extern int unnest_convert_array_to_text(char**, char**, int*, int);
+extern void unnest_convert_array_to_postgres_binary(char*, void*, int, int, int);
 extern void convert_text_array_to_postgres_binary(char*, char**, int, int);
 
 Worker* holo_client_new_worker(HoloConfig config, int index, bool isFixedFe) {
@@ -108,7 +112,7 @@ int holo_client_start_worker(Worker* worker) {
         worker->status = 4;
         LOG_ERROR("Worker %d started failed with error code %d.", worker->index, rc);
     }
-    LOG_INFO("Worker %d started.", worker->index);
+    LOG_DEBUG("Worker %d started.", worker->index);
     return rc;
 }
 
@@ -119,7 +123,7 @@ int holo_client_stop_worker(Worker* worker) {
     pthread_cond_signal(worker->cond);
     pthread_mutex_unlock(worker->mutex);
     rc = pthread_join(*worker->thread, NULL);
-    LOG_INFO("Worker %d stopped.", worker->index);
+    LOG_DEBUG("Worker %d stopped.", worker->index);
     worker->status = 3;
     return rc;
 }
@@ -158,7 +162,7 @@ ActionStatus handle_meta_action(ConnectionHolder* connHolder, Action* action) {
     ActionStatus rc = get_holo_version(connHolder);
     // 若获取holo版本失败，仍然尝试获取table schema
     HoloTableSchema* schema = holo_client_new_tableschema();
-    rc = get_table_schema(connHolder, schema, ((MetaAction*)action)->meta->tableName);
+    rc = get_table_schema(connHolder, schema, ((MetaAction*)action)->meta->tableName, &(((MetaAction*)action)->meta->future->errMsg));
     if (rc != SUCCESS) return rc;
     complete_future(((MetaAction*)action)->meta->future, schema);
     holo_client_destroy_meta_action((MetaAction*)action);
@@ -166,9 +170,9 @@ ActionStatus handle_meta_action(ConnectionHolder* connHolder, Action* action) {
 }
 
 ActionStatus handle_mutation_action(ConnectionHolder* connHolder, Action* action) {
-    ActionStatus rc = handle_mutations(connHolder, &((MutationAction*)action)->requests);
+    ActionStatus rc = handle_mutations(connHolder, &((MutationAction*)action)->requests, &(((MutationAction*)action)->future->errMsg));
     if (rc != SUCCESS) return rc;
-    complete_future(((MutationAction*)action)->future, NULL);
+    complete_future(((MutationAction*)action)->future, action);
     return rc;
 }
 
@@ -217,9 +221,9 @@ ActionStatus get_holo_version(ConnectionHolder* connHolder) {
     const char* findHgVersion = "select hg_version()";
     const char* findHoloVersion = "select version()";
 
-    res = connection_holder_exec_params_with_retry(connHolder, findHgVersion, 0, NULL, NULL, NULL, NULL, 0);
+    res = connection_holder_exec_params_with_retry(connHolder, findHgVersion, 0, NULL, NULL, NULL, NULL, 0, NULL);
     if (res == NULL || PQresultStatus(res) != PGRES_TUPLES_OK || PQntuples(res) == 0){
-        LOG_ERROR("Get Hg Version failed.");
+        LOG_WARN("Get Hg Version failed.");
         if (res != NULL) {
             PQclear(res);
         }
@@ -235,14 +239,14 @@ ActionStatus get_holo_version(ConnectionHolder* connHolder) {
             LOG_DEBUG("Get Hg Version: %d.%d.%d", connHolder->holoVersion->majorVersion, connHolder->holoVersion->minorVersion, connHolder->holoVersion->fixVersion);
             return SUCCESS;
         } else {
-            LOG_ERROR("Get Hg Version failed.");
+            LOG_WARN("Get Hg Version failed.");
             return FAILURE_NOT_NEED_RETRY;
         }
     }
 
-    res = connection_holder_exec_params_with_retry(connHolder, findHoloVersion, 0, NULL, NULL, NULL, NULL, 0);
+    res = connection_holder_exec_params_with_retry(connHolder, findHoloVersion, 0, NULL, NULL, NULL, NULL, 0, NULL);
     if (res == NULL || PQresultStatus(res) != PGRES_TUPLES_OK || PQntuples(res) == 0){
-        LOG_ERROR("Get Holo Version failed.");
+        LOG_WARN("Get Holo Version failed.");
         if (res != NULL) {
             PQclear(res);
         }
@@ -258,13 +262,13 @@ ActionStatus get_holo_version(ConnectionHolder* connHolder) {
             LOG_DEBUG("Get Holo Version: %d.%d.%d", connHolder->holoVersion->majorVersion, connHolder->holoVersion->minorVersion, connHolder->holoVersion->fixVersion);
             return SUCCESS;
         } else {
-            LOG_ERROR("Get Holo Version failed.");
+            LOG_WARN("Get Holo Version failed.");
             return FAILURE_NOT_NEED_RETRY;
         }
     }
 }
 
-ActionStatus get_table_schema(ConnectionHolder* connHolder, HoloTableSchema* schema, HoloTableName tableName) {
+ActionStatus get_table_schema(ConnectionHolder* connHolder, HoloTableSchema* schema, HoloTableName tableName, char** errMsgAddr) {
     HoloColumn* columns = NULL;
     const char* findTableOidSql = "SELECT property_value FROM hologres.hg_table_properties WHERE table_namespace = $1 AND table_name = $2 AND property_key = 'table_id'";
     const char* findColumnsSql = "WITH c AS (SELECT column_name, ordinal_position, is_nullable, column_default FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2), a AS (SELECT attname, atttypid from pg_catalog.pg_attribute WHERE attrelid = $3::regclass::oid) SELECT * FROM c LEFT JOIN a ON c.column_name = a.attname;";
@@ -272,7 +276,7 @@ ActionStatus get_table_schema(ConnectionHolder* connHolder, HoloTableSchema* sch
     const char* findDistributionKeysSql = "WITH d AS (SELECT table_namespace, table_name, unnest(string_to_array(property_value, ',')) as column_name from hologres.hg_table_properties WHERE table_namespace = $1 AND table_name = $2 AND property_key = 'distribution_key') SELECT c.column_name, c.ordinal_position FROM d LEFT JOIN information_schema.columns c ON d.table_namespace = c.table_schema AND d.table_name=c.table_name AND d.column_name = c.column_name";
     const char* findPartitionColumnSql = "SELECT partattrs FROM pg_partitioned_table WHERE partrelid = $1::regclass::oid";
     PGresult* res = NULL;
-    int nTuples, i, pos;
+    int nTuples, i, pos = 0;
     char oid[11];
     // use prepared statement, so there's no need to quote_literal_cstr() before use
     const char* name[1] = {tableName.fullName};
@@ -280,7 +284,7 @@ ActionStatus get_table_schema(ConnectionHolder* connHolder, HoloTableSchema* sch
     const char* names3[3] = {tableName.schemaName, tableName.tableName, tableName.fullName};
 
     //get table oid
-    res = connection_holder_exec_params_with_retry(connHolder, findTableOidSql, 2, NULL, names, NULL, NULL, 0);
+    res = connection_holder_exec_params_with_retry(connHolder, findTableOidSql, 2, NULL, names, NULL, NULL, 0, errMsgAddr);
     if (res == NULL || PQresultStatus(res) != PGRES_TUPLES_OK || PQntuples(res) == 0){
         LOG_ERROR("Get table Oid of table %s failed.", tableName.fullName);
         holo_client_destroy_tableschema(schema);
@@ -293,9 +297,9 @@ ActionStatus get_table_schema(ConnectionHolder* connHolder, HoloTableSchema* sch
 
     //get column_name, data_type_oid, is_nullable, default_value of each column
     sprintf(oid, "%d", schema->tableId);
-    res = connection_holder_exec_params_with_retry(connHolder, findColumnsSql, 3, NULL, names3, NULL, NULL, 0);
+    res = connection_holder_exec_params_with_retry(connHolder, findColumnsSql, 3, NULL, names3, NULL, NULL, 0, errMsgAddr);
     if (res == NULL || PQresultStatus(res) != PGRES_TUPLES_OK  || PQntuples(res) == 0){
-        LOG_ERROR("Get column info of table %s failed\n", tableName.fullName);
+        LOG_ERROR("Get column info of table %s failed.", tableName.fullName);
         if (res != NULL) PQclear(res);
         return FAILURE_NOT_NEED_RETRY;
     } else {
@@ -305,20 +309,20 @@ ActionStatus get_table_schema(ConnectionHolder* connHolder, HoloTableSchema* sch
         for (i = 0; i < nTuples; i++) {
             pos = atoi(PQgetvalue(res, i, 1)) - 1;
             if (pos >= 0 && pos < nTuples) {
-            columns[pos].name = deep_copy_string(PQgetvalue(res, i, 0));
-            columns[pos].quoted = quote_identifier(columns[pos].name);
-            columns[pos].type = atoi(PQgetvalue(res, i, 5));
-            if (strcmp(PQgetvalue(res, i, 2), "YES") == 0) {
-                columns[pos].nullable = true;
-            } else {
-                columns[pos].nullable = false;
-            }
-            columns[pos].isPrimaryKey = false;
-            if (PQgetisnull(res, i, 3)) {
-                columns[pos].defaultValue = NULL;
-            } else {
-                columns[pos].defaultValue = deep_copy_string(PQgetvalue(res, i, 3));
-            }
+                columns[pos].name = deep_copy_string(PQgetvalue(res, i, 0));
+                columns[pos].quoted = quote_identifier(columns[pos].name);
+                columns[pos].type = atoi(PQgetvalue(res, i, 5));
+                if (strcmp(PQgetvalue(res, i, 2), "YES") == 0) {
+                    columns[pos].nullable = true;
+                } else {
+                    columns[pos].nullable = false;
+                }
+                columns[pos].isPrimaryKey = false;
+                if (PQgetisnull(res, i, 3)) {
+                    columns[pos].defaultValue = NULL;
+                } else {
+                    columns[pos].defaultValue = deep_copy_string(PQgetvalue(res, i, 3));
+                }
             }
         }
         schema->columns = columns;
@@ -326,9 +330,9 @@ ActionStatus get_table_schema(ConnectionHolder* connHolder, HoloTableSchema* sch
     if (res != NULL) PQclear(res);
 
     //find primary keys
-    res = connection_holder_exec_params_with_retry(connHolder, findPrimaryKeysSql, 2, NULL, names, NULL, NULL, 0);
+    res = connection_holder_exec_params_with_retry(connHolder, findPrimaryKeysSql, 2, NULL, names, NULL, NULL, 0, errMsgAddr);
     if (res == NULL || PQresultStatus(res) != PGRES_TUPLES_OK){
-        LOG_ERROR("Get primary keys info of table %s failed\n", tableName.fullName);
+        LOG_ERROR("Get primary keys info of table %s failed.", tableName.fullName);
         holo_client_destroy_tableschema(schema);
         if (res != NULL) PQclear(res);
         return FAILURE_NOT_NEED_RETRY;
@@ -342,17 +346,17 @@ ActionStatus get_table_schema(ConnectionHolder* connHolder, HoloTableSchema* sch
         for (i = 0; i < nTuples; i++) {
             pos = atoi(PQgetvalue(res, i, 1)) - 1;
             if (pos >= 0 && pos < schema->nColumns) {
-            columns[pos].isPrimaryKey = true;
-            schema->primaryKeys[i] = pos;
+                columns[pos].isPrimaryKey = true;
+                schema->primaryKeys[i] = pos;
             }
         }
     }
     if (res != NULL) PQclear(res);
 
     //find distribution keys
-    res = connection_holder_exec_params_with_retry(connHolder, findDistributionKeysSql, 2, NULL, names, NULL, NULL, 0);
+    res = connection_holder_exec_params_with_retry(connHolder, findDistributionKeysSql, 2, NULL, names, NULL, NULL, 0, errMsgAddr);
     if (res == NULL || PQresultStatus(res) != PGRES_TUPLES_OK){
-        LOG_ERROR("Get distribution keys info of table %s failed\n", tableName.fullName);
+        LOG_ERROR("Get distribution keys info of table %s failed.", tableName.fullName);
         holo_client_destroy_tableschema(schema);
         if (res != NULL) PQclear(res);
         return FAILURE_NOT_NEED_RETRY;
@@ -363,16 +367,16 @@ ActionStatus get_table_schema(ConnectionHolder* connHolder, HoloTableSchema* sch
             schema->distributionKeys = MALLOC(nTuples,  int);
         }
         for (i = 0; i < nTuples; i++) {
-            if (pos >= 0 && pos < schema->nColumns) {
             pos = atoi(PQgetvalue(res, i, 1)) - 1;
-            schema->distributionKeys[i] = pos;
+            if (pos >= 0 && pos < schema->nColumns) {
+                schema->distributionKeys[i] = pos;
             }
         }
     }
    if (res != NULL) PQclear(res);
 
    //find partition column
-    res = connection_holder_exec_params_with_retry(connHolder, findPartitionColumnSql, 1, NULL, name, NULL, NULL, 0);
+    res = connection_holder_exec_params_with_retry(connHolder, findPartitionColumnSql, 1, NULL, name, NULL, NULL, 0, errMsgAddr);
     if (res == NULL || PQresultStatus(res) != PGRES_TUPLES_OK){
         LOG_ERROR("Get partition column of table %s failed.", tableName.fullName);
         holo_client_destroy_tableschema(schema);
@@ -394,78 +398,80 @@ ActionStatus get_table_schema(ConnectionHolder* connHolder, HoloTableSchema* sch
     return SUCCESS;
 }
 
-ActionStatus handle_mutations(ConnectionHolder* connHolder, dlist_head* mutations){
+ActionStatus handle_mutations(ConnectionHolder* connHolder, dlist_head* mutations, char** errMsgAddr){
     if (dlist_is_empty(mutations)) return FAILURE_NOT_NEED_RETRY;
 
-    dlist_head batchList;
-    dlist_init(&batchList);
-    dlist_mutable_iter miterBatch;
-    BatchItem* insertBatchItem;
-    Batch* deleteBatch = NULL;
+    dlist_head insertBatchList;
+    dlist_init(&insertBatchList);
+    dlist_head deleteBatchList;
+    dlist_init(&deleteBatchList);
+
     dlist_mutable_iter miterMutation;
     MutationItem* mutationItem;
     dlist_foreach_modify(miterMutation, mutations) {
         mutationItem = dlist_container(MutationItem, list_node, miterMutation.cur);
         if (mutationItem->mutation->mode == DELETE){
-            if (deleteBatch == NULL){
-                deleteBatch = holo_client_new_batch_with_mutation_request(mutationItem->mutation);
-            }
-            else batch_try_apply_normalized_record(deleteBatch, mutationItem->mutation->record);
-            continue;
-        }
-        bool applied = false;
-        dlist_foreach_modify(miterBatch, &batchList) {
-            insertBatchItem = dlist_container(BatchItem, list_node, miterBatch.cur);
-            if (batch_try_apply_mutation_request(insertBatchItem->batch, mutationItem->mutation)) {
-                applied = true;
-                break;
-            }
-        }
-        if (!applied){
-            Batch* newInsertBatch = holo_client_new_batch_with_mutation_request(mutationItem->mutation);
-            dlist_push_tail(&batchList, &(create_batch_item(newInsertBatch)->list_node));
+            add_mutation_item_to_batch_list(mutationItem, &deleteBatchList);
+        } else {
+            add_mutation_item_to_batch_list(mutationItem, &insertBatchList);
         }
     }
 
     ActionStatus rc = SUCCESS;
-    ActionStatus t = SUCCESS;
+    rc = handle_batch_list(&deleteBatchList, connHolder, errMsgAddr) != SUCCESS ? FAILURE_NOT_NEED_RETRY : rc;
+    rc = handle_batch_list(&insertBatchList, connHolder, errMsgAddr) != SUCCESS ? FAILURE_NOT_NEED_RETRY : rc;
 
-    if (deleteBatch != NULL) {
-        int maxSize = get_max_pow(deleteBatch->nRecords);
-        if (!is_batch_support_unnest(connHolder, deleteBatch)) {
-            while (maxSize * deleteBatch->nValues > MAX_PARAM_NUM) {
-                maxSize >>= 1;
-            }
-        } else {
-            deleteBatch->isSupportUnnest = true;
+    return rc;
+}
+
+void add_mutation_item_to_batch_list(MutationItem* mutationItem, dlist_head* batchList) {
+    dlist_mutable_iter miterBatch;
+    BatchItem* batchItem;
+    bool applied = false;
+    dlist_foreach_modify(miterBatch, batchList) {
+        batchItem = dlist_container(BatchItem, list_node, miterBatch.cur);
+        if (batch_try_apply_mutation_request(batchItem->batch, mutationItem->mutation)) {
+            applied = true;
+            break;
         }
-        t = handle_batch(deleteBatch, maxSize, exec_batch, connHolder);
-        if (t != SUCCESS) rc = FAILURE_NOT_NEED_RETRY;
-        holo_client_destroy_batch(deleteBatch);
+    }
+    if (!applied){
+        Batch* newBatch = holo_client_new_batch_with_mutation_request(mutationItem->mutation);
+        dlist_push_tail(batchList, &(create_batch_item(newBatch)->list_node));
+    }
+}
+
+ActionStatus handle_batch_list(dlist_head* batchList, ConnectionHolder* connHolder, char** errMsgAddr) {
+    if (dlist_is_empty(batchList)) {
+        return SUCCESS;
     }
 
-    dlist_foreach_modify(miterBatch, &batchList) {
-        insertBatchItem = dlist_container(BatchItem, list_node, miterBatch.cur);
-        int maxSize = get_max_pow(insertBatchItem->batch->nRecords);
-        if (!is_batch_support_unnest(connHolder, insertBatchItem->batch)) {
+    dlist_mutable_iter miterBatch;
+    BatchItem* batchItem;
+    ActionStatus rc = SUCCESS;
+
+    dlist_foreach_modify(miterBatch, batchList) {
+        batchItem = dlist_container(BatchItem, list_node, miterBatch.cur);
+        if (!is_batch_support_unnest(connHolder, batchItem->batch)) {
+            int maxSize = get_max_pow(batchItem->batch->nRecords);
             // make sure that num of parameters in one batch is less than MAX_PARAM_NUM in PG
-            while (maxSize * insertBatchItem->batch->nValues > MAX_PARAM_NUM) {
+            while (maxSize * batchItem->batch->nValues > MAX_PARAM_NUM) {
                 maxSize >>= 1;
             }
+            rc = handle_batch(batchItem->batch, maxSize, exec_batch, connHolder, errMsgAddr);
         } else {
-            insertBatchItem->batch->isSupportUnnest = true;
+            batchItem->batch->isSupportUnnest = true;
+            rc = handle_batch(batchItem->batch, batchItem->batch->nRecords, exec_batch, connHolder, errMsgAddr);
         }
-        t = handle_batch(insertBatchItem->batch, maxSize, exec_batch, connHolder);
-        if (t != SUCCESS) rc = FAILURE_NOT_NEED_RETRY;
-        holo_client_destroy_batch(insertBatchItem->batch);
+        holo_client_destroy_batch(batchItem->batch);
         dlist_delete(miterBatch.cur);
-        FREE(insertBatchItem);
+        FREE(batchItem);
     }
 
     return rc;
 }
 
-ActionStatus handle_batch(Batch* batch, int maxSize ,BatchHandler do_handle_batch , ConnectionHolder* connHolder){
+ActionStatus handle_batch(Batch* batch, int maxSize ,BatchHandler do_handle_batch , ConnectionHolder* connHolder, char** errMsgAddr){
     ActionStatus rc = SUCCESS;
     dlist_node* current = dlist_head_node(&batch->recordList);
     int remainRecords = batch->nRecords;
@@ -478,7 +484,7 @@ ActionStatus handle_batch(Batch* batch, int maxSize ,BatchHandler do_handle_batc
             remainRecords -= nRecords;
         }
         else remainRecords -= maxSize;
-        ActionStatus t = do_handle_batch(connHolder, batch, &current, nRecords);
+        ActionStatus t = do_handle_batch(connHolder, batch, &current, nRecords, errMsgAddr);
         if (t != SUCCESS) rc = FAILURE_NOT_NEED_RETRY;
     }
     return rc;
@@ -548,14 +554,53 @@ unsigned int get_array_oid_by_type_oid(unsigned int typeOid) {
     return 0;
 }
 
-ActionStatus exec_batch(ConnectionHolder* connHolder, Batch* batch, dlist_node** current, int nRecords){
+int get_convert_mode_for_unnest(Batch* batch, int colIdx) {
+    int convertMode = 0;
+    switch (batch->schema->columns[colIdx].type)
+    {
+    case HOLO_TYPE_TIMESTAMP:
+    case HOLO_TYPE_TIMESTAMPTZ:
+        if (batch->valueFormats[colIdx] == 1) {
+            convertMode = 1;
+        } else {
+            convertMode = 3;
+        }
+        break;
+    case HOLO_TYPE_INT4:
+    case HOLO_TYPE_INT8:
+    case HOLO_TYPE_INT2:
+    case HOLO_TYPE_BOOL:
+    case HOLO_TYPE_FLOAT4:
+    case HOLO_TYPE_FLOAT8:
+        convertMode = 1;
+        break;
+    case HOLO_TYPE_CHAR:
+    case HOLO_TYPE_VARCHAR:
+    case HOLO_TYPE_TEXT:
+    case HOLO_TYPE_JSON:
+    case HOLO_TYPE_JSONB:
+        convertMode = 3;
+        break;
+    case HOLO_TYPE_BYTEA:
+    case HOLO_TYPE_NUMERIC:
+    case HOLO_TYPE_DATE:
+        convertMode = 3;
+        break;
+    default:
+        LOG_ERROR("Generate convertMode failed for unnest, type is %d.", batch->schema->columns[colIdx].type);
+        break;
+    }
+    return convertMode;
+}
+
+ActionStatus exec_batch(ConnectionHolder* connHolder, Batch* batch, dlist_node** current, int nRecords, char** errMsgAddr){
     if (batch->nRecords <= 0){
         LOG_WARN("Nothing to insert.");
         return FAILURE_NOT_NEED_RETRY;
     }
     if (batch->nRecords == 1){
         LOG_DEBUG("Single record in batch.");
-        return exec_batch_one_by_one(connHolder, batch, current, nRecords);
+        return exec_batch_one_by_one(connHolder, batch, current, nRecords, errMsgAddr);
     }
 
     if (nRecords == 0) nRecords = batch->nRecords;
@@ -563,7 +608,10 @@ ActionStatus exec_batch(ConnectionHolder* connHolder, Batch* batch, dlist_node**
     int nParams;
     char** params;
     dlist_mutable_iter miter;
+    miter.cur = *current;
     RecordItem* recordItem;
+    int64_t minSeq = INT64_MAX;
+    int64_t maxSeq = INT64_MIN;
     if (batch->isSupportUnnest && nRecords > 1) {
         nParams = batch->nValues;
         params = MALLOC(nParams, char*);
@@ -572,75 +620,50 @@ ActionStatus exec_batch(ConnectionHolder* connHolder, Batch* batch, dlist_node**
             if (!batch->valuesSet[i]) continue;
             // 对于每个set value的列，创建数组
             char** valueArray = MALLOC(nRecords, char*);
+            int* lengthArray = MALLOC(nRecords, int);
             // 遍历recordList，取对应位置的value填充数组
             int cRecords = 0;
             dlist_foreach_from(miter, &(batch->recordList), *current) {
                 if (cRecords >= nRecords) break;
                 recordItem = dlist_container(RecordItem, list_node, miter.cur);
+                lengthArray[cRecords] = recordItem->record->valueLengths[i];
                 valueArray[cRecords++] = recordItem->record->values[i];
+                minSeq = recordItem->record->sequence < minSeq ? recordItem->record->sequence : minSeq;
+                maxSeq = recordItem->record->sequence > maxSeq ? recordItem->record->sequence : maxSeq;
             }
             // 把这个数组变成一条record，插入param
             int length = 0;
             char* ptr = NULL;
-            int convertMode = 0;
-
-            // 有三种转换方式
-            switch (batch->schema->columns[i].type)
-            {
-            case HOLO_TYPE_TIMESTAMP:
-            case HOLO_TYPE_TIMESTAMPTZ:
-                if (batch->valueFormats[i] == 1) {
-                    convertMode = 1;
-                } else {
-                    convertMode = 3;
-                }
-                break;
-            case HOLO_TYPE_INT4:
-            case HOLO_TYPE_INT8:
-            case HOLO_TYPE_INT2:
-            case HOLO_TYPE_BOOL:
-            case HOLO_TYPE_FLOAT4:
-            case HOLO_TYPE_FLOAT8:
-                convertMode = 1;
-                break;
-            case HOLO_TYPE_CHAR:
-            case HOLO_TYPE_VARCHAR:
-            case HOLO_TYPE_TEXT:
-            case HOLO_TYPE_JSON:
-            case HOLO_TYPE_JSONB:
-                convertMode = 2;
-                break;
-            case HOLO_TYPE_BYTEA:
-            case HOLO_TYPE_NUMERIC:
-            case HOLO_TYPE_DATE:
-                convertMode = 3;
-                break;
-            default:
-                LOG_ERROR("Generate value array failed for unnest, type is %d.", batch->schema->columns[i].type);
-                break;
-            }
+            int convertMode = get_convert_mode_for_unnest(batch, i);
 
             switch (convertMode)
             {
             case 1:
                 // binary转成binary写入
-                length = 20 + 4 * nRecords + get_val_len_by_type_oid(batch->schema->columns[i].type) * nRecords;
+                length = 20 + 4 * nRecords;
+                for (int j = 0; j < nRecords; j++) {
+                    if (valueArray[j] == NULL) {
+                        continue;
+                    }
+                    length += get_val_len_by_type_oid(batch->schema->columns[i].type);
+                }
                 ptr = MALLOC(length, char);
-                unnest_convert_array_to_postgres_binary(ptr, valueArray, length, nRecords, get_val_len_by_type_oid(batch->schema->columns[i].type), batch->schema->columns[i].type);
+                unnest_convert_array_to_postgres_binary(ptr, valueArray, nRecords, get_val_len_by_type_oid(batch->schema->columns[i].type), batch->schema->columns[i].type);
                 sqlCache->paramTypes[cParam] = get_array_oid_by_type_oid(batch->schema->columns[i].type);
                 sqlCache->paramFormats[cParam] = 1;
                 params[cParam] = ptr;
                 sqlCache->paramLengths[cParam++] = length;
                 FREE(valueArray);
+                FREE(lengthArray);
                 break;
             case 2:
                 // text转成binary写入
                 length = 20 + 4 * nRecords;
-                for (int i = 0; i < nRecords; i++) {
-                    if (valueArray[i] == NULL) {
+                for (int j = 0; j < nRecords; j++) {
+                    if (valueArray[j] == NULL) {
                         continue;
                     }
-                    length += strlen(valueArray[i]);
+                    length += strlen(valueArray[j]);
                 }
                 ptr = MALLOC(length, char);
                 convert_text_array_to_postgres_binary(ptr, valueArray, nRecords, batch->schema->columns[i].type);
@@ -649,49 +672,17 @@ ActionStatus exec_batch(ConnectionHolder* connHolder, Batch* batch, dlist_node**
                 params[cParam] = ptr;
                 sqlCache->paramLengths[cParam++] = length;
                 FREE(valueArray);
+                FREE(lengthArray);
                 break;
             case 3:
                 // text转成text写入，参考pg jdbc的拼法
-                length = 2; // {和\0
-                for (int i = 0; i < nRecords; i++) {
-                    if (valueArray[i] == NULL) {
-                        continue;
-                    }
-                    for (int j = 0; j < strlen(valueArray[i]); j++) {
-                        if (valueArray[i][j] == '"' || valueArray[i][j] == '\\') {
-                            length += 1; // 转义
-                        }
-                    }
-                    length += 3; // '',或''}
-                    length += strlen(valueArray[i]);
-                }
-                ptr = MALLOC(length, char);
-                int idx = 0;
-                ptr[idx++] = '{';
-                for (int i = 0; i <nRecords; i++) {
-                    if (valueArray[i] == NULL){
-                        LOG_WARN("Value is NULL in text array values.");
-                        continue;
-                    }
-                    ptr[idx++] = '"';
-                    for (int j = 0; j < strlen(valueArray[i]); j++) {
-                        if (valueArray[i][j] == '"' || valueArray[i][j] == '\\') {
-                            ptr[idx++] = '\\';
-                        }
-                        ptr[idx++] = valueArray[i][j];
-                    }
-                    ptr[idx++] = '"';
-                    if (i < nRecords - 1) {
-                        ptr[idx++] = ',';
-                    }
-                }
-                ptr[idx++] = '}';
-                ptr[idx] = '\0';
+                length = unnest_convert_array_to_text(&ptr, valueArray, lengthArray, nRecords);
                 sqlCache->paramTypes[cParam] = get_array_oid_by_type_oid(batch->schema->columns[i].type);
                 sqlCache->paramFormats[cParam] = 0;
                 params[cParam] = ptr;
                 sqlCache->paramLengths[cParam++] = length;
                 FREE(valueArray);
+                FREE(lengthArray);
                 break;
             default:
                 LOG_ERROR("Unknown convertMode in unnest");
@@ -711,20 +702,22 @@ ActionStatus exec_batch(ConnectionHolder* connHolder, Batch* batch, dlist_node**
                 params[++count] = recordItem->record->values[i];
                 sqlCache->paramLengths[count] = recordItem->record->valueLengths[i];
             }
+            minSeq = recordItem->record->sequence < minSeq ? recordItem->record->sequence : minSeq;
+            maxSeq = recordItem->record->sequence > maxSeq ? recordItem->record->sequence : maxSeq;
             cRecords++;
         }
     }
 
     PGresult* res = NULL;
-    res = connection_holder_exec_params_with_retry(connHolder, sqlCache->command, nParams, sqlCache->paramTypes, (const char* const*)params, sqlCache->paramLengths, sqlCache->paramFormats, 0);
+    res = connection_holder_exec_params_with_retry(connHolder, sqlCache->command, nParams, sqlCache->paramTypes, (const char* const*)params, sqlCache->paramLengths, sqlCache->paramFormats, 0, errMsgAddr);
     if (res == NULL || PQresultStatus(res) != PGRES_COMMAND_OK){
         LOG_ERROR("Mutate into table \"%s\" as batch failed.", batch->schema->tableName->tableName);
 
         ActionStatus rc = SUCCESS;
         if (batch->isSupportUnnest && nRecords > 1 && nRecords * batch->nValues <= MAX_PARAM_NUM) {
-            LOG_ERROR("Retrying once without unnest...");
+            LOG_WARN("Retrying once without unnest...");
             batch->isSupportUnnest = false;
-            rc = exec_batch(connHolder, batch, current, nRecords);
+            rc = exec_batch(connHolder, batch, current, nRecords, errMsgAddr);
             if (res != NULL) PQclear(res);
             for (int i = 0; i < nParams; i++) {
                 FREE(params[i]);
@@ -733,12 +726,13 @@ ActionStatus exec_batch(ConnectionHolder* connHolder, Batch* batch, dlist_node**
             return rc;
         }
         if (res != NULL && is_dirty_data_error(get_errcode_from_pg_res(res))) {
-            LOG_ERROR("Retrying one by one...");
+            LOG_WARN("Retrying one by one...");
             //脏数据类型的异常，需要拆成一条一条重试
-            rc = exec_batch_one_by_one(connHolder, batch, current, nRecords);
+            rc = exec_batch_one_by_one(connHolder, batch, current, nRecords, errMsgAddr);
         } else {
             //对于不one by one的情况，也要回调做异常处理，但是不提供record，只给出errMsg。用户可以通过record指针是否为NULL自行设计逻辑
             connHolder->handleExceptionByUser(NULL, PQresultErrorMessage(res), connHolder->exceptionHandlerParam);
+            rc = FAILURE_NOT_NEED_RETRY;
         }
         if (res != NULL) PQclear(res);
         if (batch->isSupportUnnest && nRecords > 1) {
@@ -749,6 +743,8 @@ ActionStatus exec_batch(ConnectionHolder* connHolder, Batch* batch, dlist_node**
         FREE(params);
         return rc;
     }
+    LOG_DEBUG("Mutate into table \"%s\" as batch succeed, minSeq:%"PRId64", maxSeq:%"PRId64".", batch->schema->tableName->tableName, minSeq, maxSeq);
+
     metrics_meter_mark(connHolder->metrics->rps, nRecords);
     metrics_meter_mark(connHolder->metrics->qps, 1);
     if (res != NULL) PQclear(res);
@@ -763,7 +759,7 @@ ActionStatus exec_batch(ConnectionHolder* connHolder, Batch* batch, dlist_node**
     return SUCCESS;
 }
 
-ActionStatus exec_batch_one_by_one(ConnectionHolder* connHolder, Batch* batch, dlist_node** current, int nRecords){
+ActionStatus exec_batch_one_by_one(ConnectionHolder* connHolder, Batch* batch, dlist_node** current, int nRecords, char** errMsgAddr){
     if (batch->nRecords <= 0){
         LOG_WARN("Nothing to insert.");
         return FAILURE_NOT_NEED_RETRY;
@@ -778,6 +774,8 @@ ActionStatus exec_batch_one_by_one(ConnectionHolder* connHolder, Batch* batch, d
     RecordItem* recordItem;
     ActionStatus rc = SUCCESS;
     int cRecords = 0;
+    int64_t minSeq = INT64_MAX;
+    int64_t maxSeq = INT64_MIN;
     dlist_foreach_from(miter, &(batch->recordList), *current){
         if (cRecords >= nRecords) break;
         recordItem = dlist_container(RecordItem, list_node, miter.cur);
@@ -785,9 +783,11 @@ ActionStatus exec_batch_one_by_one(ConnectionHolder* connHolder, Batch* batch, d
         for (int i = 0;i < batch->schema->nColumns;i++){
             if (!batch->valuesSet[i]) continue;
             params[++count] = recordItem->record->values[i];
+            sqlCache->paramLengths[count] = recordItem->record->valueLengths[i];
         }
-        res = connection_holder_exec_params_with_retry(connHolder, sqlCache->command, batch->nValues, sqlCache->paramTypes, (const char* const*)params, sqlCache->paramLengths, sqlCache->paramFormats, 0);
-        count = -1;
+        minSeq = recordItem->record->sequence < minSeq ? recordItem->record->sequence : minSeq;
+        maxSeq = recordItem->record->sequence > maxSeq ? recordItem->record->sequence : maxSeq;
+        res = connection_holder_exec_params_with_retry(connHolder, sqlCache->command, batch->nValues, sqlCache->paramTypes, (const char* const*)params, sqlCache->paramLengths, sqlCache->paramFormats, 0, errMsgAddr);
         if (res == NULL || PQresultStatus(res) != PGRES_COMMAND_OK){
             LOG_ERROR("Mutate into table \"%s\" failed.", batch->schema->tableName->tableName);
             connHolder->handleExceptionByUser(recordItem->record, PQresultErrorMessage(res), connHolder->exceptionHandlerParam);
@@ -796,6 +796,8 @@ ActionStatus exec_batch_one_by_one(ConnectionHolder* connHolder, Batch* batch, d
         if (res != NULL) PQclear(res);
         cRecords++;
     }
+
+    LOG_DEBUG("Mutate into table \"%s\" one by one succeed, minSeq:%"PRId64", maxSeq:%"PRId64".", batch->schema->tableName->tableName, minSeq, maxSeq);
 
     metrics_meter_mark(connHolder->metrics->rps, nRecords);
     metrics_meter_mark(connHolder->metrics->qps, 1);
@@ -881,7 +883,7 @@ ActionStatus handle_gets(ConnectionHolder* connHolder, HoloTableSchema* schema, 
     }
 
     PGresult* res = NULL;
-    res = connection_holder_exec_params_with_retry(connHolder, sqlCache->command, nParams, sqlCache->paramTypes, (const char* const*)params, sqlCache->paramLengths, sqlCache->paramFormats, 0);
+    res = connection_holder_exec_params_with_retry(connHolder, sqlCache->command, nParams, sqlCache->paramTypes, (const char* const*)params, sqlCache->paramLengths, sqlCache->paramFormats, 0, NULL);
     if (res == NULL || PQresultStatus(res) != PGRES_TUPLES_OK){
         LOG_ERROR("Get from table \"%s\" as batch failed.", schema->tableName->tableName);
         if (res != NULL) {

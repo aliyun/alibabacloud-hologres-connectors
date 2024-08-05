@@ -5,6 +5,7 @@ Future* create_future() {
     Future* future = MALLOC(1, Future);
     future->completed = false;
     future->retVal = NULL;
+    future->errMsg = NULL;
     future->mutex = MALLOC(1, pthread_mutex_t);
     future->cond = MALLOC(1, pthread_cond_t);
     pthread_mutex_init(future->mutex, NULL);
@@ -16,6 +17,7 @@ void destroy_future(Future* future) {
     pthread_cond_destroy(future->cond);
     FREE(future->mutex);
     FREE(future->cond);
+    FREE(future->errMsg);
     FREE(future);
     future = NULL;
 }

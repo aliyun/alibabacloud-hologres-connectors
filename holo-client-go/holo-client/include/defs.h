@@ -9,6 +9,17 @@
 # define __HOLO_CLIENT_END_DECLS
 #endif
 
+#define HOLO_MAX_LOG_LEN        1024
+
+#define HOLO_CLIENT_MAX_THREAD_SIZE 64
+
+#define HOLO_LOG_LEVEL_DEBUG    200
+#define HOLO_LOG_LEVEL_INFO     300
+#define HOLO_LOG_LEVEL_WARNING  400
+#define HOLO_LOG_LEVEL_ERROR    500
+#define HOLO_LOG_LEVEL_FATAL    600
+#define HOLO_LOG_LEVEL_NONE     10000
+
 /*
  * Oids of holo-client-c support types
  * copy from pg_type_d.h
@@ -45,4 +56,34 @@
 #define HOLO_TYPE_DATE_ARRAY    1182
 #define HOLO_TYPE_TIMESTAMP_ARRAY   1115
 #define HOLO_TYPE_TIMESTAMPTZ_ARRAY 1185
+
+/**
+ * Errcode for holo-client-c
+ */
+#define HOLO_CLIENT_RET_OK                  0
+#define HOLO_CLIENT_RET_FAIL                -1
+#define HOLO_CLIENT_FLUSH_FAIL              -100
+
+#define HOLO_CLIENT_INVALID_PARAM           -200
+#define HOLO_CLIENT_INVALID_COL_IDX         -201
+#define HOLO_CLIENT_INVALID_COL_NAME        -202
+#define HOLO_CLIENT_TYPE_NOT_MATCH          -203
+#define HOLO_CLIENT_COL_ALREADY_SET         -204
+#define HOLO_CLIENT_NOT_NULL_BUT_SET_NULL   -205
+#define HOLO_CLIENT_COL_NOT_PK              -206
+
+#define HOLO_CLIENT_CHECK_CONSTRAINT_FAIL   -300
+#define HOLO_CLIENT_PK_IS_NULL              -301
+#define HOLO_CLIENT_PARTITION_IS_NULL       -302
+#define HOLO_CLIENT_DELETE_NO_PK_TABLE      -303
+#define HOLO_CLIENT_PARTITION_NOT_EXIST     -304
+#define HOLO_CLIENT_PK_NOT_SET_IN_DELETE    -305
+#define HOLO_CLIENT_NOT_NULL_BUT_NOT_SET    -306
+#define HOLO_CLIENT_PARTITION_META_CHANGE   -307
+
+#define HOLO_CLIENT_EXCEED_MAX_BYTE         -400
+#define HOLO_CLIENT_EXCEED_MAX_NUM          -401
+#define HOLO_CLIENT_EXCEED_MAX_INTERVAL     -402
+#define HOLO_CLIENT_EXCEED_MAX_TOTAL_BYTE   -403
+
 #endif

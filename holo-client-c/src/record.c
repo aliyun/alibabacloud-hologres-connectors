@@ -1,6 +1,6 @@
 #include "record.h"
 #include "record_private.h"
-#include "logger.h"
+#include "logger_private.h"
 #include "utils.h"
 #include "murmur3.h"
 
@@ -23,6 +23,8 @@ HoloRecord* holo_client_new_record(HoloTableSchema* schema){
         record->valueFormats[i] = 0;
     }
     record->nValues = 0;
+    record->sequence = 0;
+    record->timestamp = 0;
     return record;
 }
 
@@ -63,7 +65,7 @@ bool has_same_pk(HoloRecord* record1, HoloRecord* record2) {
     for (int i = 0; i < schema->nPrimaryKeys; i++) {
         int index = schema->primaryKeys[i];
         if (record1->valueFormats[index] != record2->valueFormats[index]) {
-            LOG_ERROR("Cannot deal with different value formats.");
+            LOG_WARN("Cannot deal with different value formats.");
             return false;
         };
         if (record1->valueFormats[index] == 0 && strcmp(record1->values[index], record2->values[index]) != 0) return false;
@@ -87,11 +89,11 @@ char* holo_client_record_table_name(const HoloRecord* record) {
 int holo_client_record_num_column(const HoloRecord* record) {
     if (record == NULL) {
         LOG_ERROR("HoloRecord is NULL.");
-        return -1;
+        return HOLO_CLIENT_INVALID_PARAM;
     }
     if (record->schema == NULL) {
         LOG_ERROR("HoloRecord has no schema.");
-        return -1;
+        return HOLO_CLIENT_RET_FAIL;
     }
     return record->schema->nColumns;
 }

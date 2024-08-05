@@ -1,5 +1,5 @@
 #include "sql_builder.h"
-#include "logger.h"
+#include "logger_private.h"
 #include "unistd.h"
 
 const char* holo_client_get_type_name_with_type_oid(unsigned int typeOid) {
@@ -61,9 +61,8 @@ const char* holo_client_get_type_name_with_type_oid(unsigned int typeOid) {
     return ret;
 }
 
-char* build_unnest_insert_sql_with_batch(Batch* batch, int nRecords){
+char* build_unnest_insert_sql_with_batch(Batch* batch){
     if (batch->mode != PUT) return NULL;
-    if (nRecords == 0) nRecords = batch->nRecords;
     int length = 12; // "INSERT INTO "
     length += strlen(batch->schema->tableName->fullName);
     length += 2; // " ("
@@ -176,6 +175,7 @@ char* build_unnest_insert_sql_with_batch(Batch* batch, int nRecords){
             }
         }
     }
+    // LOG_DEBUG("unnest sql is %s", sql);
     return sql;
 }
 
@@ -298,6 +298,7 @@ char* build_insert_sql_with_batch(Batch* batch, int nRecords){
             }
         }
     }
+    // LOG_DEBUG("insert sql is %s", sql);
     return sql;
 }
 

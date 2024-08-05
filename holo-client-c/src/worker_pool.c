@@ -1,7 +1,7 @@
 #include "worker_pool_private.h"
 #include "utils.h"
 #include "holo_config_private.h"
-#include "logger.h"
+#include "logger_private.h"
 
 HoloWorkerPool* holo_client_new_worker_pool(HoloConfig config, bool isFixedFe, int threadSize) {
     if (!holo_config_is_valid(&config)){
@@ -37,11 +37,11 @@ HoloWorkerPool* holo_client_new_worker_pool(HoloConfig config, bool isFixedFe, i
 int holo_client_start_worker_pool(HoloWorkerPool* pool) {
     if (pool == NULL) {
         LOG_ERROR("Worker pool is NULL.");
-        return -1;
+        return HOLO_CLIENT_INVALID_PARAM;
     }
     int i, numFail;
     if (pool->status != 0) {
-        return -1;
+        return HOLO_CLIENT_RET_FAIL;
     }
     pool->status = 1;
     numFail = 0;
@@ -56,7 +56,7 @@ int holo_client_start_worker_pool(HoloWorkerPool* pool) {
 int holo_client_worker_pool_status(const HoloWorkerPool* pool) {
     if (pool == NULL) {
         LOG_ERROR("Worker pool is NULL.");
-        return -1;
+        return HOLO_CLIENT_INVALID_PARAM;
     }
     return pool->status;
 }
@@ -64,28 +64,28 @@ int holo_client_worker_pool_status(const HoloWorkerPool* pool) {
 int holo_client_stop_worker_pool(HoloWorkerPool* pool) {
     if (pool == NULL) {
         LOG_ERROR("Worker pool is NULL.");
-        return -1;
+        return HOLO_CLIENT_INVALID_PARAM;
     }
     int i;
     if (pool->status == 0) {
         pool->status = 2;
-        return -1;
+        return HOLO_CLIENT_RET_FAIL;
     }
     if (pool->status == 2) {
-        return 0;
+        return HOLO_CLIENT_RET_OK;
     }
     pool->status = 2;
     metrics_gather_and_show(pool->metrics);
     for (i = 0; i < pool->numWorkers; i++) {
         holo_client_stop_worker(pool->workers[i]);
     }
-    return 0;
+    return HOLO_CLIENT_RET_OK;
 }
 
 int holo_client_close_worker_pool(HoloWorkerPool* pool) {
     if (pool == NULL) {
         LOG_WARN("Worker pool is NULL.");
-        return -1;
+        return HOLO_CLIENT_INVALID_PARAM;
     }
     int i;
     if (pool->status != 2) {
@@ -102,7 +102,7 @@ int holo_client_close_worker_pool(HoloWorkerPool* pool) {
     FREE(pool->idleCond);
     FREE(pool);
     pool = NULL;
-    return 0;
+    return HOLO_CLIENT_RET_OK;
 }
 
 bool holo_client_submit_action_to_worker_pool(HoloWorkerPool* pool, Action* action) {

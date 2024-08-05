@@ -35,6 +35,8 @@ typedef struct _HoloConfig {
     bool dynamicPartition; //false
     bool useFixedFe; //false
     int connectionSizeWhenUseFixedFe; //1
+    bool autoFlush; //true
+    bool unnestMode; //false
 
     /* 
      * HoloExceptionHandler callback, and pointer which will be passed to the actual callback as parameter

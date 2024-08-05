@@ -17,7 +17,7 @@ struct _HoloClient {
     HoloConfig config;
 };
 
-HoloTableSchema* holo_client_get_tableschema_by_tablename(HoloClient* client, HoloTableName name, bool withCache);
+HoloTableSchema* holo_client_get_tableschema_by_tablename(HoloClient* client, HoloTableName name, bool withCache, char** errMsgAddr);
 
 void* holo_client_sql(HoloClient*, Sql);
 

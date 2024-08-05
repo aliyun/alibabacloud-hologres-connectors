@@ -10,8 +10,12 @@
 #define MALLOC(n, type) \
     ((type *)malloc((n) * sizeof(type)))
 
-#define FREE(ptr) \
-    free(ptr)
+#define FREE(ptr)           \
+    do {                    \
+        if (ptr != NULL) {  \
+            free(ptr);      \
+        }                   \
+    } while (0)
 
 #define SQL_STR_DOUBLE(ch, escape_backslash)	\
 	((ch) == '\'' || ((ch) == '\\' && (escape_backslash)))
@@ -21,6 +25,7 @@ char* deep_copy_string(const char*);
 void deep_copy_string_to(const char*, char*, int);
 long long get_time_usec();
 struct timespec get_out_time(long long);
+struct timespec get_time_spec_from_ms(long long);
 char* itoa(int);
 int len_of_int(int);
 char* quote_table_name(const char*, const char*);
@@ -32,6 +37,7 @@ int get_max_pow(int);
 long current_time_ms();
 void endian_swap(void*, int);
 void to_lower_case(char*, int len);
+bool compare_strings(const char *str1, const char *str2);
 
 char* int16toa(int16_t);
 char* int32toa(int32_t);

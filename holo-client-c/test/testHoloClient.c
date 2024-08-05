@@ -9,7 +9,37 @@
 
 char* connInfo;
 
-void testGet(void) {
+void* print_failed_record(const HoloRecord* record, const char* errMsg, void* exceptionHandlerParam) {
+    printf("---------------------failed record:\n");
+    printf("error mesesage: %s\n", errMsg);
+    for (int i = 0; i < holo_client_record_num_column(record); i++) {
+        char* val = holo_client_get_record_val_with_text_by_colindex(record, i);
+        printf("value %d: %s ", i, val);
+        holo_client_destroy_val(val);
+    }
+    printf("\n");
+    return NULL;
+}
+
+void testConnectFail() {
+    HoloConfig config = holo_client_new_config("host=test_host port=8080 dbname=test_db user=test_user password=test_password");
+    config.retrySleepStepMs = 1000;
+    HoloClient* client = holo_client_new_client(config);
+    char* errMsg = NULL;
+    HoloTableSchema* schema = holo_client_get_tableschema_with_errmsg(client, NULL, "test_table", true, &errMsg);
+
+    CU_ASSERT_EQUAL(schema, NULL);
+    CU_ASSERT_NOT_EQUAL(errMsg, NULL);
+    // should failed by "Name or service not known"
+    printf("get table schema failed: %s", errMsg);
+    if (errMsg != NULL) {
+        free(errMsg);
+    }
+
+    holo_client_close_client(client);
+}
+
+void testGet() {
     HoloConfig config = holo_client_new_config(connInfo);
     PGconn * conn = PQconnectdb(connInfo);
 
@@ -48,10 +78,7 @@ void testGet(void) {
 /**
  * INSERT_REPLACE.
  */
-/**
- * INSERT_REPLACE.
- */
-void testPut001(void) {
+void testPut001() {
     //printf("---------testPut001--------------\n");
     HoloConfig config = holo_client_new_config(connInfo);
     config.writeMode = INSERT_OR_REPLACE;
@@ -297,18 +324,6 @@ void testPut005() {
     holo_client_close_client(client);
 }
 
-void* print_failed_record(const HoloRecord* record, const char* errMsg, void* exceptionHandlerParam) {
-    printf("---------------------failed record:\n");
-    printf("error mesesage: %s\n", errMsg);
-    for (int i = 0; i < holo_client_record_num_column(record); i++) {
-        char* val = holo_client_get_record_val_with_text_by_colindex(record, i);
-        printf("value %d: %s ", i, val);
-        holo_client_destroy_val(val);
-    }
-    printf("\n");
-    return NULL;
-}
-
 /**
  * CUSTOM_SCHEMA，fail.
  */
@@ -367,7 +382,7 @@ void testPut006() {
 }
 
 /**
- * CUSTOM_SCHEMA，tableName. columnName.
+ * CUSTOM_SCHEMA, tableName, columnName in PG RESERVED KEYWORDS
  */
 void testPut007() {
     // printf("---------testPut007--------------\n");
@@ -379,7 +394,7 @@ void testPut007() {
     char* tableName = "holO_client\"_put_007";
     char* createSchema = "create schema if not exists test_schema";
     char* dropSql = "drop table if exists test_schema.\"holO_client\"\"_put_007\"";
-    char* createSql = "create table test_schema.\"holO_client\"\"_put_007\" (id int not null,\"nAme\" text,address text,primary key(id))";
+    char* createSql = "create table test_schema.\"holO_client\"\"_put_007\" (id int not null,\"nAme\" text,address text,\"user\" text,primary key(id))";
     PQclear(PQexec(conn, createSchema));
     PQclear(PQexec(conn, dropSql));
     PQclear(PQexec(conn, createSql));
@@ -390,12 +405,14 @@ void testPut007() {
     holo_client_set_req_int32_val_by_colindex(mutation, 0, 0);
     holo_client_set_req_val_with_text_by_colindex(mutation, 1, "name0", 5);
     holo_client_set_req_val_with_text_by_colindex(mutation, 2, "address1", 8);
+    holo_client_set_req_val_with_text_by_colindex(mutation, 3, "user1", 5);
     holo_client_submit(client, mutation);
 
     mutation = holo_client_new_mutation_request(schema);
     holo_client_set_req_int32_val_by_colindex(mutation, 0, 1);
     holo_client_set_req_val_with_text_by_colindex(mutation, 1, "name1", 5);
     holo_client_set_req_val_with_text_by_colindex(mutation, 2, "address2", 8);
+    holo_client_set_req_val_with_text_by_colindex(mutation, 3, "user2", 5);
     holo_client_submit(client, mutation);
 
     holo_client_flush_client(client);
@@ -404,12 +421,145 @@ void testPut007() {
     CU_ASSERT_NOT_EQUAL(PQntuples(res), 0);
     CU_ASSERT_STRING_EQUAL(PQgetvalue(res, 0, 1), "name0");
     CU_ASSERT_STRING_EQUAL(PQgetvalue(res, 0, 2), "address1");
+    CU_ASSERT_STRING_EQUAL(PQgetvalue(res, 0, 3), "user1");
     PQclear(res);
 
     res = PQexec(conn, "select * from test_schema.\"holO_client\"\"_put_007\" where id = 1");
     CU_ASSERT_NOT_EQUAL(PQntuples(res), 0);
     CU_ASSERT_STRING_EQUAL(PQgetvalue(res, 0, 1), "name1");
     CU_ASSERT_STRING_EQUAL(PQgetvalue(res, 0, 2), "address2");
+    CU_ASSERT_STRING_EQUAL(PQgetvalue(res, 0, 3), "user2");
+    PQclear(res);
+
+    PQfinish(conn);
+    holo_client_close_client(client);
+}
+
+/**
+ * put null
+ */
+void testPut008() {
+    HoloConfig config = holo_client_new_config(connInfo);
+    config.writeMode = INSERT_OR_REPLACE;
+    config.exceptionHandler = print_failed_record;
+    PGconn * conn = PQconnectdb(connInfo);
+    PGresult* res;
+    char* tableName = "holo_client_put_008";
+    char* dropSql = "drop table if exists holo_client_put_008";
+    char* createSql = "create table holo_client_put_008 (id text, int4_field int, int8_field bigint, numeric_field numeric(38,15), text_field text, primary key(id))";
+    PQclear(PQexec(conn, dropSql));
+    PQclear(PQexec(conn, createSql));
+    HoloClient* client = holo_client_new_client(config);
+
+    HoloTableSchema* schema = holo_client_get_tableschema(client, NULL, tableName, true);
+    HoloMutation mutation = holo_client_new_mutation_request(schema);
+    holo_client_set_req_text_val_by_colindex(mutation, 0, "1", 1);
+    holo_client_set_req_int32_val_by_colindex(mutation, 1, 1);
+    holo_client_set_req_int64_val_by_colindex(mutation, 2, 1);
+    holo_client_submit(client, mutation);
+
+    mutation = holo_client_new_mutation_request(schema);
+    holo_client_set_req_text_val_by_colindex(mutation, 0, "2", 1);
+    holo_client_set_req_null_val_by_colindex(mutation, 1);
+    holo_client_set_req_null_val_by_colindex(mutation, 2);
+    holo_client_set_req_null_val_by_colindex(mutation, 3);
+    holo_client_set_req_text_val_by_colindex(mutation, 4, "text", 4);
+    holo_client_submit(client, mutation);
+
+    mutation = holo_client_new_mutation_request(schema);
+    holo_client_set_req_text_val_by_colindex(mutation, 0, "3", 1);
+    holo_client_set_req_null_val_by_colindex(mutation, 1);
+    holo_client_set_req_null_val_by_colindex(mutation, 2);
+    holo_client_set_req_text_val_by_colindex(mutation, 4, "text", 4);
+    holo_client_submit(client, mutation);
+
+    mutation = holo_client_new_mutation_request(schema);
+    holo_client_set_req_text_val_by_colindex(mutation, 0, "4", 1);
+    holo_client_set_req_text_val_by_colindex(mutation, 4, "text", 4);
+    holo_client_submit(client, mutation);
+
+    holo_client_flush_client(client);
+
+    res = PQexec(conn, "select * from holo_client_put_008 where id = '1'");
+    CU_ASSERT_NOT_EQUAL(PQntuples(res), 0);
+    CU_ASSERT_STRING_EQUAL(PQgetvalue(res, 0, 1), "1");
+    CU_ASSERT_STRING_EQUAL(PQgetvalue(res, 0, 2), "1");
+    CU_ASSERT(PQgetisnull(res, 0, 3));
+    CU_ASSERT(PQgetisnull(res, 0, 4));
+    PQclear(res);
+
+    res = PQexec(conn, "select * from holo_client_put_008 where id = '2'");
+    CU_ASSERT_NOT_EQUAL(PQntuples(res), 0);
+    CU_ASSERT(PQgetisnull(res, 0, 1));
+    CU_ASSERT(PQgetisnull(res, 0, 2));
+    CU_ASSERT(PQgetisnull(res, 0, 3));
+    CU_ASSERT_STRING_EQUAL(PQgetvalue(res, 0, 4), "text");
+    PQclear(res);
+
+    PQfinish(conn);
+    holo_client_close_client(client);
+}
+
+/**
+ * put data overflow, failed
+ */
+void testPut009() {
+    HoloConfig config = holo_client_new_config(connInfo);
+    config.writeMode = INSERT_OR_REPLACE;
+    config.exceptionHandler = print_failed_record;
+    PGconn * conn = PQconnectdb(connInfo);
+    PGresult* res;
+    char* tableName = "holo_client_put_009";
+    char* dropSql = "drop table if exists holo_client_put_009";
+    char* createSql = "create table holo_client_put_009 (id int, name varchar(5), numeric_field numeric(3,0), primary key(id))";
+    PQclear(PQexec(conn, dropSql));
+    PQclear(PQexec(conn, createSql));
+    HoloClient* client = holo_client_new_client(config);
+
+    HoloTableSchema* schema = holo_client_get_tableschema(client, NULL, tableName, true);
+    HoloMutation mutation = holo_client_new_mutation_request(schema);
+    holo_client_set_req_int32_val_by_colindex(mutation, 0, 1);
+    holo_client_set_req_val_with_text_by_colindex(mutation, 1, "name0", 5);
+    holo_client_set_req_val_with_text_by_colindex(mutation, 2, "100", 3);
+    holo_client_submit(client, mutation);
+
+    mutation = holo_client_new_mutation_request(schema);
+    holo_client_set_req_int32_val_by_colindex(mutation, 0, 2);
+    holo_client_set_req_val_with_text_by_colindex(mutation, 1, "name11", 6);
+    holo_client_set_req_val_with_text_by_colindex(mutation, 2, "100", 3);
+    holo_client_submit(client, mutation);
+
+    mutation = holo_client_new_mutation_request(schema);
+    holo_client_set_req_int32_val_by_colindex(mutation, 0, 3);
+    holo_client_set_req_val_with_text_by_colindex(mutation, 1, "name22", 6);
+    holo_client_set_req_val_with_text_by_colindex(mutation, 2, "100.01", 6);
+    holo_client_submit(client, mutation);
+
+    mutation = holo_client_new_mutation_request(schema);
+    holo_client_set_req_int32_val_by_colindex(mutation, 0, 4);
+    holo_client_set_req_val_with_text_by_colindex(mutation, 1, "name33", 6);
+    holo_client_set_req_val_with_text_by_colindex(mutation, 2, "100.011", 7);
+    holo_client_submit(client, mutation);
+
+    char* errMsg = NULL;
+    int ret = holo_client_flush_client_with_errmsg(client, &errMsg);
+    // should failed by "value too long for type character varying(5)"
+    printf("holo client flush failed: %s\n", errMsg);
+    CU_ASSERT_NOT_EQUAL(errMsg, NULL);
+    if (errMsg != NULL) {
+        free(errMsg);
+    }
+
+    CU_ASSERT_EQUAL(ret, HOLO_CLIENT_FLUSH_FAIL);
+
+    res = PQexec(conn, "select * from holo_client_put_009 where id = 1");
+    CU_ASSERT_NOT_EQUAL(PQntuples(res), 0);
+    CU_ASSERT_STRING_EQUAL(PQgetvalue(res, 0, 1), "name0");
+    CU_ASSERT_STRING_EQUAL(PQgetvalue(res, 0, 2), "100");
+    PQclear(res);
+
+    res = PQexec(conn, "select * from holo_client_put_009 where id = 2");
+    CU_ASSERT_EQUAL(PQntuples(res), 0);
     PQclear(res);
 
     PQfinish(conn);
@@ -750,6 +900,64 @@ void testPut015() {
 }
 
 /**
+ * delete with batch
+ */
+void testPut016() {
+    // printf("---------testPut016--------------\n");
+    HoloConfig config = holo_client_new_config(connInfo);
+    config.writeMode = INSERT_OR_REPLACE;
+    config.shardCollectorSize = 1;
+    PGconn * conn = PQconnectdb(connInfo);
+    PGresult* res;
+    char* tableName = "holo_client_put_016";
+    char* dropSql = "drop table if exists holo_client_put_016";
+    char* createSql = "create table holo_client_put_016 (id int, name text, address int, primary key(id))";
+    PQclear(PQexec(conn, dropSql));
+    PQclear(PQexec(conn, createSql));
+    HoloClient* client = holo_client_new_client(config);
+
+    HoloTableSchema* schema = holo_client_get_tableschema(client, NULL, tableName, true);
+
+    HoloMutation mutation = holo_client_new_mutation_request(schema);
+    holo_client_set_req_int32_val_by_colname(mutation, "id", 1);
+    holo_client_set_req_val_with_text_by_colname(mutation, "name", "name1", 5);
+    holo_client_set_req_int32_val_by_colname(mutation, "address", 1);
+    holo_client_submit(client, mutation);
+
+    mutation = holo_client_new_mutation_request(schema);
+    holo_client_set_req_int32_val_by_colname(mutation, "id", 2);
+    holo_client_set_req_val_with_text_by_colname(mutation, "name", "name2", 5);
+    holo_client_set_req_int32_val_by_colname(mutation, "address", 2);
+    holo_client_submit(client, mutation);
+
+    holo_client_flush_client(client);
+    
+    mutation = holo_client_new_mutation_request(schema);
+    holo_client_set_request_mode(mutation, DELETE);
+    holo_client_set_req_int32_val_by_colname(mutation, "id", 1);
+    holo_client_set_req_val_with_text_by_colname(mutation, "name", "name1", 5);
+    holo_client_set_req_int32_val_by_colname(mutation, "address", 3);
+    holo_client_submit(client, mutation);
+
+    mutation = holo_client_new_mutation_request(schema);
+    holo_client_set_request_mode(mutation, DELETE);
+    holo_client_set_req_int32_val_by_colname(mutation, "id", 2);
+    holo_client_set_req_val_with_text_by_colname(mutation, "name", "name1", 5);
+    holo_client_set_req_null_val_by_colname(mutation, "address");
+    holo_client_submit(client, mutation);
+
+    holo_client_flush_client(client);
+ 
+    res = PQexec(conn, "select count(*) from holo_client_put_016");
+    CU_ASSERT_NOT_EQUAL(PQntuples(res), 0);
+    CU_ASSERT_EQUAL(atoi(PQgetvalue(res, 0, 0)), 0);
+    PQclear(res);
+
+    PQfinish(conn);
+    holo_client_close_client(client);
+}
+
+/**
  * CUSTOM_SCHEMA，INSERT_OR_UPDATE
  */
 void testPut017() {
@@ -885,6 +1093,107 @@ void testPut018() {
     CU_ASSERT_NOT_EQUAL(PQntuples(res), 0);
     CU_ASSERT_STRING_EQUAL(PQgetvalue(res, 0, 1), "name2");
     CU_ASSERT_STRING_EQUAL(PQgetvalue(res, 0, 2), "address2");
+    PQclear(res);
+
+    PQfinish(conn);
+    holo_client_close_client(client);
+}
+
+/**
+ * 关掉自动flush，攒批攒满之后submit应该失败
+ */
+void testPut019() {
+    HoloConfig config = holo_client_new_config(connInfo);
+    config.writeMode = INSERT_OR_REPLACE;
+    config.batchSize = 5;
+    config.autoFlush = false;
+    PGconn * conn = PQconnectdb(connInfo);
+    PGresult* res;
+    int failedCount = 0;
+
+    char* tableName = "holo_client_put_019";
+    char* dropSql = "drop table if exists holo_client_put_019";
+    char* createSql = "create table holo_client_put_019 (id int not null,name text,address text,primary key(id))";
+    PQclear(PQexec(conn, dropSql));
+    PQclear(PQexec(conn, createSql));
+    HoloClient* client = holo_client_new_client(config);
+
+    HoloTableSchema* schema = holo_client_get_tableschema(client, NULL, tableName, true);
+    for (int i = 0; i < 20; i++) {
+        HoloMutation mutation = holo_client_new_mutation_request(schema);
+        holo_client_set_req_int32_val_by_colindex(mutation, 0, i);
+        holo_client_set_req_val_with_text_by_colindex(mutation, 1, "name", 4);
+        holo_client_set_req_val_with_text_by_colindex(mutation, 2, "address", 7);
+        if (holo_client_submit(client, mutation) == HOLO_CLIENT_EXCEED_MAX_NUM) {
+            ++failedCount;
+        }
+    }
+
+    holo_client_flush_client(client);
+
+    CU_ASSERT_EQUAL(failedCount, 10);
+    res = PQexec(conn, "select count(*) from holo_client_put_019");
+    CU_ASSERT_NOT_EQUAL(PQntuples(res), 0);
+    CU_ASSERT_STRING_EQUAL(PQgetvalue(res, 0, 0), "10");
+    PQclear(res);
+
+    PQfinish(conn);
+    holo_client_close_client(client);
+}
+
+/**
+ * 关掉自动flush，长时间不调用flush
+ */
+void testPut020() {
+    HoloConfig config = holo_client_new_config(connInfo);
+    config.writeMode = INSERT_OR_REPLACE;
+    config.batchSize = 10;
+    config.writeMaxIntervalMs = 5000;
+    config.autoFlush = false;
+    config.shardCollectorSize = config.threadSize;
+    PGconn * conn = PQconnectdb(connInfo);
+    PGresult* res;
+    int ret;
+
+    char* tableName = "holo_client_put_020";
+    char* dropSql = "drop table if exists holo_client_put_020";
+    char* createSql = "create table holo_client_put_020 (id int not null,name text,address text,primary key(id))";
+    PQclear(PQexec(conn, dropSql));
+    PQclear(PQexec(conn, createSql));
+    HoloClient* client = holo_client_new_client(config);
+
+    HoloTableSchema* schema = holo_client_get_tableschema(client, NULL, tableName, true);
+    HoloMutation mutation = holo_client_new_mutation_request(schema);
+    holo_client_set_req_int32_val_by_colindex(mutation, 0, 1);
+    holo_client_set_req_val_with_text_by_colindex(mutation, 1, "name", 4);
+    holo_client_set_req_val_with_text_by_colindex(mutation, 2, "address", 7);
+    ret = holo_client_submit(client, mutation);
+    CU_ASSERT_EQUAL(ret, HOLO_CLIENT_RET_OK);
+
+    sleep(3);
+
+    mutation = holo_client_new_mutation_request(schema);
+    holo_client_set_req_int32_val_by_colindex(mutation, 0, 2);
+    holo_client_set_req_val_with_text_by_colindex(mutation, 1, "name", 4);
+    holo_client_set_req_val_with_text_by_colindex(mutation, 2, "address", 7);
+    ret = holo_client_submit(client, mutation);
+    CU_ASSERT_EQUAL(ret, HOLO_CLIENT_RET_OK);
+
+    sleep(3); // 距上次flush超过writeMaxIntervalMs
+
+    mutation = holo_client_new_mutation_request(schema);
+    holo_client_set_req_int32_val_by_colindex(mutation, 0, 3);
+    holo_client_set_req_val_with_text_by_colindex(mutation, 1, "name", 4);
+    holo_client_set_req_val_with_text_by_colindex(mutation, 2, "address", 7);
+    // should fail
+    ret = holo_client_submit(client, mutation);
+    CU_ASSERT_EQUAL(ret, HOLO_CLIENT_EXCEED_MAX_INTERVAL);
+
+    holo_client_flush_client(client);
+
+    res = PQexec(conn, "select count(*) from holo_client_put_020");
+    CU_ASSERT_NOT_EQUAL(PQntuples(res), 0);
+    CU_ASSERT_STRING_EQUAL(PQgetvalue(res, 0, 0), "2");
     PQclear(res);
 
     PQfinish(conn);
@@ -1968,6 +2277,103 @@ void testPut052() {
     res = PQexec(conn, "select * from holo_client_put_052 where id = 0");
     CU_ASSERT_NOT_EQUAL(PQntuples(res), 0);
     CU_ASSERT_STRING_EQUAL(PQgetvalue(res, 0, 1), "name0");
+    PQclear(res);
+
+    PQfinish(conn);
+    holo_client_close_client(client);
+}
+
+/**
+ * writeMaxIntervalMs <= 0，不检查writeMaxIntervalMs
+ */
+void testPut053() {
+    HoloConfig config = holo_client_new_config(connInfo);
+    config.writeMode = INSERT_OR_REPLACE;
+    config.batchSize = 10;
+    config.writeMaxIntervalMs = -1;
+    config.autoFlush = true;
+    config.shardCollectorSize = config.threadSize;
+    PGconn * conn = PQconnectdb(connInfo);
+    PGresult* res;
+    int ret;
+
+    char* tableName = "holo_client_put_053";
+    char* dropSql = "drop table if exists holo_client_put_053";
+    char* createSql = "create table holo_client_put_053 (id int not null,name text,address text,primary key(id))";
+    PQclear(PQexec(conn, dropSql));
+    PQclear(PQexec(conn, createSql));
+    HoloClient* client = holo_client_new_client(config);
+
+    HoloTableSchema* schema = holo_client_get_tableschema(client, NULL, tableName, true);
+    HoloMutation mutation = holo_client_new_mutation_request(schema);
+    holo_client_set_req_int32_val_by_colindex(mutation, 0, 1);
+    holo_client_set_req_val_with_text_by_colindex(mutation, 1, "name", 4);
+    holo_client_set_req_val_with_text_by_colindex(mutation, 2, "address", 7);
+    ret = holo_client_submit(client, mutation);
+    CU_ASSERT_EQUAL(ret, HOLO_CLIENT_RET_OK);
+
+    sleep(5);
+
+    res = PQexec(conn, "select count(*) from holo_client_put_053");
+    CU_ASSERT_NOT_EQUAL(PQntuples(res), 0);
+    CU_ASSERT_STRING_EQUAL(PQgetvalue(res, 0, 0), "0");
+    PQclear(res);
+
+    holo_client_flush_client(client);
+
+    res = PQexec(conn, "select count(*) from holo_client_put_053");
+    CU_ASSERT_NOT_EQUAL(PQntuples(res), 0);
+    CU_ASSERT_STRING_EQUAL(PQgetvalue(res, 0, 0), "1");
+    PQclear(res);
+
+    PQfinish(conn);
+    holo_client_close_client(client);
+}
+
+/**
+ * 写分区表，攒批到一半，父表add column
+ */
+void testPut054() {
+    HoloConfig config = holo_client_new_config(connInfo);
+    config.writeMode = INSERT_OR_REPLACE;
+    config.batchSize = 10;
+    config.writeMaxIntervalMs = -1;
+    config.autoFlush = false;
+    config.shardCollectorSize = config.threadSize;
+    PGconn * conn = PQconnectdb(connInfo);
+    PGresult* res;
+    int ret;
+
+    char* tableName = "holo_client_put_054";
+    char* dropSql = "drop table if exists holo_client_put_054";
+    char* createSql = "begin; create table holo_client_put_054 (id text not null, id2 int not null, name text, primary key(id,id2)) partition by list(id); create table holo_client_put_054_1 partition of holo_client_put_054 for values in ('1'); create table holo_client_put_054_2 partition of holo_client_put_054 for values in ('2'); commit;";
+    char* addColumnSql = "alter table holo_client_put_054 add column added text";
+    PQclear(PQexec(conn, dropSql));
+    PQclear(PQexec(conn, createSql));
+    HoloClient* client = holo_client_new_client(config);
+
+    HoloTableSchema* schema = holo_client_get_tableschema(client, NULL, tableName, true);
+    HoloMutation mutation = holo_client_new_mutation_request(schema);
+    holo_client_set_req_val_with_text_by_colindex(mutation, 0, "1", 1);
+    holo_client_set_req_int32_val_by_colindex(mutation, 1, 1);
+    holo_client_set_req_val_with_text_by_colindex(mutation, 2, "name1", 4);
+    ret = holo_client_submit(client, mutation);
+    CU_ASSERT_EQUAL(ret, HOLO_CLIENT_RET_OK);
+
+    PQclear(PQexec(conn, addColumnSql));
+
+    mutation = holo_client_new_mutation_request(schema);
+    holo_client_set_req_val_with_text_by_colindex(mutation, 0, "2", 1);
+    holo_client_set_req_int32_val_by_colindex(mutation, 1, 1);
+    holo_client_set_req_val_with_text_by_colindex(mutation, 2, "name2", 4);
+    ret = holo_client_submit(client, mutation);
+    CU_ASSERT_EQUAL(ret, HOLO_CLIENT_PARTITION_META_CHANGE);
+
+    holo_client_flush_client(client);
+
+    res = PQexec(conn, "select count(*) from holo_client_put_054");
+    CU_ASSERT_NOT_EQUAL(PQntuples(res), 0);
+    CU_ASSERT_STRING_EQUAL(PQgetvalue(res, 0, 0), "1");
     PQclear(res);
 
     PQfinish(conn);

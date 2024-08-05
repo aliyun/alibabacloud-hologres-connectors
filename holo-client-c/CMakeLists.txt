@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.9)
 project(holo-client VERSION 1.1.0 DESCRIPTION "holo-client")
-execute_process(COMMAND git tag --sort=-taggerdate | head -n 1
+execute_process(
+	COMMAND git tag --sort=-taggerdate
+	COMMAND head -n 1
 	TIMEOUT 10
 	OUTPUT_VARIABLE GIT_VERSION
 	OUTPUT_STRIP_TRAILING_WHITESPACE
@@ -27,6 +29,7 @@ set(MY_PUBLIC_HEADERS
 	include/defs.h
     include/holo_client.h
     include/holo_config.h
+	include/logger.h
     include/record.h
     include/request.h
     include/table_schema.h
@@ -48,7 +51,9 @@ add_library(holo-client SHARED
 	src/get_collector.c
 	src/holo_client.c
 	src/holo_config.c
+	src/keywords.c
 	src/logger.c
+	src/logger_log4c.c
 	src/lp_map.c
 	src/meta_cache.c
 	src/metrics.c
@@ -82,7 +87,9 @@ add_library(${STATIC_LIB_NAME} STATIC
 	src/get_collector.c
 	src/holo_client.c
 	src/holo_config.c
+	src/keywords.c
 	src/logger.c
+	src/logger_log4c.c
 	src/lp_map.c
 	src/meta_cache.c
 	src/metrics.c

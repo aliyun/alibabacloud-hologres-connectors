@@ -10,6 +10,7 @@
 
 char* connInfo = "host=test_instance_host port=test_instance_port dbname=test_db user=test_user password=test_password";
 
+
 #include "testHoloClient.c"
 #include "testDataType.c"
 #include "testMultiThread.c"
@@ -17,6 +18,7 @@ char* connInfo = "host=test_instance_host port=test_instance_port dbname=test_db
 #include "testFunctions.c"
 
 CU_TestInfo testcase[] = {
+    {"testConnectFail", testConnectFail},
     {"testGet", testGet},
     {"testPut001", testPut001},
     {"testPut002", testPut002},
@@ -25,14 +27,19 @@ CU_TestInfo testcase[] = {
     {"testPut005", testPut005},
     {"testPut006", testPut006},
     {"testPut007", testPut007},
+    {"testPut008", testPut008},
+    {"testPut009", testPut009},
     {"testPut010", testPut010},
     {"testPut011", testPut011},
     {"testPut012", testPut012},
     {"testPut013", testPut013},
     {"testPut014", testPut014},
     {"testPut015", testPut015},
+    {"testPut016", testPut016},
     {"testPut017", testPut017},
     {"testPut018", testPut018},
+    {"testPut019", testPut019},
+    {"testPut020", testPut020},
     {"testPut021", testPut021},
     {"testPut022", testPut022},
     {"testPut024", testPut024},
@@ -53,6 +60,8 @@ CU_TestInfo testcase[] = {
     {"testPut050", testPut050},
     {"testPut051", testPut051},
     {"testPut052", testPut052},
+    {"testPut053", testPut053},
+    {"testPut054", testPut054},
     CU_TEST_INFO_NULL
 };
 
@@ -81,6 +90,8 @@ CU_TestInfo testcase_performance[] = {
 CU_TestInfo testcase_functions[] = {
     {"testQuoteTableName", testQuoteTableName},
     {"testQuoteLiteralCStr", testQuoteLiteralCStr},
+    {"testUnnestConvertArrayToText", testUnnestConvertArrayToText},
+    {"testGetColumnInfo", testGetColumnInfo},
     CU_TEST_INFO_NULL
 };
 

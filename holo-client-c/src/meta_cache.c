@@ -1,7 +1,7 @@
 #include "meta_cache.h"
 #include "utils.h"
 #include "table_schema_private.h"
-#include "logger.h"
+#include "logger_private.h"
 
 SchemaItem* create_schema_item(HoloTableSchema* schema) {
     SchemaItem* item = MALLOC(1, SchemaItem);

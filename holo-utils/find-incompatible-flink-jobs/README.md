@@ -15,7 +15,7 @@ find-incompatible-flink-jobs 是基于[阿里云开发者工具套件](https://h
 ```bash
 mvn clean package
 ```
-或者直接下载[jar包](https://github.com/aliyun/alibabacloud-hologres-connectors/releases/download/release-1.4.0/find-incompatible-flink-jobs-1.0-SNAPSHOT-jar-with-dependencies.jar)，指定jar包目录运行如下命令：
+或者直接下载jar包，指定jar包目录运行如下命令：
 ```bash
 java -cp find-incompatible-flink-jobs-1.0-SNAPSHOT-jar-with-dependencies.jar com.alibaba.hologres.FindIncompatibleFlinkJobs <region> <url> <AccessKeyId> <AccessKeySecret> <binlog/rpc>
 ```

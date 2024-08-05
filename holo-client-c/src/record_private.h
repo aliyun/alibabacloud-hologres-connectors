@@ -13,6 +13,8 @@ struct _HoloRecord{
     int *valueFormats;
     int nValues;
     int byteSize;
+    int64_t sequence;
+    int64_t timestamp;
 };
 
 HoloRecord* holo_client_new_record(HoloTableSchema*);
