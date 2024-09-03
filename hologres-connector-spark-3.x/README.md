@@ -246,12 +246,12 @@ df2.write.format("hologres").option(
   "password", "your_password").option(
   "endpoint", "hologres_endpoint").option(
   "database", "test_database").option(
-  "table", "tb008").save()
+  "table", "tb008").mode("append").save()
 ```
 
 ### 使用Spark Sql加载connector进行写入
 
-启动pyspark并加载connector
+启动 spark-sql 并加载 connector
 ```shell
 spark-sql --jars hologres-connector-spark-3.x-1.4.2-SNAPSHOT-jar-with-dependencies.jar
 ```
