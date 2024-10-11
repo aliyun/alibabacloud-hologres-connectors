@@ -7,6 +7,7 @@ import org.apache.commons.cli.Options;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.RowFactory;
+import org.apache.spark.sql.SaveMode;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.DecimalType;
@@ -68,7 +69,7 @@ public class SparkDataFrameToHoloExample {
                 Arrays.asList(
                         DataTypes.createStructField("user_id", DataTypes.LongType, true),
                         DataTypes.createStructField("user_name", DataTypes.StringType, true),
-                        DataTypes.createStructField("price", new DecimalType(38, 12), true),
+                        DataTypes.createStructField("price", new DecimalType(38, 2), true),
                         DataTypes.createStructField(
                                 "sale_timestamp", DataTypes.TimestampType, true));
 
@@ -83,6 +84,7 @@ public class SparkDataFrameToHoloExample {
             .option("endpoint", endPoint)
             .option("database", database)
             .option("table", tableName)
+            .mode(SaveMode.Append)
             .save();
 
         sparkSession.stop();

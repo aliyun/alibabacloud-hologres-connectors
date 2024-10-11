@@ -7,6 +7,10 @@ public enum HoloStorageConfig {
     PASSWORD("password", true),
     JDBC_URL("jdbc.url", true),
 
+    ENABLE_SERVERLESS_COMPUTING("enable_serverless_computing", false),
+    SERVERLESS_COMPUTING_QUERY_PRIORITY("serverless_computing_query_priority", false),
+    STATEMENT_TIMEOUT("statement_timeout", false),
+
     COPY_WRITE_MODE("copy_write_mode", false),
     COPY_WRITE_FORMAT("copy_write_format", false),
     BULK_LOAD("bulk_load", false),

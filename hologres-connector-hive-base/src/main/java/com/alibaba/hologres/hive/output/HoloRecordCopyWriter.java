@@ -41,6 +41,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.alibaba.hologres.client.model.WriteMode.INSERT_OR_IGNORE;
 import static com.alibaba.hologres.client.model.WriteMode.INSERT_OR_UPDATE;
+import static com.alibaba.hologres.hive.utils.JDBCUtils.executeSql;
 import static com.alibaba.hologres.hive.utils.JDBCUtils.logErrorAndExceptionInConsole;
 
 /** HoloRecordWriter. */
@@ -254,6 +255,17 @@ public class HoloRecordCopyWriter implements FileSinkOperator.RecordWriter {
                 if (conn == null) {
                     logger.info("init conn success to " + url);
                     conn = DriverManager.getConnection(url, info);
+                }
+                executeSql(
+                        pgConn,
+                        String.format("set statement_timeout = %s", param.getStatementTimeout()));
+                if (param.isEnableServerlessComputing()) {
+                    executeSql(pgConn, "set hg_computing_resource = 'serverless';");
+                    executeSql(
+                            pgConn,
+                            String.format(
+                                    "set hg_experimental_serverless_computing_query_priority = '%d';",
+                                    param.getServerlessComputingQueryPriority()));
                 }
                 pgConn = conn.unwrap(PgConnection.class);
                 logger.info("init unwrap conn success");

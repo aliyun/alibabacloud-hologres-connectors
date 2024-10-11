@@ -47,8 +47,7 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
       .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
       .option(SourceProvider.TABLE, table)
       .option(SourceProvider.WRITE_MODE, "insertOrIgnore")
-      .option(SourceProvider.COPY_WRITE_MODE, writeType != WriteType.INSERT)
-      .option(SourceProvider.BULK_LOAD, writeType == WriteType.BULK_LOAD)
+      .option(SourceProvider.COPY_MODE, writeType.toString)
       .option(SourceProvider.COPY_WRITE_DIRTY_DATA_CHECK, "true")
       .save()
 
@@ -70,11 +69,11 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
   }
 
   test("data type test insert.") {
-    dataTypeTest(WriteType.INSERT)
+    dataTypeTest(WriteType.DISABLE)
   }
 
   test("data type test copy.") {
-    dataTypeTest(WriteType.FIXED_COPY)
+    dataTypeTest(WriteType.STREAM)
   }
 
   test("data type test bulk load.") {
@@ -109,6 +108,7 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
       newSchema
     ).orderBy("pk").cache()
 
+    val copyMode = if (useCopy) "stream" else "disable"
     df.write
       .format("hologres")
       .option(SourceProvider.USERNAME, testUtils.username)
@@ -116,7 +116,7 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
       .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
       .option(SourceProvider.TABLE, table)
       .option(SourceProvider.WRITE_MODE, "insertOrUpdate")
-      .option(SourceProvider.COPY_WRITE_MODE, useCopy)
+      .option(SourceProvider.COPY_MODE, copyMode)
       .option(SourceProvider.COPY_WRITE_DIRTY_DATA_CHECK, "true")
       .save()
 
@@ -191,8 +191,7 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
       .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
       .option(SourceProvider.TABLE, table)
       .option(SourceProvider.WRITE_MODE, "insertOrUpdate")
-      .option(SourceProvider.COPY_WRITE_MODE, "true")
-      .option(SourceProvider.BULK_LOAD, "true")
+      .option(SourceProvider.COPY_MODE, "bulk_load")
       .option(SourceProvider.COPY_WRITE_DIRTY_DATA_CHECK, "true")
       .mode(SaveMode.Overwrite)
       .save()
@@ -209,8 +208,7 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
       .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
       .option(SourceProvider.TABLE, table)
       .option(SourceProvider.WRITE_MODE, "insertOrUpdate")
-      .option(SourceProvider.COPY_WRITE_MODE, "true")
-      .option(SourceProvider.BULK_LOAD, "true")
+      .option(SourceProvider.COPY_MODE, "bulk_load")
       .option(SourceProvider.COPY_WRITE_DIRTY_DATA_CHECK, "true")
       .mode(SaveMode.Overwrite)
       .save()
@@ -285,8 +283,8 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
       .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
       .option(SourceProvider.TABLE, table)
       .option(SourceProvider.WRITE_MODE, "insertOrUpdate")
-      .option(SourceProvider.COPY_WRITE_MODE, "true")
-      .option(SourceProvider.ENABLE_TARGET_SHARDS, "true")
+      .option(SourceProvider.COPY_MODE, "stream")
+      .option(SourceProvider.RESHUFFLE_BY_HOLO_DISTRIBUTION_KEY, "true")
       .option(SourceProvider.COPY_WRITE_DIRTY_DATA_CHECK, "true")
       .mode(SaveMode.Overwrite)
       .save()
@@ -303,9 +301,8 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
       .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
       .option(SourceProvider.TABLE, table)
       .option(SourceProvider.WRITE_MODE, "insertOrUpdate")
-      .option(SourceProvider.COPY_WRITE_MODE, "true")
-      .option(SourceProvider.BULK_LOAD, "true")
-      .option(SourceProvider.ENABLE_TARGET_SHARDS, "true")
+      .option(SourceProvider.COPY_MODE, "bulk_load")
+      .option(SourceProvider.RESHUFFLE_BY_HOLO_DISTRIBUTION_KEY, "true")
       .option(SourceProvider.COPY_WRITE_DIRTY_DATA_CHECK, "true")
       .mode(SaveMode.Overwrite)
       .save()

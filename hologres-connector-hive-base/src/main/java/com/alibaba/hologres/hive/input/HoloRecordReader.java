@@ -22,6 +22,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 
+import static com.alibaba.hologres.hive.utils.JDBCUtils.executeSql;
 import static com.alibaba.hologres.hive.utils.JDBCUtils.logErrorAndExceptionInConsole;
 
 /** HoloRecordReader. */
@@ -61,6 +62,16 @@ public class HoloRecordReader implements RecordReader<LongWritable, MapWritable>
             LOGGER.info("the bulk read query: {}", query);
 
             conn = JDBCUtils.createConnection(param).unwrap(PgConnection.class);
+            executeSql(
+                    conn, String.format("set statement_timeout = %s", param.getStatementTimeout()));
+            if (param.isEnableServerlessComputing()) {
+                executeSql(conn, "set hg_computing_resource = 'serverless';");
+                executeSql(
+                        conn,
+                        String.format(
+                                "set hg_experimental_serverless_computing_query_priority = '%d';",
+                                param.getServerlessComputingQueryPriority()));
+            }
             conn.setAutoCommit(false);
             statement =
                     conn.prepareStatement(

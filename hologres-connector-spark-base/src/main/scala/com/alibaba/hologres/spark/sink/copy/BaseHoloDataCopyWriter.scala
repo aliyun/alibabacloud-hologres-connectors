@@ -73,11 +73,11 @@ abstract class BaseHoloDataCopyWriter(
       if (copyContext.os == null) {
         val schema = record.getSchema
         copyContext.schema = schema
-        val sql = CopyUtil.buildCopyInSql(record, binary, if (hologresConfigs.wMode eq INSERT_OR_IGNORE) INSERT_OR_IGNORE else INSERT_OR_UPDATE,
-          !hologresConfigs.bulkLoad)
-        logger.info("bulkLoad {}, copy sql :{}", hologresConfigs.bulkLoad, sql)
+        val sql = CopyUtil.buildCopyInSql(record, binary, if (hologresConfigs.writeMode eq INSERT_OR_IGNORE) INSERT_OR_IGNORE else INSERT_OR_UPDATE,
+          hologresConfigs.copyMode)
+        logger.info(s"copyMode ${hologresConfigs.copyMode.name()}, copy sql :$sql")
         val in = copyContext.manager.copyIn(sql)
-        copyContext.os = if (!hologresConfigs.bulkLoad && binary) {
+        copyContext.os = if (hologresConfigs.copyMode == CopyMode.STREAM && binary) {
           new RecordBinaryOutputStream(new CopyInOutputStream(in), schema, copyContext.pgConn.unwrap(classOf[BaseConnection]),
             hologresConfigs.max_cell_buffer_size)
         } else {

@@ -175,4 +175,21 @@ public class JDBCUtils {
         System.out.println(LocalDateTime.now() + " [ERROR] " + error);
         e.printStackTrace(System.out);
     }
+
+    public static void executeSql(Connection pgConn, String sql) {
+        executeSql(pgConn, sql, false);
+    }
+
+    public static void executeSql(Connection pgConn, String sql, boolean ignoreException) {
+        try (Statement stat = pgConn.createStatement()) {
+            logger.info("execute sql: {}", sql);
+            stat.execute(sql);
+        } catch (SQLException e) {
+            if (ignoreException) {
+                return;
+            }
+            throw new RuntimeException(
+                    String.format("Failed to execute sql \"%s\". because:", sql), e);
+        }
+    }
 }

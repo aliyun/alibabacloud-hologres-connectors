@@ -8,7 +8,7 @@
     <parent>
         <groupId>com.alibaba.hologres</groupId>
         <artifactId>hologres-connector-parent</artifactId>
-        <version>1.4.2-SNAPSHOT</version>
+        <version>1.4.3-SNAPSHOT</version>
     </parent>
 
     <artifactId>hologres-connector-spark-2.x</artifactId>

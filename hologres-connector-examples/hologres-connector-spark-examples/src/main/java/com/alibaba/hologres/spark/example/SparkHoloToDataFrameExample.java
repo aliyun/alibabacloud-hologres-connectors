@@ -1,7 +1,5 @@
 package com.alibaba.hologres.spark.example;
 
-import java.math.BigDecimal;
-import java.sql.Timestamp;
 import java.util.Arrays;
 import java.util.List;
 
@@ -11,7 +9,6 @@ import org.apache.commons.cli.DefaultParser;
 import org.apache.commons.cli.Options;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
-import org.apache.spark.sql.RowFactory;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.DecimalType;
@@ -56,7 +53,7 @@ public class SparkHoloToDataFrameExample {
             Arrays.asList(
                 DataTypes.createStructField("user_id", DataTypes.LongType, true),
                 DataTypes.createStructField("user_name", DataTypes.StringType, true),
-                DataTypes.createStructField("price", new DecimalType(38, 12), true),
+                DataTypes.createStructField("price", new DecimalType(38, 2), true),
                 DataTypes.createStructField(
                     "sale_timestamp", DataTypes.TimestampType, true));
 

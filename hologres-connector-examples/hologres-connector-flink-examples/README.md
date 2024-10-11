@@ -155,7 +155,7 @@ mvn package -DskipTests
 当前example默认使用Flink 1.15版本，实际使用时connector版本请与Flink集群的版本保持一致
 
 ```
-flink run -c com.alibaba.ververica.connectors.hologres.example.FlinkRoaringBitmapAggJob target/hologres-connector-flink-examples-1.4.2-SNAPSHOT-jar-with-dependencies.jar --propsFilePath src/main/resources/setting.properties --sourceFilePath ods_app_example.csv
+flink run -c com.alibaba.ververica.connectors.hologres.example.FlinkRoaringBitmapAggJob target/hologres-connector-flink-examples-1.4.3-SNAPSHOT-jar-with-dependencies.jar --propsFilePath src/main/resources/setting.properties --sourceFilePath ods_app_example.csv
 ```
 
 需要在```src/main/resources/setting.properties```文件中替换对应的endpoint、username、password、database等参数, 并根据实际情况调整窗口大小
@@ -314,10 +314,10 @@ mvn package -DskipTests
 
 ```bash
 # 使用以下命令提交作业, 通过sqlFilePath指定sql文件绝对路径,示例repartition.sql文件内容见下方,声明了sourceDDL、sourceDql、sinkDDL三条sql
-flink run -Dexecution.runtime-mode=BATCH -c com.alibaba.ververica.connectors.hologres.example.FlinkToHoloRePartitionExample hologres-connector-flink-examples-1.4.2-SNAPSHOT-jar-with-dependencies.jar --sqlFilePath="xx/src/main/resources/repartition.sql"
+flink run -Dexecution.runtime-mode=BATCH -c com.alibaba.ververica.connectors.hologres.example.FlinkToHoloRePartitionExample hologres-connector-flink-examples-1.4.3-SNAPSHOT-jar-with-dependencies.jar --sqlFilePath="xx/src/main/resources/repartition.sql"
 
 # 或者分别指定sourceDDL,sourceDQL,sinkDDL三个参数,可能需要根据本地bash环境对换行符或者反引号等特殊字符进行转义
-flink run -Dexecution.runtime-mode=BATCH -c com.alibaba.ververica.connectors.hologres.example.FlinkToHoloRePartitionExample hologres-connector-flink-examples-1.4.2-SNAPSHOT-jar-with-dependencies.jar --sourceDDL="create temporary table source_table (c_custkey BIGINT, c_name STRING, c_address STRING, c_nationkey INTEGER, c_phone STRING, c_acctbal NUMERIC(15, 2), c_mktsegment STRING, c_comment STRING) with ( 'connector' = 'datagen', 'rows-per-second' = '10000', 'number-of-rows' = '1000000' )" --sourceDQL="select *, cast('2024-04-21' as DATE) from source_table" --sinkDDL="create table sink_table (c_custkey BIGINT, c_name STRING, c_address STRING, c_nationkey INTEGER, c_phone STRING, c_acctbal NUMERIC(15, 2), c_mktsegment STRING, c_comment STRING, \`date\` STRING) with ( 'connector' = 'hologres', 'dbname' = 'test_db', 'tablename' = 'test_sink_customer', 'username' = '', 'password' = '', 'endpoint' = '', 'jdbccopywritemode' = 'true', 'bulkload' = 'true' )"
+flink run -Dexecution.runtime-mode=BATCH -c com.alibaba.ververica.connectors.hologres.example.FlinkToHoloRePartitionExample hologres-connector-flink-examples-1.4.3-SNAPSHOT-jar-with-dependencies.jar --sourceDDL="create temporary table source_table (c_custkey BIGINT, c_name STRING, c_address STRING, c_nationkey INTEGER, c_phone STRING, c_acctbal NUMERIC(15, 2), c_mktsegment STRING, c_comment STRING) with ( 'connector' = 'datagen', 'rows-per-second' = '10000', 'number-of-rows' = '1000000' )" --sourceDQL="select *, cast('2024-04-21' as DATE) from source_table" --sinkDDL="create table sink_table (c_custkey BIGINT, c_name STRING, c_address STRING, c_nationkey INTEGER, c_phone STRING, c_acctbal NUMERIC(15, 2), c_mktsegment STRING, c_comment STRING, \`date\` STRING) with ( 'connector' = 'hologres', 'dbname' = 'test_db', 'tablename' = 'test_sink_customer', 'username' = '', 'password' = '', 'endpoint' = '', 'jdbccopywritemode' = 'true', 'bulkload' = 'true' )"
 ```
 
 #### FlinkToHoloRePartitionExample 代码核心逻辑
@@ -329,16 +329,17 @@ flink run -Dexecution.runtime-mode=BATCH -c com.alibaba.ververica.connectors.hol
 #### FlinkToHoloRePartitionExample 注意事项
 * 本demo主要应用于批量导入数据, 使用时建议使用Flink批模式提交作业,如果使用流模式,可以关闭自动checkpoint功能
 * 写入无主键表时,需要设置jdbccopywritemode和bulkload参数为true
-* 写入有主键表时,还需要设置target-shards.enabled参数为true,要求批量导入之前有主键表是空表
+* 写入有主键表时,还需要设置reshuffle-by-holo-distribution-key.enabled参数为true,要求批量导入之前有主键表是空表
 * flink结果表并发,建议与写入holo目标表的shard数一致
 
 #### 参数说明
 * sourceDDL: 源表声明, 示例中使用了datagen源表,使用时根据实际情况替换,注意运行环境中需要相关依赖
 * sourceDQL: 源表查询, 查询结果会作为sinkDDL的输入, 因此要求select的字段数量,类型与sinkDDL声明的结果表对应
 * sinkDDL: holo结果表声明, 因为需要通过Catalog获取连接信息,因此建表时必须使用CREATE TABLE方式(不能使用CREATE TEMPORARY TABLE),hologres connector会和demo代码一同打包,主要参数解释如下,其他参数的详细解释可以参考connector文档
-  * jdbccopywritemode: 使用COPY模式写入,默认fixed_copy,fixed copy是hologres1.3新增的能力，相比insert方法，fixed copy方式可以更高的吞吐（因为是流模式），更低的数据延时，更低的客户端内存消耗（因为不攒批)，但不支持回撤
-  * bulkload: 启用批量COPY导入，与jdbcCopyWriteMode参数同时设置为true时生效，批量copy相比fixed copy，写入时使用的hologres资源更小，默认情况下,仅支持写入无主键表,写入有主键表时会有表锁
-  * target-shards.enabled: bulkload写入有主键表时,默认是表锁.因此在上游数据根据shard进行了repartition的基础上,可以开启此参数.写入有主键表的锁粒度会从表级别调整为shard级别,相比fixedcopy写入有主键表，可以节省holo实例2/3的负载
+  * jdbcCopyWriteMode: 
+    * 取值STREAM, 使用fixed copy写入, fixed copy是hologres1.3新增的能力，相比insert方法，fixed copy方式可以更高的吞吐（因为是流模式），更低的数据延时，更低的客户端内存消耗（因为不攒批)，但不支持回撤
+    * 取值BULK_LOAD: 启用批量COPY导入，批量copy相比fixed copy，写入时使用的hologres资源更小，默认情况下,仅支持写入无主键表,写入有主键表时会有表锁
+  * reshuffle-by-holo-distribution-key.enabled: bulkload写入有主键表时,默认是表锁.因此在上游数据根据shard进行了repartition的基础上,可以开启此参数.写入有主键表的锁粒度会从表级别调整为shard级别,相比fixedcopy写入有主键表，可以节省holo实例2/3的负载
 
 ```sql
 --sourceDDL
@@ -382,9 +383,8 @@ with (
     ,'username' = ''
     ,'password' = ''
     ,'endpoint' = ''
-    ,'jdbccopywritemode' = 'true'
-    ,'bulkload' = 'true'
-    ,'target-shards.enabled'='true'
+    ,'jdbccopywritemode' = 'BULK_LOAD'
+    ,'reshuffle-by-holo-distribution-key.enabled'='true'
 );
 
 ```

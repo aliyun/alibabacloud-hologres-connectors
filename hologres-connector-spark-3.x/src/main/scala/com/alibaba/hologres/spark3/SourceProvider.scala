@@ -24,7 +24,6 @@ class SourceProvider extends DataSourceRegister
   }
 
   override def getTable(schema: StructType, transforms: Array[Transform], properties: util.Map[String, String]): Table = {
-    System.out.println()
     val opts = properties.asScala.toMap
     val hologresConfigs = new HologresConfigs(opts)
     SparkHoloUtil.checkSparkTableSchema(hologresConfigs, schema)

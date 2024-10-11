@@ -63,18 +63,40 @@ class CopyContext {
       }
       try {
         val stmt = conn.createStatement()
-        stmt.execute("set statement_timeout = '8h'")
+        stmt.execute(s"set statement_timeout = ${configs.statementTimeout}")
         stmt.close()
       } catch {
         case e: SQLException =>
-          logger.error("set statement_timeout failed.")
+          logger.error(s"set statement_timeout to ${configs.statementTimeout} failed.")
           throw new RuntimeException(e)
       }
-      if (configs.enable_target_shards && targetShards != "") {
+      // server less computing
+      if (configs.enableServerlessComputing) {
+        try {
+          val stmt = conn.createStatement()
+          stmt.execute("set hg_computing_resource = 'serverless'")
+          stmt.close()
+        } catch {
+          case e: SQLException =>
+            logger.error("set hg_computing_resource to serverless failed.")
+            throw new RuntimeException(e)
+        }
+        try {
+          val stmt = conn.createStatement()
+          stmt.execute(s"SET hg_experimental_serverless_computing_query_priority = ${configs.serverlessComputingQueryPriority}")
+          stmt.close()
+        } catch {
+          case e: SQLException =>
+            logger.error(s"set hg_experimental_serverless_computing_query_priority to ${configs.serverlessComputingQueryPriority} failed.")
+            throw new RuntimeException(e)
+        }
+      }
+      if (configs.reshuffleByHoloDistributionKey && targetShards != "") {
         try {
           val stmt = conn.createStatement()
           stmt.execute(s"SET hg_experimental_target_shard_list = '$targetShards'")
           stmt.close()
+          logger.info("set hg_experimental_target_shard_list {} success", targetShards)
         } catch {
           case e: SQLException =>
             logger.error("set hg_experimental_target_shard_list failed.")

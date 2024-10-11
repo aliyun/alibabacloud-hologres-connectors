@@ -1,6 +1,7 @@
 package com.alibaba.hologres.spark.config
 
 import com.alibaba.hologres.client.HoloConfig
+import com.alibaba.hologres.client.copy.CopyMode
 import com.alibaba.hologres.client.model.{WriteFailStrategy, WriteMode}
 import com.alibaba.hologres.spark.utils.JDBCUtil
 import com.alibaba.hologres.spark.utils.JDBCUtil._
@@ -26,15 +27,15 @@ class HologresConfigs(sourceOptions: Map[String, String]) extends Serializable {
   val table: String = sourceOptions.getOrElse("table",
     throw new IllegalArgumentException("Missing necessary parameter 'table'."))
 
-  val writeMode: String = sourceOptions.getOrElse("write_mode", "insertOrIgnore").toLowerCase
-  val wMode: WriteMode = writeMode match {
+  private val writeModeStr: String = sourceOptions.getOrElse("write_mode", "insertOrIgnore").toLowerCase
+  val writeMode: WriteMode = writeModeStr match {
     case "insertorignore" | "insert_or_ignore" => WriteMode.INSERT_OR_IGNORE
     case "insertorreplace" | "insert_or_replace" => WriteMode.INSERT_OR_REPLACE
     case "insertorupdate" | "insert_or_update" => WriteMode.INSERT_OR_UPDATE
     case _ =>
-      throw new IllegalArgumentException("Could not recognize writeMode " + writeMode)
+      throw new IllegalArgumentException("Could not recognize writeMode " + writeModeStr)
   }
-  holoConfig.setWriteMode(wMode)
+  holoConfig.setWriteMode(writeMode)
 
   val writeFailStrategy: String = sourceOptions.getOrElse("write_fail_strategy", "tryOneByOne").toLowerCase
   val wFailStrategy: WriteFailStrategy = writeFailStrategy match {
@@ -44,6 +45,9 @@ class HologresConfigs(sourceOptions: Map[String, String]) extends Serializable {
   }
   holoConfig.setWriteFailStrategy(wFailStrategy)
 
+  val enableServerlessComputing: Boolean = sourceOptions.getOrElse("enable_serverless_computing", "false").toBoolean
+  val serverlessComputingQueryPriority: Int = sourceOptions.getOrElse("serverless_computing_query_priority", "3").toInt
+  val statementTimeout: Int = sourceOptions.getOrElse("statement_timeout", "28800000").toInt
   sourceOptions.get("dynamic_partition").map(v => holoConfig.setDynamicPartition(v.toBoolean))
   sourceOptions.get("write_batch_size").map(v => holoConfig.setWriteBatchSize(v.toInt))
   sourceOptions.get("write_batch_byte_size").map(v => holoConfig.setWriteBatchByteSize(v.toLong))
@@ -59,18 +63,24 @@ class HologresConfigs(sourceOptions: Map[String, String]) extends Serializable {
   val scan_timeout_seconds: Int = sourceOptions.getOrElse("scan_timeout_seconds", "60").toInt
   val scan_parallelism: Int = sourceOptions.getOrElse("scan_parallelism", "10").toInt
 
-  var copy_write_mode: Boolean = sourceOptions.getOrElse("copy_write_mode", "true").toBoolean
+  // 调整之前两个boolean类型的参数copy_write_mode和bulk_load为新的enum参数
+  private val copyModeStr: String = sourceOptions.getOrElse("copy_mode", "stream").toLowerCase
+  var copyMode: CopyMode = copyModeStr match {
+    case "stream" => CopyMode.STREAM
+    case "bulk_load" => CopyMode.BULK_LOAD
+    case "bulk_load_on_conflict" => CopyMode.BULK_LOAD_ON_CONFLICT
+    case "disable" => null
+    case _ =>
+      throw new IllegalArgumentException("Could not recognize copy_write_mode " + copyModeStr)
+  }
   val copy_write_format: String = sourceOptions.getOrElse("copy_write_format", "binary")
   val copy_write_dirty_data_check: Boolean = sourceOptions.getOrElse("copy_write_dirty_data_check", "false").toBoolean
   var copy_write_direct_connect: Boolean = sourceOptions.getOrElse("copy_write_direct_connect", "true").toBoolean
   val max_cell_buffer_size: Int = sourceOptions.getOrElse("max_cell_buffer_size", "20971520").toInt
-  val enable_target_shards: Boolean = sourceOptions.getOrElse("enable_target_shards", "false").toBoolean
+  val reshuffleByHoloDistributionKey: Boolean = sourceOptions.getOrElse("reshuffle_by_holo_distribution_key", "false").toBoolean
 
   // overwrite来自于用户对SaveMode参数的设置，写入开始会创建临时表并写入，写入成功时会清理原表的数据。
   var tempTableForOverwrite: String = _
-
-  // 在写入的目标表没有主键时，我们使用bulkLoad写入以提升性能。
-  var bulkLoad: Boolean = sourceOptions.getOrElse("bulk_load", "false").toBoolean
 
   holoConfig.setInputNumberAsEpochMsForDatetimeColumn(true)
   var sparkAppName: String = SparkContext.getOrCreate().appName

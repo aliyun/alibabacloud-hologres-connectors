@@ -2,6 +2,7 @@ package com.alibaba.hologres.spark3.sink
 
 import com.alibaba.hologres.client.Command.getShardCount
 import com.alibaba.hologres.client.HoloClient
+import com.alibaba.hologres.client.copy.CopyMode
 import com.alibaba.hologres.client.model.{HoloVersion, TableName, TableSchema}
 import com.alibaba.hologres.spark.config.HologresConfigs
 import com.alibaba.hologres.spark.utils.JDBCUtil
@@ -93,15 +94,15 @@ class HoloBatchWriter(
 
       // 用户设置bulkLoad或者发现表无主键且实例版本支持无主键并发COPY，都走bulkLoad
       val supportBulkLoad = holoSchema.getPrimaryKeys.length == 0 && holoVersion.compareTo(new HoloVersion(2, 1, 0)) > 0
-      if (hologresConfigs.bulkLoad || supportBulkLoad) {
-        hologresConfigs.bulkLoad = true
+      if (hologresConfigs.copyMode == CopyMode.BULK_LOAD || supportBulkLoad) {
+        hologresConfigs.copyMode = CopyMode.BULK_LOAD
         logger.info("bulk load mode, have primary keys: {}, holoVersion {}", holoSchema.getPrimaryKeys.length == 0, holoVersion)
       }
 
       val supportCopy = holoVersion.compareTo(new HoloVersion(1, 3, 24)) > 0
       if (!supportCopy) {
         logger.warn("The hologres instance version is {}, but only instances greater than 1.3.24 support copy write mode", holoVersion)
-        hologresConfigs.copy_write_mode = false
+        hologresConfigs.copyMode = null
       } else {
         // 尝试直连，无法直连则各个tasks内的copy writer不需要进行尝试
         hologresConfigs.copy_write_direct_connect = JDBCUtil.couldDirectConnect(hologresConfigs)
@@ -136,8 +137,8 @@ case class HoloWriterFactory(
   override def createWriter(
                              partitionId: Int,
                              taskId: Long): DataWriter[InternalRow] = {
-    if (hologresConfigs.copy_write_mode) {
-      if (hologresConfigs.enable_target_shards) {
+    if (hologresConfigs.copyMode != null) {
+      if (hologresConfigs.reshuffleByHoloDistributionKey) {
         new HoloDataCopyWriter(hologresConfigs, sparkSchema, holoSchema, getTargetShardList(partitionId))
       } else {
         new HoloDataCopyWriter(hologresConfigs, sparkSchema, holoSchema)

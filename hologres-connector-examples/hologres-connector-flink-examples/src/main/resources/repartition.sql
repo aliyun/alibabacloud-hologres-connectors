@@ -39,7 +39,6 @@ with (
     ,'username' = ''
     ,'password' = ''
     ,'endpoint' = ''
-    ,'jdbccopywritemode' = 'true'
-    ,'bulkload' = 'true'
-    ,'target-shards.enabled'='true'
+    ,'jdbccopywritemode' = 'BULK_LOAD'
+    ,'reshuffle-by-holo-distribution-key.enabled'='true'
 );

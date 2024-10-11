@@ -40,6 +40,37 @@ class BaseHoloPartitionReader(hologresConfigs: HologresConfigs,
 
     conn = JDBCUtil.createConnection(hologresConfigs).unwrap(classOf[PgConnection])
     conn.setAutoCommit(false)
+    try {
+      val stmt = conn.createStatement()
+      stmt.execute(s"set statement_timeout = ${hologresConfigs.statementTimeout}")
+      stmt.close()
+    } catch {
+      case e: SQLException =>
+        logger.error(s"set statement_timeout to ${hologresConfigs.statementTimeout} failed.")
+        throw new RuntimeException(e)
+    }
+    // server less computing
+    if (hologresConfigs.enableServerlessComputing) {
+      try {
+        val stmt = conn.createStatement()
+        stmt.execute("set hg_computing_resource = 'serverless'")
+        stmt.close()
+      } catch {
+        case e: SQLException =>
+          logger.error("set hg_computing_resource to serverless failed.")
+          throw new RuntimeException(e)
+      }
+      try {
+        val stmt = conn.createStatement()
+        stmt.execute(s"SET hg_experimental_serverless_computing_query_priority = ${hologresConfigs.serverlessComputingQueryPriority}")
+        stmt.close()
+      } catch {
+        case e: SQLException =>
+          logger.error(s"set hg_experimental_serverless_computing_query_priority to ${hologresConfigs.serverlessComputingQueryPriority} failed.")
+          throw new RuntimeException(e)
+      }
+    }
+
     statement = conn.prepareStatement(query, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)
     statement.setFetchSize(hologresConfigs.scan_batch_size)
     statement.setQueryTimeout(hologresConfigs.scan_timeout_seconds)

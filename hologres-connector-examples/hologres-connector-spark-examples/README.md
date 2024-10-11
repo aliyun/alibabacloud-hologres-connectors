@@ -88,9 +88,10 @@ CREATE TABLE test_table_batch_20240527 PARTITION OF test_table_batch
 * 写入无主键表时,需要设置copy_write_mode和bulk_load参数为true
 * 写入有主键表时,还需要设置enable_target_shards参数为true,要求批量导入之前有主键表是空表
 * 参数说明:
-  * copy_write_mode: 使用COPY模式写入,默认fixed_copy,fixed copy是hologres1.3新增的能力，相比insert方法，fixed copy方式可以更高的吞吐（因为是流模式），更低的数据延时，更低的客户端内存消耗（因为不攒批)，但不支持回撤
-  * bulk_load: 启用批量COPY导入，与jdbcCopyWriteMode参数同时设置为true时生效，批量copy相比fixed copy，写入时使用的hologres资源更小，默认情况下,仅支持写入无主键表,写入有主键表时会有表锁
-  * enable_target_shards: bulkload写入有主键表时,默认是表锁.因此在上游数据根据shard进行了repartition的基础上,可以开启此参数.写入有主键表的锁粒度会从表级别调整为shard级别,相比fixedcopy写入有主键表，可以节省holo实例2/3的负载
+  * copy_mode: 
+    * 取值stream,表示使用fixed copy写入.fixed copy是hologres1.3新增的能力，相比insert方法，fixed copy方式可以更高的吞吐（因为是流模式），更低的数据延时，更低的客户端内存消耗（因为不攒批)，但不支持回撤
+    * 取值bulk_load: 表示使用批量COPY导入，批量copy相比fixed copy，写入时使用的hologres资源更小，默认情况下,仅支持写入无主键表,写入有主键表时会有表锁
+  * reshuffle_by_holo_distribution_key: bulkload写入有主键表时,默认是表锁.因此在上游数据根据shard进行了repartition的基础上,可以开启此参数.写入有主键表的锁粒度会从表级别调整为shard级别,相比fixedcopy写入有主键表，可以节省holo实例2/3的负载
 
 
 #### 提交Spark作业

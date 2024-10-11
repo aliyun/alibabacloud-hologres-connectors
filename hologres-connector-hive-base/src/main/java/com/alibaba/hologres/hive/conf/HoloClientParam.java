@@ -16,6 +16,9 @@ public class HoloClientParam {
     private String url;
     private String username;
     private String password;
+    private final boolean enableServerlessComputing;
+    private final int serverlessComputingQueryPriority;
+    private final int statementTimeout;
 
     private final boolean copyWriteMode;
     private final String copyWriteFormat;
@@ -80,6 +83,16 @@ public class HoloClientParam {
                         conf.get(HoloStorageConfig.JDBC_URL.getPropertyName()));
         this.username = conf.get(HoloStorageConfig.USERNAME.getPropertyName());
         this.password = conf.get(HoloStorageConfig.PASSWORD.getPropertyName());
+
+        // serverless computing options
+        this.enableServerlessComputing =
+                conf.getBoolean(
+                        HoloStorageConfig.ENABLE_SERVERLESS_COMPUTING.getPropertyName(), false);
+        this.serverlessComputingQueryPriority =
+                conf.getInt(
+                        HoloStorageConfig.SERVERLESS_COMPUTING_QUERY_PRIORITY.getPropertyName(), 3);
+        this.statementTimeout =
+                conf.getInt(HoloStorageConfig.STATEMENT_TIMEOUT.getPropertyName(), 28800000);
 
         // copy write options
         this.copyWriteMode =
@@ -229,6 +242,18 @@ public class HoloClientParam {
 
     public String getPassword() {
         return password;
+    }
+
+    public boolean isEnableServerlessComputing() {
+        return enableServerlessComputing;
+    }
+
+    public int getServerlessComputingQueryPriority() {
+        return serverlessComputingQueryPriority;
+    }
+
+    public int getStatementTimeout() {
+        return statementTimeout;
     }
 
     public WriteMode getWriteMode() {

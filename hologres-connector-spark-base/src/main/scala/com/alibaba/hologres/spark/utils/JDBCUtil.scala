@@ -111,8 +111,15 @@ object JDBCUtil {
       case e: ClassNotFoundException =>
         throw new RuntimeException(e)
     }
-    try DriverManager.getConnection(hologresConfigs.jdbcUrl, hologresConfigs.username, hologresConfigs.password)
-    catch {
+    try {
+      val info: Properties = new Properties
+      PGProperty.USER.set(info, hologresConfigs.username)
+      PGProperty.PASSWORD.set(info, hologresConfigs.password)
+      PGProperty.APPLICATION_NAME.set(info, "spark_connector_util")
+      val conn = DriverManager.getConnection(hologresConfigs.jdbcUrl, info)
+      logger.info("create connection to holo with url {}", hologresConfigs.jdbcUrl)
+      conn
+    } catch {
       case e: SQLException =>
         throw new RuntimeException(String.format("Failed getting connection to %s because %s", hologresConfigs.jdbcUrl, ExceptionUtils.getStackTrace(e)))
     }

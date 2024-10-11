@@ -21,11 +21,10 @@ class BaseSourceProvider() {
   val DYNAMIC_PARTITION = "dynamic_partition"
   val FIXED_CONNECTION_MODE = "fixed_connection_mode"
 
-  val COPY_WRITE_MODE = "copy_write_mode"
+  val COPY_MODE = "copy_mode"
   val COPY_WRITE_FORMAT = "copy_write_format"
   val COPY_WRITE_DIRTY_DATA_CHECK = "copy_write_dirty_data_check"
   val COPY_WRITE_DIRECT_CONNECT = "copy_write_direct_connect"
-  val BULK_LOAD = "bulk_load"
   val MAX_CELL_BUFFER_SIZE = "max_cell_buffer_size"
-  val ENABLE_TARGET_SHARDS = "enable_target_shards"
+  val RESHUFFLE_BY_HOLO_DISTRIBUTION_KEY = "reshuffle_by_holo_distribution_key"
 }

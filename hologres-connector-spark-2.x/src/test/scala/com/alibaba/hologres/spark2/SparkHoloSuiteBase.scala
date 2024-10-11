@@ -20,9 +20,9 @@ abstract class SparkHoloSuiteBase extends QueryTest with SharedSparkSession {
 
     testUtils = new SparkHoloTestUtils()
     // Modify these parameters if don't skip the test.
-    testUtils.username = prop.getProperty("USERNAME")
-    testUtils.password = prop.getProperty("PASSWORD")
-    testUtils.jdbcUrl = prop.getProperty("JDBCURL")
+    testUtils.username = prop.getProperty("USERNAME", System.getenv("HOLO_ACCESS_ID"))
+    testUtils.password = prop.getProperty("PASSWORD", System.getenv("HOLO_ACCESS_KEY"))
+    testUtils.jdbcUrl = prop.getProperty("JDBCURL", String.format("jdbc:postgresql://%s/%s", System.getenv("HOLO_ENDPOINT"), System.getenv("HOLO_TEST_DB")))
     testUtils.init()
   }
 
