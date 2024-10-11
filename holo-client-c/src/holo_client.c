@@ -4,6 +4,8 @@
 #include "logger_private.h"
 #include "unistd.h"
 
+#define INT32_STRING_MAX_LENGTH 12
+
 int check_mutation(HoloMutation mutation);
 int check_partition(HoloClient* client, HoloMutation mutation);
 int check_get(HoloGet get);
@@ -95,6 +97,7 @@ int holo_client_close_client(HoloClient* client) {
 }
 
 HoloTableSchema* holo_client_get_tableschema_by_tablename(HoloClient* client, HoloTableName name, bool withCache, char** errMsgAddr) {
+    LOG_DEBUG("get table schema by table name:%s", name.fullName);
     Meta meta = NULL;
     HoloTableSchema* schema = NULL;
     if(withCache) {
@@ -292,23 +295,38 @@ int check_mutation(HoloMutation mutation) {
     return HOLO_CLIENT_RET_OK;
 }
 
+static int get_int_partition_value_string(char* intValueStr, const char* intPartitionValue) {
+    char* copyValue = MALLOC(4, char);
+    memcpy(copyValue, intPartitionValue, 4);
+    endian_swap(copyValue, 4);
+    snprintf(intValueStr, INT32_STRING_MAX_LENGTH, "%d", *(int32_t*)copyValue);
+    endian_swap(copyValue, 4);
+    FREE(copyValue);
+    return HOLO_CLIENT_RET_OK;
+}
+
 void* find_partition_table_name(PGconn* conn, void* arg) {
     HoloRecord* record = arg;
     const char* findPartitionSql = "with inh as (SELECT i.inhrelid, i.inhparent FROM pg_catalog.pg_class c LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace LEFT JOIN pg_catalog.pg_inherits i on c.oid=i.inhparent where n.nspname = $1 and c.relname= $2) select n.nspname as schema_name, c.relname as table_name, inh.inhrelid, inh.inhparent, p.partstrat, pg_get_expr(c.relpartbound, c.oid, true) as part_expr, p.partdefid, p.partnatts, p.partattrs from inh join pg_catalog.pg_class c on inh.inhrelid = c.oid join pg_catalog.pg_namespace n on c.relnamespace = n.oid join pg_partitioned_table p on p.partrelid = inh.inhparent where pg_get_expr(c.relpartbound, c.oid, true) = $3 limit 1";
     const char* schemaName = record->schema->tableName->schemaName;
     const char* tableName = record->schema->tableName->tableName;
-    int length = strlen(record->values[record->schema->partitionColumn]) + 19;
-    char* partitionInfo = MALLOC(length, char);
-    const char* params[3] = {schemaName, tableName, partitionInfo};
+    char* partitionInfo = NULL;
     PGresult* res = NULL;
     HoloTableName* name = NULL;
-    Oid type = record->schema->columns[record->schema->partitionColumn].type;
-    if (type == HOLO_TYPE_TEXT || type == HOLO_TYPE_VARCHAR) {
-        //text or varchar
-        snprintf(partitionInfo, length, "FOR VALUES IN ('%s')", record->values[record->schema->partitionColumn]);
+    char intValStr[INT32_STRING_MAX_LENGTH];
+    if (record->valueFormats[record->schema->partitionColumn] == 1) {
+        //int
+        get_int_partition_value_string(intValStr, record->values[record->schema->partitionColumn]);
+        int length = strlen(intValStr) + 17;
+        partitionInfo = MALLOC(length, char);
+        snprintf(partitionInfo, length, "FOR VALUES IN (%s)", intValStr);
     } else {
-        snprintf(partitionInfo, length, "FOR VALUES IN (%s)", record->values[record->schema->partitionColumn]);
+        //text or varchar
+        int length = strlen(record->values[record->schema->partitionColumn]) + 19;
+        partitionInfo = MALLOC(length, char);
+        snprintf(partitionInfo, length, "FOR VALUES IN ('%s')", record->values[record->schema->partitionColumn]);
     }
+    const char* params[3] = {schemaName, tableName, partitionInfo};
     res = PQexecParams(conn, findPartitionSql, 3, NULL, params, NULL, NULL, 0);
     if (PQntuples(res) == 0) {
         PQclear(res);
@@ -328,13 +346,13 @@ void* retry_create_partition_child_table(PGconn* conn, void* arg) {
     int retry = 0;
     HoloRecord* record = arg;
     HoloTableSchema* parentSchema = record->schema;
-    char intVal[12];
-    char* partitionValue = record->values[record->schema->partitionColumn];
+    char* partitionValue = NULL;
+    char intValStr[INT32_STRING_MAX_LENGTH];
     if (record->valueFormats[parentSchema->partitionColumn] == 1) {
-        endian_swap(partitionValue, 4);
-        snprintf(intVal, 12, "%d", *(int32_t*)partitionValue);
-        endian_swap(partitionValue, 4);
-        partitionValue = intVal;
+        get_int_partition_value_string(intValStr, record->values[record->schema->partitionColumn]);
+        partitionValue = intValStr;
+    } else {
+        partitionValue = record->values[record->schema->partitionColumn];
     }
     int maxTableNameLength = strlen(parentSchema->tableName->tableName) + strlen(partitionValue) + 22;
     int maxSqlLength = 2 * strlen(parentSchema->tableName->schemaName) + strlen(parentSchema->tableName->tableName) + maxTableNameLength + strlen(partitionValue) + 57;
@@ -411,15 +429,14 @@ int check_partition(HoloClient* client, HoloMutation mutation) {
     HoloTableName* name = NULL;
     Sql sql = NULL;
     char* partition = NULL;
-    char intVal[12];
+    char intValStr[INT32_STRING_MAX_LENGTH];
     if (mutation->record->schema->partitionColumn == -1) return HOLO_CLIENT_RET_OK;
     parentSchema = mutation->record->schema;
-    partitionValue = mutation->record->values[parentSchema->partitionColumn];
     if (mutation->record->valueFormats[parentSchema->partitionColumn] == 1) {
-        endian_swap(partitionValue, 4);
-        snprintf(intVal, 12, "%d", *(int32_t*)partitionValue);
-        endian_swap(partitionValue, 4);
-        partitionValue = intVal;
+        get_int_partition_value_string(intValStr, mutation->record->values[parentSchema->partitionColumn]);
+        partitionValue = intValStr;
+    } else {
+        partitionValue = mutation->record->values[parentSchema->partitionColumn];
     }
     partitionSchema = meta_cache_find_partition(client->workerPool->metaCache, parentSchema, partitionValue);
     if (partitionSchema != NULL) {

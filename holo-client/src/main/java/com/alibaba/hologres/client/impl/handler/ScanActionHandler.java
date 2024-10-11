@@ -25,6 +25,7 @@ import org.slf4j.LoggerFactory;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.Arrays;
 import java.util.BitSet;
 import java.util.HashMap;
 import java.util.Map;
@@ -109,7 +110,20 @@ public class ScanActionHandler extends ActionHandler<ScanAction> {
 					break;
 				case CLUSTERING_KEY:
 					if (schema.getClusteringKey() != null && schema.getClusteringKey().length > 0) {
-						sortKeyNames = schema.getClusteringKey();
+						sortKeyNames = Arrays.stream(schema.getClusteringKey())
+								// clustering key可能会有":asc"或者":desc"后缀,这里只需要原始字段名
+								.map(s -> {
+									if (s.endsWith(":asc")) {
+										return s.substring(0, s.length() - 4);
+									} else if (s.endsWith(":desc")) {
+										return s.substring(0, s.length() - 5);
+									} else {
+										return s;
+									}
+								})
+								// 如果字段名被引号引起来就去掉,防止下方拼sql的时候重复加
+								.map(s -> s.replaceAll("^\"|\"$", ""))
+								.toArray(String[]::new);
 					}
 					break;
 				case NONE:
@@ -119,7 +133,7 @@ public class ScanActionHandler extends ActionHandler<ScanAction> {
 			if (sortKeyNames != null && sortKeyNames.length > 0) {
 				sb.append(" order by ");
 				first = true;
-				for (String name : schema.getPrimaryKeys()) {
+				for (String name : sortKeyNames) {
 					if (!first) {
 						sb.append(",");
 					}

@@ -180,18 +180,29 @@ public class HoloClientFixedFeTest extends HoloClientTestBase {
 		}
 
 		String url = properties.getProperty("url");
+		// url已经包含"options=", 保留原来的options
+		String originOptions = "";
+		String optionsKey = "options=";
+		if (url.contains(optionsKey)) {
+			int optionsStartIndex = url.indexOf(optionsKey);
+			optionsStartIndex += optionsKey.length();
+			int optionsEndIndex = url.indexOf("&", optionsStartIndex);
+			if (optionsEndIndex == -1) {
+				optionsEndIndex = url.length(); // 如果没有 & 则到字符串末尾
+			}
+			originOptions = url.substring(optionsStartIndex, optionsEndIndex);
+		}
 		/*
 			期望url
 			fe连接： jdbc:postgresql://ip:port/db?options=-c statement_timeout=123456 -c idle_in_transaction_session_timeout=654321
 			fixed fe连接：jdbc:postgresql://ip:port/db?options=type=fixed%20-c statement_timeout=123456 -c idle_in_transaction_session_timeout=654321
 		*/
 		url += (url.contains("?") ? "&" : "?")
-				+ "options=-c statement_timeout=123456 -c idle_in_transaction_session_timeout=654321";
+				+ "options=" + originOptions + " -c statement_timeout=123456 -c idle_in_transaction_session_timeout=654321";
 		HoloConfig config = new HoloConfig();
 		config.setJdbcUrl(url);
 		config.setUsername(properties.getProperty("user"));
 		config.setPassword(properties.getProperty("password"));
-		config.setRetryCount(1);
 		config.setUseFixedFe(true);
 
 		try (Connection conn = buildConnection()) {

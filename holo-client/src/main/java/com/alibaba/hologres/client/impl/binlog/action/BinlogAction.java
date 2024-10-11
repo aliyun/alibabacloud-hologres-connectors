@@ -26,6 +26,11 @@ public class BinlogAction extends AbstractAction<Void> {
 	//Reader通过这个queue把flush请求发过去，worker搞定了以后通过future通知reader
 	final Queue<Tuple<CompletableFuture<Void>, Long>> commitJob;
 
+	// hologres 2.1版本起，可以不创建slot，仅使用表名消费。同时也不需要commit
+	public BinlogAction(String tableName, int shardId, long lsn, String timestamp, BinlogRecordCollector collector, TableSchemaSupplier supplier) {
+		this(tableName, null, shardId, lsn, timestamp, collector, supplier, null);
+	}
+
 	public BinlogAction(String tableName, String slotName, int shardId, long lsn, String timestamp, BinlogRecordCollector collector, TableSchemaSupplier supplier, Queue<Tuple<CompletableFuture<Void>, Long>> commitJob) {
 		this.tableName = tableName;
 		this.slotName = slotName;

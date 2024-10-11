@@ -14,6 +14,7 @@ import org.testng.annotations.Test;
 import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.Date;
+import java.sql.Time;
 import java.sql.Timestamp;
 
 import static com.alibaba.hologres.client.utils.DataTypeTestUtil.FIXED_PLAN_TYPE_DATA;
@@ -1850,6 +1851,8 @@ public class HoloClientCheckAndPutTest extends HoloClientTestBase {
 				return new Object[]{Timestamp.valueOf("2024-12-12 12:12:12"), Timestamp.valueOf("2024-12-12 12:12:13"), Timestamp.valueOf("2024-12-12 12:12:14")};
 			case "date":
 				return new Object[]{Date.valueOf("1900-01-02"), Date.valueOf("1900-01-03"), Date.valueOf("1900-01-04")};
+			case "time":
+				return new Object[]{Time.valueOf("12:12:12"), Time.valueOf("12:12:13"), Time.valueOf("12:12:14")};
 			case "json":
 			case "jsonb":
 				return new Object[]{"{\"a\":\"" + -1 + "\"}", "{\"a\":\"" + 0 + "\"}", "{\"a\":\"" + 1 + "\"}"};
@@ -1895,7 +1898,10 @@ public class HoloClientCheckAndPutTest extends HoloClientTestBase {
 		if (typeName.equals("roaringbitmap") || typeName.equals("bytea") || typeName.equals("json") || typeName.equals("jsonb") || typeName.startsWith("_")) {
 			return;
 		}
-
+		// todo: remove it when instance support time do checkandput
+		if (typeName.equals("time") || typeName.equals("timetz")) {
+			return;
+		}
 		config.setAppName("testGreaterOrEqualDataTypes001");
 		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
 			String tableName = "holo_client_check_and_put_greater_or_equal_type_" + typeName + "_001";
@@ -1991,6 +1997,10 @@ public class HoloClientCheckAndPutTest extends HoloClientTestBase {
 		if (typeName.equals("roaringbitmap") || typeName.equals("bytea") || typeName.equals("json") || typeName.equals("jsonb") || typeName.startsWith("_")) {
 			return;
 		}
+		// todo: remove it when instance support time do checkandput
+		if (typeName.equals("time") || typeName.equals("timetz")) {
+            return;
+        }
 		config.setAppName("testGreaterOrEqualDataTypes002");
 		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
 			String tableName = "holo_client_check_and_put_greater_or_equal_type_" + typeName + "_002";

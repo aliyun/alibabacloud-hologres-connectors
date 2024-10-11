@@ -13,6 +13,7 @@ import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.model.WriteMode;
 import com.alibaba.hologres.client.utils.Metrics;
 import org.testng.Assert;
+import org.testng.annotations.Ignore;
 import org.testng.annotations.Test;
 
 import java.lang.reflect.Field;
@@ -20,6 +21,15 @@ import java.lang.reflect.Method;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.util.Random;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+
 
 /**
  * UT for ExecutionPool.
@@ -572,5 +582,88 @@ public class ExecutionPoolTest extends HoloClientTestBase {
 		synchronized (this) {
 			this.wait(5000L);
 		}
+	}
+
+	/**
+	 * ExecutionPool
+	 * Method: put(Put put).
+	 * 复用pool多线程测试，主要用于验证是否存在可能的死锁.
+	 * 测试时间比较久，默认不跑.
+	 */
+	@Ignore
+	@Test
+	public void testExecutionPool007() throws Exception {
+		if (properties == null) {
+			return;
+		}
+		long start = System.currentTimeMillis();
+		try (Connection conn = buildConnection()) {
+			for (int i = 0; i < 100; i++) {
+				String tableName = "holO_client_execution_pool_007_" + i;
+				String dropSql = "drop table if exists " + tableName;
+				String createSql = "create table " + tableName + "(id int not null, name text, primary key(id));";
+				execute(conn, new String[]{dropSql, createSql});
+			}
+		}
+		for (int c = 0; c < 100; c++) {
+			HoloConfig config = buildConfig();
+			config.setWriteBatchSize(256);
+			config.setWriteThreadSize(1);
+			config.setWriteMaxIntervalMs(3000);
+
+			try (ExecutionPool pool = ExecutionPool.buildOrGet("testExecutionPool007", config, false)) {
+				AtomicBoolean running = new AtomicBoolean(true);
+				AtomicReference<Exception> failed = new AtomicReference(null);
+				ExecutorService es = new ThreadPoolExecutor(100, 100, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(2), r -> {
+					Thread t = new Thread(r);
+					return t;
+				}, new ThreadPoolExecutor.AbortPolicy());
+				AtomicInteger id = new AtomicInteger(0);
+				Runnable insert = () -> {
+					HoloConfig config1 = buildConfig();
+					config1.setWriteThreadSize(new Random().nextInt(10) + 1);
+					String tableName = "holO_client_execution_pool_007_" + id.getAndIncrement();
+					try (HoloClient client = new HoloClient(config1)) {
+						ExecutionPool pool0 = ExecutionPool.buildOrGet("testExecutionPool007", config1, false);
+						client.setPool(pool0);
+						TableSchema schema = client.getTableSchema(tableName, true);
+						Thread.sleep(100 * new Random().nextInt(10));
+						for (int i = 0; i < 1000; i++) {
+							Put put = new Put(schema);
+							put.setObject("id", i);
+							put.setObject("name", "aaa");
+							client.put(put);
+						}
+						client.flush();
+					} catch (Exception e) {
+						failed.set(e);
+					}
+				};
+
+				for (int i = 0; i < 100; i++) {
+					es.execute(insert);
+				}
+				running.set(false);
+
+				es.shutdown();
+				while (!es.awaitTermination(5000L, TimeUnit.MILLISECONDS)) {
+
+				}
+
+				if (failed.get() != null) {
+					Assert.fail("fail", failed.get());
+				}
+
+			}
+		}
+		try (Connection conn = buildConnection()) {
+			for (int i = 0; i < 100; i++) {
+				String tableName = "holO_client_execution_pool_007_" + i;
+				String dropSql = "drop table if exists " + tableName;
+				execute(conn, new String[]{dropSql});
+			}
+		}
+		long end = System.currentTimeMillis();
+		LOG.info("run test 100 times use {}s", (end - start) / 1000);
 	}
 }

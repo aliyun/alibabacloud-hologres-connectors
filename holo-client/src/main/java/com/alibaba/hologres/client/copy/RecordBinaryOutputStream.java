@@ -19,6 +19,7 @@ import java.sql.Array;
 import java.sql.Date;
 import java.sql.SQLException;
 import java.sql.Types;
+import java.time.LocalTime;
 
 /**
  * Record转pg binary流.
@@ -190,6 +191,29 @@ public class RecordBinaryOutputStream extends RecordOutputStream {
 			case Types.TIMESTAMP:
 				writeInt(8);
 				writeLong(TimestampUtil.timestampToPgEpochMicroSecond(obj, typeName));
+				break;
+			case Types.TIME: {
+				long tVal;
+				int timezone;
+				if (obj instanceof java.sql.Time) {
+					java.sql.Time timeObj = (java.sql.Time) obj;
+					LocalTime localTime = timeObj.toLocalTime();
+					long nanos = (timeObj.getTime() % 1000) * 1000000L;
+					localTime = localTime.plusNanos(nanos);
+					tVal = localTime.toNanoOfDay() / 1000;
+					timezone = timeObj.getTimezoneOffset() * 60;
+				} else {
+					throw new IOException("unsupported class for time : " + obj.getClass().getName());
+				}
+				if (column.getTypeName().equals("time")) {
+					writeInt(8);
+					writeLong(tVal);
+				} else {
+					writeInt(12);
+					writeLong(tVal);
+					writeInt(timezone);
+				}
+			}
 				break;
 			case Types.BINARY:
 				if (obj instanceof byte[]) {

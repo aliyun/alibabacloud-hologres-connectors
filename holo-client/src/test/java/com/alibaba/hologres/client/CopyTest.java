@@ -5,6 +5,7 @@
 package com.alibaba.hologres.client;
 
 import com.alibaba.hologres.client.copy.CopyInOutputStream;
+import com.alibaba.hologres.client.copy.CopyMode;
 import com.alibaba.hologres.client.copy.CopyUtil;
 import com.alibaba.hologres.client.copy.RecordBinaryOutputStream;
 import com.alibaba.hologres.client.copy.RecordOutputStream;
@@ -27,6 +28,7 @@ import org.testng.annotations.Test;
 import java.io.OutputStream;
 import java.sql.Connection;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Statement;
 
 import static com.alibaba.hologres.client.utils.DataTypeTestUtil.EXCEPTION_ALL_TYPE_DATA;
@@ -245,6 +247,85 @@ public class CopyTest extends HoloClientTestBase {
 		}
 	}
 
+	/**
+	 * update test.
+	 */
+	@Test
+	public void testCopy004() throws Exception {
+		if (properties == null) {
+			return;
+		}
+		boolean[] streamModeArray = new boolean[]{false, true};
+		try (Connection conn = buildConnection()) {
+			for (boolean streamMode : streamModeArray) {
+				String tableName = "\"holo_client_copy_sql_004_" + streamMode + "\"";
+				String dropSql = "drop table if exists " + tableName;
+				String createSql = "create table " + tableName
+						+ "(id int not null,name text not null,address text,primary key(id))";
+				try {
+					execute(conn, new String[]{dropSql});
+					execute(conn, new String[]{createSql});
+
+					for (int time = 1; time <= 2; time++) {
+						try (Connection pgConn = buildConnection().unwrap(PgConnection.class)) {
+							if (!streamMode) {
+								try (Statement stat = pgConn.createStatement()) {
+									stat.execute("set hg_experimental_copy_enable_on_conflict = on");
+								} catch (SQLException e) {
+									if (!e.getMessage().contains("unrecognized configuration parameter")) {
+										throw e;
+									}
+									LOG.info("need greater holo version, skip.");
+									continue;
+								}
+							}
+							HoloVersion version = ConnectionUtil.getHoloVersion(pgConn);
+							TableName tn = TableName.valueOf(tableName);
+							ConnectionUtil.checkMeta(pgConn, version, tn.getFullName(), 120);
+
+							TableSchema schema = ConnectionUtil.getTableSchema(conn, tn);
+							CopyManager copyManager = new CopyManager(pgConn.unwrap(PgConnection.class));
+							String copySql = null;
+							OutputStream os = null;
+							RecordOutputStream ros = null;
+							for (int i = 0; i < 10; ++i) {
+								Record record = new Record(schema);
+								record.setObject(0, i);
+								record.setObject(1, "name_" + time);
+								record.setObject(2, "address_" + time);
+								if (ros == null) {
+									copySql = CopyUtil.buildCopyInSql(record, false, WriteMode.INSERT_OR_UPDATE, streamMode ? CopyMode.STREAM : CopyMode.BULK_LOAD_ON_CONFLICT);
+									LOG.info("copySql : {}", copySql);
+									os = new CopyInOutputStream(copyManager.copyIn(copySql));
+									ros = new RecordTextOutputStream(os, schema, pgConn.unwrap(PgConnection.class), 1024 * 1024 * 10);
+								}
+								RecordChecker.check(record);
+								// this record does not contain the third field address
+								ros.putRecord(record);
+							}
+							ros.close();
+						}
+
+						int count = 0;
+						try (Statement stat = conn.createStatement()) {
+							try (ResultSet rs = stat.executeQuery("select * from " + tableName + " order by id")) {
+								while (rs.next()) {
+									Assert.assertEquals(count, rs.getInt(1));
+									Assert.assertEquals("name_" + time, rs.getString(2));
+									Assert.assertEquals("address_" + time, rs.getString(3));
+									++count;
+								}
+								Assert.assertEquals(10, count);
+							}
+						}
+					}
+				} finally {
+					execute(conn, new String[]{dropSql});
+				}
+			}
+		}
+	}
+
 	@Test(dataProvider = "typeCaseData")
 	public void testRecordChecker001(TypeCaseData typeCaseData, boolean binary, boolean streamMode) throws Exception {
 		if (properties == null) {
@@ -380,14 +461,26 @@ public class CopyTest extends HoloClientTestBase {
 						"copy \"public\".\"holo_client_copy_util_001\"(id,name,address) from stdin with(stream_mode true, format csv, DELIMITER ',', ESCAPE '\\', QUOTE '\"', NULL 'N', on_conflict update)");
 				Assert.assertEquals(CopyUtil.buildCopyInSql(schema, false, WriteMode.INSERT_OR_IGNORE),
 						"copy \"public\".\"holo_client_copy_util_001\"(id,name,address) from stdin with(stream_mode true, format csv, DELIMITER ',', ESCAPE '\\', QUOTE '\"', NULL 'N', on_conflict ignore)");
+				// new interface
+				Assert.assertEquals(CopyUtil.buildCopyInSql(schema, false, WriteMode.INSERT_OR_IGNORE, CopyMode.STREAM),
+						"copy \"public\".\"holo_client_copy_util_001\"(id,name,address) from stdin with(stream_mode true, format csv, DELIMITER ',', ESCAPE '\\', QUOTE '\"', NULL 'N', on_conflict ignore)");
 
-				// stream_mode = false, don't care binary, don't care WriteMode
+				// stream_mode = false, don't care binary, don't care WriteMode default
 				Assert.assertEquals(CopyUtil.buildCopyInSql(schema, true, WriteMode.INSERT_OR_UPDATE, false),
 						"copy \"public\".\"holo_client_copy_util_001\"(id,name,address) from stdin with(format csv, DELIMITER ',', ESCAPE '\\', QUOTE '\"', NULL 'N')");
 				Assert.assertEquals(CopyUtil.buildCopyInSql(schema, true, WriteMode.INSERT_OR_IGNORE, false),
 						"copy \"public\".\"holo_client_copy_util_001\"(id,name,address) from stdin with(format csv, DELIMITER ',', ESCAPE '\\', QUOTE '\"', NULL 'N')");
 				Assert.assertEquals(CopyUtil.buildCopyInSql(schema, false, WriteMode.INSERT_OR_UPDATE, false),
 						"copy \"public\".\"holo_client_copy_util_001\"(id,name,address) from stdin with(format csv, DELIMITER ',', ESCAPE '\\', QUOTE '\"', NULL 'N')");
+				Assert.assertEquals(CopyUtil.buildCopyInSql(schema, false, WriteMode.INSERT_OR_UPDATE, CopyMode.BULK_LOAD),
+						"copy \"public\".\"holo_client_copy_util_001\"(id,name,address) from stdin with(format csv, DELIMITER ',', ESCAPE '\\', QUOTE '\"', NULL 'N')");
+
+				Assert.assertEquals(CopyUtil.buildCopyInSql(schema, true, WriteMode.INSERT_OR_UPDATE, CopyMode.BULK_LOAD_ON_CONFLICT),
+						"copy \"public\".\"holo_client_copy_util_001\"(id,name,address) from stdin with(format csv, DELIMITER ',', ESCAPE '\\', QUOTE '\"', NULL 'N', on_conflict update)");
+				Assert.assertEquals(CopyUtil.buildCopyInSql(schema, true, WriteMode.INSERT_OR_IGNORE, CopyMode.BULK_LOAD_ON_CONFLICT),
+						"copy \"public\".\"holo_client_copy_util_001\"(id,name,address) from stdin with(format csv, DELIMITER ',', ESCAPE '\\', QUOTE '\"', NULL 'N', on_conflict ignore)");
+				Assert.assertEquals(CopyUtil.buildCopyInSql(schema, false, WriteMode.INSERT_OR_UPDATE, CopyMode.BULK_LOAD_ON_CONFLICT),
+						"copy \"public\".\"holo_client_copy_util_001\"(id,name,address) from stdin with(format csv, DELIMITER ',', ESCAPE '\\', QUOTE '\"', NULL 'N', on_conflict update)");
 
 				Record record = new Record(schema);
 				record.setObject(0, 0);
@@ -401,6 +494,8 @@ public class CopyTest extends HoloClientTestBase {
 						"copy \"public\".\"holo_client_copy_util_001\"(id,name) from stdin with(stream_mode true, format csv, DELIMITER ',', ESCAPE '\\', QUOTE '\"', NULL 'N', on_conflict update)");
 				Assert.assertEquals(CopyUtil.buildCopyInSql(record, false, WriteMode.INSERT_OR_IGNORE),
 						"copy \"public\".\"holo_client_copy_util_001\"(id,name) from stdin with(stream_mode true, format csv, DELIMITER ',', ESCAPE '\\', QUOTE '\"', NULL 'N', on_conflict ignore)");
+				Assert.assertEquals(CopyUtil.buildCopyInSql(record, false, WriteMode.INSERT_OR_IGNORE, CopyMode.STREAM),
+						"copy \"public\".\"holo_client_copy_util_001\"(id,name) from stdin with(stream_mode true, format csv, DELIMITER ',', ESCAPE '\\', QUOTE '\"', NULL 'N', on_conflict ignore)");
 
 				Assert.assertEquals(CopyUtil.buildCopyInSql(record, true, WriteMode.INSERT_OR_UPDATE, false),
 						"copy \"public\".\"holo_client_copy_util_001\"(id,name) from stdin with(format csv, DELIMITER ',', ESCAPE '\\', QUOTE '\"', NULL 'N')");
@@ -408,6 +503,15 @@ public class CopyTest extends HoloClientTestBase {
 						"copy \"public\".\"holo_client_copy_util_001\"(id,name) from stdin with(format csv, DELIMITER ',', ESCAPE '\\', QUOTE '\"', NULL 'N')");
 				Assert.assertEquals(CopyUtil.buildCopyInSql(record, false, WriteMode.INSERT_OR_UPDATE, false),
 						"copy \"public\".\"holo_client_copy_util_001\"(id,name) from stdin with(format csv, DELIMITER ',', ESCAPE '\\', QUOTE '\"', NULL 'N')");
+				Assert.assertEquals(CopyUtil.buildCopyInSql(record, false, WriteMode.INSERT_OR_UPDATE, CopyMode.BULK_LOAD),
+						"copy \"public\".\"holo_client_copy_util_001\"(id,name) from stdin with(format csv, DELIMITER ',', ESCAPE '\\', QUOTE '\"', NULL 'N')");
+
+				Assert.assertEquals(CopyUtil.buildCopyInSql(record, true, WriteMode.INSERT_OR_UPDATE, CopyMode.BULK_LOAD_ON_CONFLICT),
+						"copy \"public\".\"holo_client_copy_util_001\"(id,name) from stdin with(format csv, DELIMITER ',', ESCAPE '\\', QUOTE '\"', NULL 'N', on_conflict update)");
+				Assert.assertEquals(CopyUtil.buildCopyInSql(record, true, WriteMode.INSERT_OR_IGNORE, CopyMode.BULK_LOAD_ON_CONFLICT),
+						"copy \"public\".\"holo_client_copy_util_001\"(id,name) from stdin with(format csv, DELIMITER ',', ESCAPE '\\', QUOTE '\"', NULL 'N', on_conflict ignore)");
+				Assert.assertEquals(CopyUtil.buildCopyInSql(record, false, WriteMode.INSERT_OR_UPDATE, CopyMode.BULK_LOAD_ON_CONFLICT),
+						"copy \"public\".\"holo_client_copy_util_001\"(id,name) from stdin with(format csv, DELIMITER ',', ESCAPE '\\', QUOTE '\"', NULL 'N', on_conflict update)");
 			} finally {
 				execute(conn, new String[]{dropSql});
 			}

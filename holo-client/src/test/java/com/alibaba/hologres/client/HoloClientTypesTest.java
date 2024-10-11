@@ -273,7 +273,7 @@ public class HoloClientTypesTest extends HoloClientTestBase {
 
 		// config.setUseLegacyPutHandler(true);
 		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
-			String tableName = "\"" + "holo_client_type_" + typeName + "\"";
+			String tableName = "\"" + "holo_client_type_dirty_data_" + typeName + "\"";
 			String dropSql = "drop table if exists " + tableName;
 			String createSql = "create table " + tableName + "(id " + typeCaseData.getColumnType() + ", pk int primary key)";
 			execute(conn, new String[]{"CREATE EXTENSION if not exists roaringbitmap", dropSql, createSql});

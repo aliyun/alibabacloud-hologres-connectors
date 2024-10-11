@@ -11,6 +11,7 @@ import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.model.TableSchema;
 
 import java.math.BigDecimal;
+import java.sql.Time;
 import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.LocalDateTime;
@@ -71,6 +72,8 @@ public class RecordChecker {
 			checkLocalDateTime(schema, column, (LocalDateTime) value);
 		} else if (value instanceof Timestamp) { // Timestamp must before Date.
 			checkTimeStamp(schema, column, (Timestamp) value);
+		}  else if (value instanceof Time) { // Time must before Date.
+			checkTime(schema, column, (Time) value);
 		} else if (value instanceof Date) {
 			checkDate(schema, column, (Date) value);
 		} else if (value instanceof String[]) {
@@ -222,6 +225,18 @@ public class RecordChecker {
 				break;
 			default:
 				throwConstraintViolationException(schema, column, value, "unsupported type " + column.getTypeName() + " for setDate method", null);
+		}
+	}
+
+	private static void checkTime(TableSchema schema, Column column, Time value) throws HoloClientException {
+		if (value == null) {
+			checkNull(schema, column);
+		}
+		switch (column.getType()) {
+			case Types.TIME:
+				break;
+			default:
+				throwConstraintViolationException(schema, column, value, "unsupported type " + column.getTypeName() + " for setTime method", null);
 		}
 	}
 

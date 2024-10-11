@@ -2,6 +2,7 @@ package com.alibaba.hologres.client.impl.binlog;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.format.DateTimeFormatter;
 
 /**
  * BinlogOffset
@@ -49,6 +50,7 @@ public class BinlogOffset {
 
 	public BinlogOffset setTimestamp(long timestamp) {
 		this.timestamp = timestamp;
+		this.startTimeText = new Timestamp(timestamp / 1000L).toLocalDateTime().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS"));
 		return this;
 	}
 

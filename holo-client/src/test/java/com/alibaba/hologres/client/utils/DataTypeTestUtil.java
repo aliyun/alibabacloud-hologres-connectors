@@ -41,6 +41,8 @@ public class DataTypeTestUtil {
 			new TypeCaseData("timestamp", (i, conn) -> LocalDateTime.ofEpochSecond((long) i, 123 * 1000000, ZoneOffset.systemDefault().getRules().getOffset(LocalDateTime.now())), (i, rs) -> Assert.assertEquals(rs.getTimestamp(1), new Timestamp(i * 1000L + 123L))),
 			new TypeCaseData("timestamptz", (i, conn) -> LocalDateTime.ofEpochSecond((long) i, 123 * 1000000, ZoneOffset.systemDefault().getRules().getOffset(LocalDateTime.now())), (i, rs) -> Assert.assertEquals(rs.getTimestamp(1), new Timestamp(i * 1000L + 123L))),
 			new TypeCaseData("date", (i, conn) -> java.sql.Date.valueOf("1900-01-02"), (i, rs) -> Assert.assertEquals(rs.getString(1), Date.valueOf("1900-01-02").toString())),
+			new TypeCaseData("time", (i, conn) -> new Time(i * 1000L + 1234567L), (i, rs) -> Assert.assertEquals(rs.getTime(1), new Time(i * 1000L + 1234567L))),
+			new TypeCaseData("timetz", (i, conn) -> new Time(i * 1000L + 1234567L), (i, rs) -> Assert.assertEquals(rs.getTime(1), new Time(i * 1000L + 1234567L))),
 			new TypeCaseData("json", (i, conn) -> "{\"a\":\"" + i + "\"}", (i, rs) -> Assert.assertEquals(rs.getString(1), "{\"a\":\"" + i + "\"}")),
 			new TypeCaseData("jsonb", (i, conn) -> "{\"a\":\"" + i + "\"}", (i, rs) -> Assert.assertEquals(rs.getString(1), "{\"a\": \"" + i + "\"}")),
 			new TypeCaseData("bytea", (i, conn) -> new byte[]{i.byteValue(), (byte) (i.byteValue() + 1), (byte) (i + 2)}, (i, rs) -> Assert.assertEquals(rs.getBytes(1), new byte[]{i.byteValue(), (byte) (i.byteValue() + 1), (byte) (i + 2)})),
@@ -66,8 +68,6 @@ public class DataTypeTestUtil {
 	public static final TypeCaseData[] ALL_TYPE_DATA = arrayConcat(FIXED_PLAN_TYPE_DATA, new TypeCaseData[]{
 			new TypeCaseData("interval", (i, conn) -> i + " hours", (i, rs) -> Assert.assertEquals(rs.getString(1), intervalDF(i))),
 			new TypeCaseData("inet", (i, conn) -> "127.0.0." + i, (i, rs) -> Assert.assertEquals(rs.getString(1), "127.0.0." + i)),
-			new TypeCaseData("timetz", (i, conn) -> new Time(i * 1000L + 123L), (i, rs) -> Assert.assertEquals(rs.getTime(1), new Time(i * 1000L + 123L))),
-			new TypeCaseData("time", (i, conn) -> new Time(i * 1000L + 123L), (i, rs) -> Assert.assertEquals(rs.getTime(1), new Time(i * 1000L + 123L))),
 			new TypeCaseData("oid", (i, conn) -> i, (i, rs) -> Assert.assertEquals(rs.getInt(1), i.intValue())),
 			new TypeCaseData("uuid", (i, conn) -> "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a1" + i, (i, rs) -> Assert.assertEquals(rs.getString(1), "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a1" + i)),
 			// 注意bit(n)和varbit(n)会截断

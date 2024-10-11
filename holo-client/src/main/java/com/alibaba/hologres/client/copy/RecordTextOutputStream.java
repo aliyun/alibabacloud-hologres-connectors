@@ -85,6 +85,16 @@ public class RecordTextOutputStream extends RecordOutputStream {
 								printer.print(String.valueOf(obj));
 							}
 							break;
+						case Types.TIME:
+							// java.sql.time 默认的toString方法格式为HH:mm:ss,需要加上.SSS
+							if (obj instanceof java.sql.Time) {
+                                java.sql.Time timeObj = (java.sql.Time) obj;
+                                long msSuffix = timeObj.getTime() % 1000;
+								printer.print(timeObj + "." + msSuffix);
+                            } else {
+								printer.print(String.valueOf(obj));
+							}
+							break;
 						default:
 							printer.print(record.getObject(i));
 					}

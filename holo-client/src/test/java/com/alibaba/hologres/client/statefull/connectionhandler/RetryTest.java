@@ -539,7 +539,7 @@ public class RetryTest extends HoloClientTestBase {
 					try {
 						for (int i = 0; i < 10; ++i) {
 							Thread.sleep(10);
-							execute(conn, new String[]{"call set_table_property('" + tableName + "','time_to_live_in_seconds','" + ((i + 1) * 3600) + "')"});
+							execute(conn, new String[]{"call set_table_property('" + tableName + "','time_to_live_in_seconds','" + ((i + 1) * 86400) + "')"});
 						}
 					} catch (Exception e) {
 						e.printStackTrace();

@@ -42,24 +42,24 @@ void* holo_client_log_log4c(const int logLevel, const char* msg) {
     switch (logLevel)
     {
     case HOLO_LOG_LEVEL_DEBUG:
-        log4c_category_log(log_category, LOG4C_PRIORITY_DEBUG, "%s", msg);
+        log4c_category_log(log_category, LOG4C_PRIORITY_DEBUG, "[%ld] %s", (unsigned long)pthread_self(), msg);
         break;
     case HOLO_LOG_LEVEL_INFO:
-        log4c_category_log(log_category, LOG4C_PRIORITY_INFO, "%s", msg);
+        log4c_category_log(log_category, LOG4C_PRIORITY_INFO, "[%ld] %s", (unsigned long)pthread_self(), msg);
         break;
     case HOLO_LOG_LEVEL_WARNING:
-        log4c_category_log(log_category, LOG4C_PRIORITY_WARN, "%s", msg);
+        log4c_category_log(log_category, LOG4C_PRIORITY_WARN, "[%ld] %s", (unsigned long)pthread_self(), msg);
         break;
     case HOLO_LOG_LEVEL_ERROR:
-        log4c_category_log(log_category, LOG4C_PRIORITY_ERROR, "%s", msg);
+        log4c_category_log(log_category, LOG4C_PRIORITY_ERROR, "[%ld] %s", (unsigned long)pthread_self(), msg);
         break;
     case HOLO_LOG_LEVEL_FATAL:
-        log4c_category_log(log_category, LOG4C_PRIORITY_FATAL, "%s", msg);
+        log4c_category_log(log_category, LOG4C_PRIORITY_FATAL, "[%ld] %s", (unsigned long)pthread_self(), msg);
         break;
     case HOLO_LOG_LEVEL_NONE:
         break;
     default:
-        log4c_category_log(log_category, LOG4C_PRIORITY_INFO, "%s", msg);
+        log4c_category_log(log_category, LOG4C_PRIORITY_INFO, "[%ld] %s", (unsigned long)pthread_self(), msg);
         break;
     }
     return NULL;

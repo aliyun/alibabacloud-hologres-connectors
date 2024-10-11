@@ -15,8 +15,6 @@ import com.alibaba.hologres.client.impl.action.MetaAction;
 import com.alibaba.hologres.client.impl.action.PutAction;
 import com.alibaba.hologres.client.impl.action.ScanAction;
 import com.alibaba.hologres.client.impl.action.SqlAction;
-import com.alibaba.hologres.client.impl.binlog.action.BinlogAction;
-import com.alibaba.hologres.client.impl.binlog.handler.BinlogActionHandler;
 import com.alibaba.hologres.client.impl.handler.ActionHandler;
 import com.alibaba.hologres.client.impl.handler.CopyActionHandler;
 import com.alibaba.hologres.client.impl.handler.EmptyActionHandler;
@@ -52,11 +50,11 @@ public class Worker implements Runnable {
 
 	final long connectionMaxAliveMs;
 
-	public Worker(HoloConfig config, AtomicBoolean started, int index, boolean isShadingEnv) {
+	public Worker(HoloConfig config, AtomicBoolean started, String index, boolean isShadingEnv) {
 		this(config, started, index, isShadingEnv, false);
 	}
 
-	public Worker(HoloConfig config, AtomicBoolean started, int index, boolean isShadingEnv, boolean isFixed) {
+	public Worker(HoloConfig config, AtomicBoolean started, String index, boolean isShadingEnv, boolean isFixed) {
 		this.config = config;
 		this.connectionMaxAliveMs = randomConnectionMaxAliveMs(config);
 		connectionHolder = new ConnectionHolder(config, this, isShadingEnv, isFixed);
@@ -69,7 +67,6 @@ public class Worker implements Runnable {
 		handlerMap.put(CopyAction.class, new CopyActionHandler(connectionHolder, config));
 		handlerMap.put(PutAction.class, new PutActionHandler(connectionHolder, config));
 		handlerMap.put(ScanAction.class, new ScanActionHandler(connectionHolder, config));
-		handlerMap.put(BinlogAction.class, new BinlogActionHandler(started, config, isShadingEnv, isFixed));
 	}
 
 	public boolean offer(AbstractAction action) throws HoloClientException {

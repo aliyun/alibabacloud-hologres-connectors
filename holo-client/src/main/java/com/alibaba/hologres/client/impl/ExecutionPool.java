@@ -69,6 +69,8 @@ public class ExecutionPool implements Closeable {
 	private Runnable backgroundJob;
 	//处理所有Action的runnable，push模式，由其他线程主动把任务塞給worker
 	private Worker[] workers;
+	//处理只跑一次的worker
+	private Map<String, OneshotWorker> oneShotWorkers;
 	private Semaphore writeSemaphore;
 	private Semaphore readSemaphore;
 
@@ -115,12 +117,10 @@ public class ExecutionPool implements Closeable {
 	}
 
 	public static ExecutionPool buildOrGet(String name, HoloConfig config, boolean isShadingEnv, boolean isFixedPool) {
-		synchronized (POOL_MAP) {
-			// 启用和未启用fixed fe的HoloConfig彻底区分开,复用仅在isUseFixedFe参数相同时发生
-			ExecutionPool pool = POOL_MAP.computeIfAbsent(name + config.isUseFixedFe(), n -> new ExecutionPool(n, config, isShadingEnv, isFixedPool));
-			pool.resizeWorkers(config);
-			return pool;
-		}
+		// 启用和未启用fixed fe的HoloConfig彻底区分开,复用仅在isUseFixedFe参数相同时发生
+		ExecutionPool pool = POOL_MAP.computeIfAbsent(name + config.isUseFixedFe(), n -> new ExecutionPool(n, config, isShadingEnv, isFixedPool));
+		pool.resizeWorkers(config);
+		return pool;
 	}
 
 	public ExecutionPool(String name, HoloConfig config, boolean isShadingEnv, boolean isFixedPool) {
@@ -164,6 +164,7 @@ public class ExecutionPool implements Closeable {
 		this.readThreadSize = 0;
 		this.writeThreadSize = 0;
 		workers = new Worker[0];
+		oneShotWorkers = new HashMap<>();
 		started = new AtomicBoolean(false);
 		workerStated = new AtomicBoolean(false);
 		resizeWorkers(config);
@@ -249,9 +250,7 @@ public class ExecutionPool implements Closeable {
 			this.writeSemaphore = null;
 			this.readSemaphore = null;
 
-			synchronized (POOL_MAP) {
-				POOL_MAP.remove(name);
-			}
+			POOL_MAP.remove(name);
 		}
 	}
 
@@ -334,13 +333,14 @@ public class ExecutionPool implements Closeable {
 	 * @return
 	 * @throws HoloClientException
 	 */
-	public Thread submitOneShotAction(AtomicBoolean started, int index, AbstractAction action) throws HoloClientException {
-		Worker worker = new Worker(config, started, index, isShadingEnv, isFixedPool);
+	public Thread submitOneShotAction(AtomicBoolean started, String index, AbstractAction action) throws HoloClientException {
+		OneshotWorker worker = new OneshotWorker(config, started, index, isShadingEnv, isFixedPool);
 		boolean ret = worker.offer(action);
 		if (!ret) {
 			throw new HoloClientException(ExceptionCode.INTERNAL_ERROR, "submitOneShotAction fail");
 		}
 		Thread thread = ontShotWorkerThreadFactory.newThread(worker);
+		oneShotWorkers.put(index, worker);
 		thread.start();
 		return thread;
 	}
@@ -417,11 +417,10 @@ public class ExecutionPool implements Closeable {
 					needStart = true;
 				}
 			}
-			if (needStart) {
-				start();
-			}
 		}
-
+		if (needStart) {
+			start();
+		}
 		return collector;
 	}
 
@@ -443,9 +442,9 @@ public class ExecutionPool implements Closeable {
 					needClose = true;
 				}
 			}
-			if (needClose) {
-				close();
-			}
+		}
+		if (needClose) {
+			close();
 		}
 	}
 
@@ -456,7 +455,7 @@ public class ExecutionPool implements Closeable {
         }
 	}
 
-	public synchronized void resizeWorkers(HoloConfig config) {
+	private synchronized void resizeWorkers(HoloConfig config) {
 		int readThreadSize = config.getReadThreadSize();
 		int writeThreadSize = config.getWriteThreadSize();
 		// Fe模式: workerSize取读并发和写并发的最大值，worker会公用
@@ -479,9 +478,9 @@ public class ExecutionPool implements Closeable {
 		System.arraycopy(workers, 0, newWorkers, 0, workers.length);
 		for (int i = workers.length; i < workerSize; ++i) {
 			if (isFixedPool) {
-				newWorkers[i] = new Worker(config, workerStated, i, isShadingEnv, true);
+				newWorkers[i] = new Worker(config, workerStated, String.valueOf(i), isShadingEnv, true);
 			} else {
-				newWorkers[i] = new Worker(config, workerStated, i, isShadingEnv);
+				newWorkers[i] = new Worker(config, workerStated, String.valueOf(i), isShadingEnv);
 			}
 			if (workerStated.get()) {
 				workerExecutorService.execute(newWorkers[i]);

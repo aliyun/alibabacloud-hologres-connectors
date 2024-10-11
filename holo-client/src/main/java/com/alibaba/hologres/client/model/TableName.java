@@ -5,6 +5,7 @@
 package com.alibaba.hologres.client.model;
 
 import com.alibaba.hologres.client.exception.InvalidIdentifierException;
+import com.alibaba.hologres.client.utils.IdentifierUtil;
 
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -42,6 +43,10 @@ public class TableName implements Serializable {
 	public String getTableName() {
 		return tableName;
 	}
+
+	public static TableName quoteValueOf(String schemaName, String tableName) throws InvalidIdentifierException {
+		return valueOf(IdentifierUtil.quoteIdentifier(schemaName, /*isCaseSensitive*/true), IdentifierUtil.quoteIdentifier(tableName, /*isCaseSensitive*/true));
+    }
 
 	public static TableName valueOf(String schemaName, String tableName) throws InvalidIdentifierException {
 		if (schemaName == null || schemaName.length() < 1) {

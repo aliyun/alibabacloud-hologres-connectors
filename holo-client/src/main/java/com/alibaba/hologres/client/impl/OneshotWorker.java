@@ -6,6 +6,8 @@ package com.alibaba.hologres.client.impl;
 
 import com.alibaba.hologres.client.HoloConfig;
 import com.alibaba.hologres.client.impl.action.AbstractAction;
+import com.alibaba.hologres.client.impl.binlog.action.BinlogAction;
+import com.alibaba.hologres.client.impl.binlog.handler.BinlogActionHandler;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -15,8 +17,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class OneshotWorker extends Worker {
 
-	public OneshotWorker(HoloConfig config, AtomicBoolean started, int index, boolean isShadingEnv) {
-		super(config, started, index, isShadingEnv);
+	public OneshotWorker(HoloConfig config, AtomicBoolean started, String index, boolean isShadingEnv, boolean isFixed) {
+		super(config, started, index, isShadingEnv, isFixed);
+		handlerMap.put(BinlogAction.class, new BinlogActionHandler(started, config, isShadingEnv, isFixed));
 	}
 
 	@Override

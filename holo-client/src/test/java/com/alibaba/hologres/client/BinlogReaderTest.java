@@ -9,10 +9,16 @@ import com.alibaba.hologres.client.impl.binlog.BinlogOffset;
 import com.alibaba.hologres.client.impl.binlog.HoloBinlogDecoder;
 import com.alibaba.hologres.client.model.HoloVersion;
 import com.alibaba.hologres.client.model.Record;
+import com.alibaba.hologres.client.model.TableName;
 import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.model.WriteMode;
+import com.alibaba.hologres.client.model.binlog.BinlogHeartBeatRecord;
+import com.alibaba.hologres.client.model.binlog.BinlogPartitionSubscribeMode;
 import com.alibaba.hologres.client.model.binlog.BinlogRecord;
 import com.alibaba.hologres.client.utils.DataTypeTestUtil;
+import com.alibaba.hologres.client.utils.IdentifierUtil;
+import com.alibaba.hologres.client.utils.PartitionUtil;
+import com.alibaba.hologres.client.utils.Tuple;
 import org.postgresql.PGProperty;
 import org.postgresql.core.BaseConnection;
 import org.postgresql.jdbc.PgConnection;
@@ -21,6 +27,7 @@ import org.postgresql.replication.PGReplicationStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.Assert;
+import org.testng.annotations.BeforeTest;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Ignore;
 import org.testng.annotations.Test;
@@ -32,6 +39,8 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Timestamp;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -41,6 +50,8 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import static com.alibaba.hologres.client.utils.DataTypeTestUtil.FIXED_PLAN_TYPE_DATA_WITH_RECORD;
 
@@ -52,6 +63,19 @@ import static com.alibaba.hologres.client.utils.DataTypeTestUtil.FIXED_PLAN_TYPE
 public class BinlogReaderTest extends HoloClientTestBase {
 	public static final Logger LOG = LoggerFactory.getLogger(BinlogReaderTest.class);
 	HoloVersion needVersion = new HoloVersion(1, 1, 2);
+
+	@BeforeTest
+	public void begin() throws SQLException {
+		if (properties == null) {
+			return;
+		}
+		try (Connection conn = buildConnection()) {
+			String createSql1 = "call hg_create_table_group('tg_1', 1);\n";
+			String createSql2 = "call hg_create_table_group('tg_3', 3);\n";
+			String createSql3 = "call hg_create_table_group('tg_10', 10);\n";
+			tryExecute(conn, new String[]{createSql1, createSql2, createSql3});
+		}
+	}
 
 	/**
 	 * binlogGroupShardReader.
@@ -174,9 +198,8 @@ public class BinlogReaderTest extends HoloClientTestBase {
 
 			String dropSql = "drop table if exists " + tableName;
 			String createSql = "create table " + tableName
-					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id));\n "
-					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
-					+ "call set_table_property('" + tableName + "', 'shard_count', '3');\n";
+					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id)) "
+					+ "with (binlog_level='replica', table_group='tg_3');\n";
 			execute(conn, new String[]{dropSql});
 			execute(conn, new String[]{"begin;", createSql, "commit;"});
 
@@ -203,7 +226,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				}
 				client.flush();
 
-				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName).build());
+				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName).setBinlogReadStartTime("2021-04-12 12:12:12").build());
 
 				long start = System.nanoTime();
 				int count = 0;
@@ -249,9 +272,8 @@ public class BinlogReaderTest extends HoloClientTestBase {
 
 			String dropSql1 = "drop table if exists " + tableName;
 			String createSql = "create table " + tableName
-					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id));\n "
-					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
-					+ "call set_table_property('" + tableName + "', 'shard_count', '" + shardCount + "');\n";
+					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id))"
+					+ "with (binlog_level='replica', table_group='tg_3');\n";
 			execute(conn, new String[]{dropSql1});
 			execute(conn, new String[]{"begin;", createSql, "commit;"});
 
@@ -307,7 +329,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 					}
 				}
 
-				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName).setBinlogReadStartTime(now.toString()).build());
+				reader = client.binlogSubscribe(Subscribe.newOffsetBuilder(tableName).addShardsStartOffset(IntStream.range(0, shardCount).boxed().collect(Collectors.toSet()), new BinlogOffset().setTimestamp(now.toString())).build());
 				Map<Integer, Long> lsnResults = new ConcurrentHashMap<>(shardCount);
 				int count = 0;
 				BinlogRecord r;
@@ -352,9 +374,8 @@ public class BinlogReaderTest extends HoloClientTestBase {
 
 			String dropSql1 = "drop table if exists " + tableName;
 			String createSql = "create table " + tableName
-					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id));\n "
-					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
-					+ "call set_table_property('" + tableName + "', 'shard_count', '10');\n";
+					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id))"
+					+ "with (binlog_level='replica', table_group='tg_10');\n";
 			execute(conn, new String[]{dropSql1});
 			execute(conn, new String[]{"begin;", createSql, "commit;"});
 			BinlogShardGroupReader reader = null;
@@ -380,7 +401,9 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				}
 				client.flush();
 
-				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName).build());
+				reader = client.binlogSubscribe(Subscribe.newOffsetBuilder(tableName)
+						.addShardsStartOffset(IntStream.range(0, 10).boxed().collect(Collectors.toSet()), new BinlogOffset().setTimestamp("2021-04-12 12:12:12"))
+						.build());
 
 				long start = System.nanoTime();
 				int count = 0;
@@ -424,9 +447,8 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String tableName = "holo_client_binlog_reader_007";
 			String dropSql1 = "drop table if exists " + tableName;
 			String createSql = "create table " + tableName
-					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id));\n "
-					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
-					+ "call set_table_property('" + tableName + "', 'shard_count', '3');\n";
+					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id))"
+					+ "with (binlog_level='replica', table_group='tg_3');\n";
 			execute(conn, new String[]{dropSql1});
 			execute(conn, new String[]{"begin;", createSql, "commit;"});
 			BinlogShardGroupReader reader = null;
@@ -471,7 +493,9 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				}
 				client.flush();
 
-				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName).build());
+				reader = client.binlogSubscribe(Subscribe.newOffsetBuilder(tableName)
+						.addShardsStartOffset(IntStream.range(0, 3).boxed().collect(Collectors.toSet()), new BinlogOffset().setTimestamp("2021-04-12 12:12:12"))
+						.build());
 
 				long start = System.nanoTime();
 				int count = 0;
@@ -520,9 +544,8 @@ public class BinlogReaderTest extends HoloClientTestBase {
 
 			String dropSql1 = "drop table if exists " + tableName;
 			String createSql = "create table " + tableName
-					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id));\n "
-					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
-					+ "call set_table_property('" + tableName + "', 'shard_count', '3');\n";
+					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id))"
+					+ "with (binlog_level='replica', table_group='tg_3');\n";
 			execute(conn, new String[]{dropSql1});
 
 			execute(conn, new String[]{"begin;", createSql, "commit;"});
@@ -568,7 +591,9 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				}
 				client.flush();
 
-				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName).build());
+				reader = client.binlogSubscribe(Subscribe.newOffsetBuilder(tableName)
+						.addShardsStartOffset(IntStream.range(0, 3).boxed().collect(Collectors.toSet()), new BinlogOffset().setTimestamp("2021-04-12 12:12:12"))
+						.build());
 
 				int count = 0;
 				while (reader.getBinlogRecord() != null) {
@@ -613,9 +638,8 @@ public class BinlogReaderTest extends HoloClientTestBase {
 
 			String dropSql1 = "drop table if exists " + tableName;
 			String createSql = "create table " + tableName
-					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id));\n "
-					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
-					+ "call set_table_property('" + tableName + "', 'shard_count', '3');\n";
+					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id))"
+					+ "with (binlog_level='replica', table_group='tg_3');\n";
 			String deleteSql = "delete from " + tableName + ";\n";
 
 			execute(conn, new String[]{dropSql1});
@@ -646,7 +670,9 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				// delete 1000条数据，一共会有2000条binlog
 				execute(conn, new String[]{deleteSql});
 
-				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName).build());
+				reader = client.binlogSubscribe(Subscribe.newOffsetBuilder(tableName)
+						.addShardsStartOffset(IntStream.range(0, 3).boxed().collect(Collectors.toSet()), new BinlogOffset().setTimestamp("2021-04-12 12:12:12"))
+						.build());
 
 				int count = 0;
 				while (reader.getBinlogRecord() != null) {
@@ -688,9 +714,8 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String tableName = "holo_client_binlog_reader_017";
 			String dropSql1 = "drop table if exists " + tableName;
 			String createSql = "create table " + tableName
-					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id));\n "
-					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
-					+ "call set_table_property('" + tableName + "', 'shard_count', '3');\n";
+					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id))"
+					+ "with (binlog_level='replica', table_group='tg_3');\n";
 			String deleteSql = "delete from " + tableName + ";\n";
 
 			execute(conn, new String[]{dropSql1});
@@ -721,7 +746,9 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				// delete 1000条数据，一共会有2000条binlog; binlogIgnoreDelete=true，只读取1000条
 				execute(conn, new String[]{deleteSql});
 
-				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName).build());
+				reader = client.binlogSubscribe(Subscribe.newOffsetBuilder(tableName)
+						.addShardsStartOffset(IntStream.range(0, 3).boxed().collect(Collectors.toSet()), new BinlogOffset().setTimestamp("2021-04-12 12:12:12"))
+						.build());
 
 				int count = 0;
 				while (reader.getBinlogRecord() != null) {
@@ -766,15 +793,14 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String tableName = "holo_client_binlog_reader_019";
 			String dropSql1 = "drop table if exists " + tableName;
 			String createSql = "create table " + tableName
-					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id));\n "
-					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
-					+ "call set_table_property('" + tableName + "', 'shard_count', '3');\n";
+					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id))"
+					+ "with (binlog_level='replica', table_group='tg_3');\n";
 			String alterSql = "ALTER TABLE IF EXISTS " + tableName + " ADD COLUMN new_column_1 int;\n";
 
 			execute(conn, new String[]{dropSql1});
 			execute(conn, new String[]{"begin;", createSql, "commit;"});
 			try {
-				try (BinlogShardGroupReader reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName).build())) {
+				try (BinlogShardGroupReader reader = client.binlogSubscribe(Subscribe.newOffsetBuilder(tableName).build())) {
 					final CompletableFuture<Void> writeFuture = new CompletableFuture<>();
 					new Thread(() -> {
 						try {
@@ -881,16 +907,15 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String tableName = "holo_client_binlog_reader_021";
 			String dropSql1 = "drop table if exists " + tableName;
 			String createSql = "create table " + tableName
-					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id));\n "
-					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
-					+ "call set_table_property('" + tableName + "', 'shard_count', '3');\n";
+					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id))"
+					+ "with (binlog_level='replica', table_group='tg_3');\n";
 			String alterSql = "set hg_experimental_enable_drop_column=true;\n"
 					+ "ALTER TABLE IF EXISTS " + tableName + " DROP COLUMN ba;\n";
 
 			execute(conn, new String[]{dropSql1});
 
 			execute(conn, new String[]{"begin;", createSql, "commit;"});
-			try (BinlogShardGroupReader reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName).build())) {
+			try (BinlogShardGroupReader reader = client.binlogSubscribe(Subscribe.newOffsetBuilder(tableName).build())) {
 				final CompletableFuture<Void> writeFuture = new CompletableFuture<>();
 				new Thread(() -> {
 					try {
@@ -980,9 +1005,8 @@ public class BinlogReaderTest extends HoloClientTestBase {
 
 			String dropSql1 = "drop table if exists " + tableName;
 			String createSql = "create table " + tableName
-					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id));\n "
-					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
-					+ "call set_table_property('" + tableName + "', 'shard_count', '1');\n";
+					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id))"
+					+ "with (binlog_level='replica', table_group='tg_1');\n";
 			execute(conn, new String[]{dropSql1});
 
 			execute(conn, new String[]{"begin;", createSql, "commit;"});
@@ -1018,7 +1042,9 @@ public class BinlogReaderTest extends HoloClientTestBase {
 					}
 				}
 
-				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName).build());
+				reader = client.binlogSubscribe(Subscribe.newOffsetBuilder(tableName)
+						.addShardsStartOffset(IntStream.range(0, 1).boxed().collect(Collectors.toSet()), new BinlogOffset().setTimestamp("2021-04-12 12:12:12"))
+						.build());
 
 				int count = 0;
 				BinlogRecord record;
@@ -1089,9 +1115,8 @@ public class BinlogReaderTest extends HoloClientTestBase {
 
 			String createSql = "create table " + tableName
 					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], "
-					+ "primary key(id));\n "
-					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
-					+ "call set_table_property('" + tableName + "', 'shard_count', '" + shardCount + "');\n";
+					+ "primary key(id))"
+					+ "with (binlog_level='replica', table_group='tg_3');\n";
 
 			execute(conn, new String[]{dropSql1});
 			execute(conn, new String[]{"begin;", createSql, "commit;"});
@@ -1192,7 +1217,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 		config.setWriteMode(WriteMode.INSERT_OR_REPLACE);
 		config.setBinlogReadBatchSize(128);
 
-		int shardCount = 5;
+		int shardCount = 10;
 		Map<Integer, BinlogOffset> offsetMap = new HashMap<>(shardCount);
 		for (int i = 0; i < shardCount; i++) {
 			offsetMap.put(i, new BinlogOffset());
@@ -1201,9 +1226,8 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String tableName = "holo_client_binlog_reader_029";
 			String dropSql1 = "drop table if exists " + tableName;
 			String createSql = "create table " + tableName
-					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id));\n "
-					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
-					+ "call set_table_property('" + tableName + "', 'shard_count', '" + shardCount + "');\n";
+					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id))"
+					+ "with (binlog_level='replica', table_group='tg_10');\n";
 			execute(conn, new String[]{dropSql1});
 
 			execute(conn, new String[]{"begin;", createSql, "commit;"});
@@ -1238,7 +1262,8 @@ public class BinlogReaderTest extends HoloClientTestBase {
 					}
 				}
 
-				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName).build());
+				reader = client.binlogSubscribe(Subscribe.newOffsetBuilder(tableName)
+						.addShardsStartOffset(lsnExpects.keySet(), new BinlogOffset()).build());
 
 				int count = 0;
 				BinlogRecord record;
@@ -1289,7 +1314,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 
 	/**
 	 * binlogGroupShardReader.
-	 * 多shard表 BinlogOffset 测试, 从holo保存的位点恢复
+	 * 多shard表 BinlogOffset 测试, 从holo保存的位点恢复, 需要创建slot
 	 */
 	@Test
 	public void binlogReader030() throws Exception {
@@ -1300,7 +1325,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 		config.setWriteMode(WriteMode.INSERT_OR_REPLACE);
 		config.setBinlogReadBatchSize(128);
 
-		int shardCount = 5;
+		int shardCount = 3;
 		Map<Integer, BinlogOffset> offsetMap = new HashMap<>(shardCount);
 		for (int i = 0; i < shardCount; i++) {
 			offsetMap.put(i, new BinlogOffset());
@@ -1314,15 +1339,14 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String dropSql2 = "delete from hologres.hg_replication_progress where slot_name='" + slotName + "';\n";
 			String dropSql3 = "call hg_drop_logical_replication_slot('" + slotName + "');";
 			String createSql2 = "create table " + tableName
-					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id));\n "
-					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
-					+ "call set_table_property('" + tableName + "', 'shard_count', '" + shardCount + "');\n";
+					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id))\n "
+					+ "with (binlog_level='replica', table_group='tg_3');\n";
 			String createSql3 = "create publication " + publicationName + " for table " + tableName + ";\n";
 			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
 
 			execute(conn, new String[]{dropSql1});
 			tryExecute(conn, new String[]{dropSql2, dropSql3});
-			execute(conn, new String[]{"begin;", createSql2, "commit;", createSql3});
+			execute(conn, new String[]{createSql2, createSql3});
 			execute(conn, new String[]{createSql4});
 
 			BinlogShardGroupReader reader = null;
@@ -1358,7 +1382,9 @@ public class BinlogReaderTest extends HoloClientTestBase {
 
 				}
 
-				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName, slotName).build());
+				reader = client.binlogSubscribe(Subscribe.newOffsetBuilder(tableName, slotName)
+						.addShardsStartOffset(IntStream.range(0, shardCount).boxed().collect(Collectors.toSet()), new BinlogOffset().setTimestamp("2021-04-12 12:12:12"))
+						.build());
 
 				int count = 0;
 				BinlogRecord record;
@@ -1383,12 +1409,15 @@ public class BinlogReaderTest extends HoloClientTestBase {
 
 				try (HoloClient client2 = new HoloClient(config)) {
 					// 不设置offsetMap，config也未设置startTime，因此从holo保存的消费位点启动
-					reader = client2.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName, slotName).build());
+					reader = client2.binlogSubscribe(Subscribe.newOffsetBuilder(tableName, slotName)
+							.addShardsStartOffset(IntStream.range(0, shardCount).boxed().collect(Collectors.toSet()), new BinlogOffset()).build());
 					// Committer的lsn初始化为-1，调用getBinlogRecord之前进行commit, -1不能被flush到holo
 					reader.commit(5000L);
 					reader.cancel();
 					// 从holo保存的消费位点启动, 验证上方commit是否将-1错误的写入holo
-					reader = client2.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName, slotName).build());
+					reader = client2.binlogSubscribe(Subscribe.newOffsetBuilder(tableName, slotName)
+							// startTime为null，从holo保存的消费位点启动(不设置为null,是从1970年开始消费)
+							.addShardsStartOffset(IntStream.range(0, shardCount).boxed().collect(Collectors.toSet()), new BinlogOffset().setTimestamp(null)).build());
 					while ((record = reader.getBinlogRecord()) != null) {
 						count++;
 						offsetMap.replace(record.getShardId(), new BinlogOffset(record.getBinlogLsn(), record.getBinlogTimestamp()));
@@ -1432,9 +1461,8 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String createSchema = "create schema if not exists new_schema;\n";
 
 			String createSql = "create table " + tableName
-					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id));\n "
-					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
-					+ "call set_table_property('" + tableName + "', 'shard_count', '3');\n";
+					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id))"
+					+ "with (binlog_level='replica', table_group='tg_3');\n";
 			execute(conn, new String[]{dropSql1});
 
 			execute(conn, new String[]{createSchema, "begin;", createSql, "commit;"});
@@ -1461,7 +1489,9 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				}
 				client.flush();
 
-				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName).build());
+				reader = client.binlogSubscribe(Subscribe.newOffsetBuilder(tableName)
+						.addShardsStartOffset(IntStream.range(0, 3).boxed().collect(Collectors.toSet()), new BinlogOffset().setTimestamp("2021-04-12 12:12:12"))
+						.build());
 
 				long start = System.nanoTime();
 				int count = 0;
@@ -1507,12 +1537,10 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String tableName = "holo_client_binlog_reader_033";
 			String dropSql1 = "drop table if exists " + tableName;
 			String createSql = "create table " + tableName
-					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id));\n "
-					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
-					+ "call set_table_property('" + tableName + "', 'shard_count', '1');\n";
+					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id))\n "
+					+ "with (binlog_level='replica', table_group='tg_1');\n";
 			execute(conn, new String[]{dropSql1});
-
-			execute(conn, new String[]{"begin;", createSql, "commit;"});
+			execute(conn, new String[]{createSql});
 			BinlogShardGroupReader reader = null;
 			try {
 				TableSchema schema = client.getTableSchema(tableName, true);
@@ -1544,7 +1572,8 @@ public class BinlogReaderTest extends HoloClientTestBase {
 					}
 				}
 
-				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName).build());
+				reader = client.binlogSubscribe(Subscribe.newOffsetBuilder(tableName)
+						.addShardsStartOffset(IntStream.range(0, 1).boxed().collect(Collectors.toSet()), new BinlogOffset().setTimestamp("2021-04-12 12:12:12")).build());
 
 				int count = 0;
 				BinlogRecord record;
@@ -1593,102 +1622,6 @@ public class BinlogReaderTest extends HoloClientTestBase {
 		}
 	}
 
-	/**
-	 * binlogGroupShardReader.
-	 * 多shard表 restart测试
-	 */
-	@Test
-	public void binlogReader037() throws Exception {
-		if (properties == null || holoVersion.compareTo(needVersion) < 0) {
-			return;
-		}
-		HoloConfig config = buildConfig();
-		config.setWriteMode(WriteMode.INSERT_OR_REPLACE);
-		config.setWriteThreadSize(10);
-		config.setBinlogReadBatchSize(20);
-
-		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
-			String tableName = "holo_client_binlog_reader_037";
-			String publicationName = "holo_client_binlog_reader_037_publication_test";
-			String slotName = "holo_client_binlog_reader_037_slot_1";
-
-			String dropSql1 = "drop table if exists " + tableName + "; drop publication if exists " + publicationName + ";\n";
-			String dropSql2 = "delete from hologres.hg_replication_progress where slot_name='" + slotName + "';\n";
-			String dropSql3 = "call hg_drop_logical_replication_slot('" + slotName + "');";
-			String createSql2 = "create table " + tableName
-					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id));\n "
-					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
-					+ "call set_table_property('" + tableName + "', 'shard_count', '10');\n";
-			String createSql3 = "create publication " + publicationName + " for table " + tableName + ";\n";
-			String createSql4 = "call hg_create_logical_replication_slot('" + slotName + "', 'hgoutput', '" + publicationName + "');\n";
-
-			execute(conn, new String[]{dropSql1});
-			tryExecute(conn, new String[]{dropSql2, dropSql3});
-			execute(conn, new String[]{"begin;", createSql2, "commit;", createSql3});
-			execute(conn, new String[]{createSql4});
-
-			BinlogShardGroupReader reader = null;
-
-			try {
-				TableSchema schema = client.getTableSchema(tableName, true);
-
-				for (int i = 0; i < 100000; ++i) {
-					Put put2 = new Put(schema);
-					put2.setObject("id", i);
-					put2.setObject("amount", "16.211");
-					put2.setObject("t", "abc,d");
-					if (i == 2) {
-						put2.setObject("t", null);
-					} else if (i == 3) {
-						put2.setObject("t", "NULL");
-					}
-					put2.setObject("ts", "2021-04-12 12:12:12");
-					put2.setObject("ba", new byte[]{(byte) (i % 128)});
-					put2.setObject("t_a", new String[]{"a", "b,c"});
-					put2.setObject("i_a", new int[]{1, 2, 3, 4, 5});
-					client.put(put2);
-				}
-				client.flush();
-
-				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName, slotName).build());
-
-				Thread.sleep(80000L);
-				long start = System.nanoTime();
-				int count = 0;
-				BinlogRecord record;
-				LOG.info("begin to getBinlogRecord");
-				Set<Long> set = new HashSet<>();
-				while ((record = reader.getBinlogRecord()) != null) {
-					count++;
-					Assert.assertTrue(set.add(record.getBinlogLsn() * 100 + record.getShardId()));
-					if (count % 10000 == 0) {
-						reader.commit(500000L);
-						//reader.closeShardReader(5);
-					}
-					if (count == 50000) {
-						reader.commit(500000L);
-						//reader.closeShardReader(5);
-					}
-					if (count == 100000) {
-						reader.cancel();
-						break;
-					}
-				}
-				LOG.info("reader cancel");
-
-				long end = System.nanoTime();
-				LOG.info("Binlog reader count: {}, cost: {} ms", count, (end - start) / 1000000L);
-
-				Assert.assertEquals(count, 100000);
-
-			} finally {
-				if (reader != null) {
-					reader.cancel();
-				}
-				tryExecute(conn, new String[]{dropSql1, dropSql2, dropSql3});
-			}
-		}
-	}
 
 	/**
 	 * binlogGroupShardReader.
@@ -1711,9 +1644,8 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String createSchema = "create schema if not exists new_schema;\n";
 
 			String createSql = "create table " + tableName
-					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id));\n "
-					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
-					+ "call set_table_property('" + tableName + "', 'shard_count', '3');\n";
+					+ "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id))"
+					+ "with (binlog_level='replica', table_group='tg_3');\n";
 
 			execute(conn, new String[]{dropSql1});
 			execute(conn, new String[]{createSchema, "begin;", createSql, "commit;"});
@@ -1741,7 +1673,9 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				}
 				client.flush();
 
-				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName).build());
+				reader = client.binlogSubscribe(Subscribe.newOffsetBuilder(tableName)
+						.addShardsStartOffset(IntStream.range(0, 3).boxed().collect(Collectors.toSet()), new BinlogOffset().setTimestamp("2021-04-12 12:12:12"))
+						.build());
 
 				long start = System.nanoTime();
 				int count = 0;
@@ -1764,6 +1698,996 @@ public class BinlogReaderTest extends HoloClientTestBase {
 						&& e.getMessage().contains("For hologres instance version lower than r2.1.0, need to provide slotName to subscribe binlog. your version is HoloVersion"))) {
 					throw new RuntimeException(e);
 				}
+			} finally {
+				if (reader != null) {
+					reader.cancel();
+				}
+				execute(conn, new String[]{dropSql1});
+			}
+		}
+	}
+
+	private String getPartitionTableName(String parentTable, Object partitionValue) {
+		TableName parentName = TableName.valueOf(parentTable);
+		return TableName.valueOf(
+						IdentifierUtil.quoteIdentifier(parentName.getSchemaName(), true),
+						IdentifierUtil.quoteIdentifier(parentName.getTableName() + "_" + partitionValue, true))
+				.getFullName();
+	}
+
+	/**
+	 * BinlogPartitionGroupReader.
+	 * 读取分区父表的binlog
+	 * DYNAMIC模式,指定一个很早的时间开始消费
+	 */
+	@Test
+	public void binlogReaderPartitionTableDynamic001() throws Exception {
+		if (properties == null || holoVersion.compareTo(needVersion) < 0) {
+			return;
+		}
+		HoloConfig config = buildConfig();
+		config.setWriteMode(WriteMode.INSERT_OR_REPLACE);
+		config.setBinlogReadBatchSize(128);
+		config.setBinlogHeartBeatIntervalMs(500L);
+		config.setDynamicPartition(true);
+		config.setBinlogPartitionSubscribeMode(BinlogPartitionSubscribeMode.DYNAMIC);
+
+		int shardCount = 3;
+		int partitionCount = 5;
+		// 数据比shard少时可以测试shard没有数据表现是否正常
+		int[] recordCountArray = new int[]{2, 100};
+		// 3个shard，但每张表只写入两条数据，测试某shard不存在数据的情况
+		for (int recordCount : recordCountArray) {
+			try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
+				String tableName = "\"TEST\".\"test_BINLOG_partition_table_DYNAMIC_001\"";
+				String createSchema = "create schema if not exists \"TEST\"";
+				String dropSql1 = "drop table if exists " + tableName;
+				String createSql = String.format("create table %s"
+						+ "(id int not null, amount decimal(12,2), name text, dt text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id, dt)) "
+						+ "PARTITION BY LIST(dt) "
+						+ "with (binlog_level='replica', table_group='tg_3', auto_partitioning_enable='true', auto_partitioning_time_unit='HOUR');\n ", tableName);
+				execute(conn, new String[]{createSchema, dropSql1});
+				execute(conn, new String[]{createSql});
+
+				BinlogPartitionGroupReader reader = null;
+				try {
+					TableSchema schema = client.getTableSchema(tableName, true);
+					// 除了当前子表，同时创建符合动态分区命名方式的（partitionCount -1 )个历史子表, 和未来的一张子表
+					int[] dt = new int[partitionCount + 1];
+					ZonedDateTime old = ZonedDateTime.now(schema.getAutoPartitioning().getTimeZoneId()).minusHours(partitionCount - 1);
+					// 多创建一张子表，防止测试在时间单元切换时触发
+					for (int i = 0; i <= partitionCount; ++i) {
+						dt[i] = Integer.parseInt(PartitionUtil.getPartitionSuffixByDateTime(old, schema.getAutoPartitioning()));
+						old = old.plusHours(1);
+					}
+
+					for (int i = 0; i < (partitionCount + 1) * recordCount; ++i) {
+						Put put = new Put(schema);
+						put.setObject("id", i);
+						put.setObject("amount", "16.211");
+						put.setObject("name", "abc,d");
+						put.setObject("dt", dt[i / recordCount]); // 自动创建符合动态分区格式的历史子表
+						put.setObject("ts", "2021-04-12 12:12:12");
+						put.setObject("ba", new byte[]{(byte) (i % 128)});
+						put.setObject("t_a", new String[]{"a", "b,c"});
+						put.setObject("i_a", new int[]{1, 2, 3, 4, 5});
+						client.put(put);
+					}
+					client.flush();
+
+					Map<Tuple<String, Integer>, Long> expectTableShardMaxLsn = new HashMap<>();
+					try (Statement stat = conn.createStatement()) {
+						for (int i = 0; i < partitionCount; ++i) {
+							String table = getPartitionTableName(tableName, dt[i]);
+							for (int shardId = 0; shardId < shardCount; shardId++) {
+								ResultSet rs = stat.executeQuery(String.format("select * from hg_get_binlog_cursor('%s','LATEST',%s);\n ", table, shardId));
+								if (rs.next() && rs.getLong(2) > 0) {
+									expectTableShardMaxLsn.put(new Tuple<>(table, shardId), rs.getLong(2));
+								}
+							}
+						}
+					}
+
+					// 指定一个很早的时间时，消费会从目前存在的最早的子表开始
+					Subscribe parentSubscribe = Subscribe.newOffsetBuilder(tableName)
+							.addShardsStartOffset(IntStream.range(0, shardCount).boxed().collect(Collectors.toSet()), new BinlogOffset().setTimestamp("2024-07-11 10:00:00"))
+							.build();
+					reader = client.partitionBinlogSubscribe(parentSubscribe);
+					Map<Tuple<String, Integer>, Long> tableShardMaxLsn = new HashMap<>();
+
+					int count = 0;
+					BinlogRecord record;
+					while ((record = reader.getBinlogRecord()) != null) {
+						String table = record.getSchema().getTableNameObj().getFullName();
+						int shardId = record.getShardId();
+						long lsn = record.getBinlogLsn();
+						if (!(record instanceof BinlogHeartBeatRecord)) {
+							count++;
+							tableShardMaxLsn.put(new Tuple<>(table, shardId), lsn);
+						}
+						if (count == partitionCount * recordCount) {
+							Assert.assertTrue(reader.getCurrentPartitionsInSubscribe().size() <= 2);
+							if (tableShardMaxLsn.equals(expectTableShardMaxLsn)) {
+								reader.cancel();
+								LOG.info("reader cancel because test ok.");
+								break;
+							}
+						}
+						// 测试过程中，新的时间单元到来，多消费了一张分区
+						if (count == (partitionCount + 1) * recordCount) {
+							Assert.assertTrue(reader.getCurrentPartitionsInSubscribe().size() <= 2);
+							if (isMapContained(tableShardMaxLsn, expectTableShardMaxLsn)) {
+								reader.cancel();
+								Set<String> extraTable = mapSubtract(tableShardMaxLsn, expectTableShardMaxLsn).keySet().stream().map(a -> a.l).collect(Collectors.toSet());
+								if (extraTable.size() != 1 || !extraTable.iterator().next().equals(getPartitionTableName(tableName, dt[partitionCount]))) {
+									Assert.fail("should not happen: bad result");
+								}
+								LOG.info("reader cancel because test ok: new partition started consuming during the test.");
+								break;
+							} else {
+								Assert.fail("should not happen: tableShardMaxLsn does not contain expectTableShardMaxLsn");
+							}
+                        }
+					}
+				} finally {
+					if (reader != null) {
+						reader.cancel();
+					}
+					execute(conn, new String[]{dropSql1});
+				}
+			}
+		}
+	}
+
+	/**
+	 * BinlogPartitionGroupReader.
+	 * 读取分区父表的binlog
+	 * DYNAMIC模式,指定一个时间从某张子表开始
+	 */
+	@Test
+	public void binlogReaderPartitionTableDynamic002() throws Exception {
+		if (properties == null || holoVersion.compareTo(needVersion) < 0) {
+			return;
+		}
+		HoloConfig config = buildConfig();
+		config.setWriteMode(WriteMode.INSERT_OR_REPLACE);
+		config.setBinlogReadBatchSize(128);
+		config.setBinlogHeartBeatIntervalMs(500L);
+		config.setDynamicPartition(true);
+		config.setBinlogPartitionSubscribeMode(BinlogPartitionSubscribeMode.DYNAMIC);
+
+		int shardCount = 3;
+		int partitionCount = 5;
+		boolean[] builderArray = new boolean[]{false, true};
+		for (boolean useStartTimeBuilder : builderArray) {
+			try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
+				String tableName = "\"TEST\".\"test_BINLOG_partition_table_DYNAMIC_002\"";
+				String createSchema = "create schema if not exists \"TEST\"";
+				String dropSql1 = "drop table if exists " + tableName;
+				String createSql = String.format("create table %s"
+						+ "(id int not null, amount decimal(12,2), name text, dt text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id, dt)) "
+						+ "PARTITION BY LIST(dt) "
+						+ "with (binlog_level='replica', table_group='tg_3', auto_partitioning_enable='true', auto_partitioning_time_unit='HOUR');\n ", tableName);
+				execute(conn, new String[]{createSchema, dropSql1});
+				execute(conn, new String[]{createSql});
+
+				BinlogPartitionGroupReader reader = null;
+				try {
+					TableSchema schema = client.getTableSchema(tableName, true);
+					// 除了当前子表，同时创建符合动态分区命名方式的（partitionCount -1 )个历史子表, 和未来的一张子表
+					int[] dt = new int[partitionCount + 1];
+					ZonedDateTime old = ZonedDateTime.now(schema.getAutoPartitioning().getTimeZoneId()).minusHours(partitionCount - 1);
+					ZonedDateTime d = old;
+					// 多创建一张子表，防止测试在时间单元切换时触发
+					for (int i = 0; i <= partitionCount; ++i) {
+						dt[i] = Integer.parseInt(PartitionUtil.getPartitionSuffixByDateTime(d, schema.getAutoPartitioning()));
+						d = d.plusHours(1);
+					}
+
+					for (int i = 0; i < (partitionCount + 1) * 100; ++i) {
+						Put put = new Put(schema);
+						put.setObject("id", i);
+						put.setObject("amount", "16.211");
+						put.setObject("name", "abc,d");
+						put.setObject("dt", dt[i / 100]); // 自动创建符合动态分区格式的历史子表
+						put.setObject("ts", "2021-04-12 12:12:12");
+						put.setObject("ba", new byte[]{(byte) (i % 128)});
+						put.setObject("t_a", new String[]{"a", "b,c"});
+						put.setObject("i_a", new int[]{1, 2, 3, 4, 5});
+						client.put(put);
+					}
+					client.flush();
+
+					Map<Tuple<String, Integer>, Long> expectTableShardMaxLsn = new HashMap<>();
+					try (Statement stat = conn.createStatement()) {
+						// 从第二张子表开始消费
+						for (int i = 1; i < partitionCount; ++i) {
+							String table = getPartitionTableName(tableName, dt[i]);
+							for (int shardId = 0; shardId < shardCount; shardId++) {
+								ResultSet rs = stat.executeQuery(String.format("select * from hg_get_binlog_cursor('%s','LATEST',%s);\n ", table, shardId));
+								if (rs.next()) {
+									expectTableShardMaxLsn.put(new Tuple<>(table, shardId), rs.getLong(2));
+								}
+							}
+						}
+					}
+
+					// 指定的时间是第二张子表所属范围时间
+					ZonedDateTime second = old.plusHours(1);
+					Subscribe parentSubscribe;
+					if (useStartTimeBuilder) {
+						parentSubscribe = Subscribe.newStartTimeBuilder(tableName).setBinlogReadStartTime(second.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))).build();
+					} else {
+						parentSubscribe = Subscribe.newOffsetBuilder(tableName)
+								.addShardsStartOffset(IntStream.range(0, shardCount).boxed().collect(Collectors.toSet()), new BinlogOffset().setTimestamp(second.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))))
+								.build();
+					}
+					reader = client.partitionBinlogSubscribe(parentSubscribe);
+					Map<Tuple<String, Integer>, Long> tableShardMaxLsn = new HashMap<>();
+
+					int count = 0;
+					BinlogRecord record;
+					while ((record = reader.getBinlogRecord()) != null) {
+						String table = record.getSchema().getTableNameObj().getFullName();
+						int shardId = record.getShardId();
+						long lsn = record.getBinlogLsn();
+						if (!(record instanceof BinlogHeartBeatRecord)) {
+							count++;
+							tableShardMaxLsn.put(new Tuple<>(table, shardId), lsn);
+						}
+						if (count == (partitionCount - 1) * 100) {
+							Assert.assertTrue(reader.getCurrentPartitionsInSubscribe().size() <= 2);
+							if (tableShardMaxLsn.equals(expectTableShardMaxLsn)) {
+								reader.cancel();
+								LOG.info("reader cancel because test ok.");
+								break;
+							}
+						}
+						// System.out.println(count + ": " + record.getTableName() + ": " + record.getShardId() + ", " + record.getBinlogLsn() + ", " + Arrays.toString(record.getValues()));
+						// 测试过程中，新的时间单元到来，多消费了一张分区
+						if (count == partitionCount * 100) {
+							if (isMapContained(tableShardMaxLsn, expectTableShardMaxLsn)) {
+								reader.cancel();
+								Set<String> extraTable = mapSubtract(tableShardMaxLsn, expectTableShardMaxLsn).keySet().stream().map(a -> a.l).collect(Collectors.toSet());
+								if (extraTable.size() != 1 || !extraTable.iterator().next().equals(getPartitionTableName(tableName, dt[partitionCount]))) {
+									Assert.fail("should not happen: bad result");
+								}
+								LOG.info("reader cancel because test ok: new partition started consuming during the test.");
+								break;
+							} else {
+								Assert.fail("should not happen: tableShardMaxLsn does not contain expectTableShardMaxLsn");
+							}
+						}
+					}
+				} finally {
+					if (reader != null) {
+						reader.cancel();
+					}
+					execute(conn, new String[]{dropSql1});
+				}
+			}
+		}
+	}
+
+	/**
+	 * BinlogPartitionGroupReader.
+	 * 读取分区父表的binlog
+	 * DYNAMIC模式,从两个指定了lsn的子表开始消费,模拟从checkpoint恢复
+	 */
+	@Test
+	public void binlogReaderPartitionTableDynamic003() throws Exception {
+		if (properties == null || holoVersion.compareTo(needVersion) < 0) {
+			return;
+		}
+		HoloConfig config = buildConfig();
+		config.setWriteMode(WriteMode.INSERT_OR_REPLACE);
+		config.setBinlogReadBatchSize(128);
+		config.setBinlogHeartBeatIntervalMs(500L);
+		config.setBinlogReadTimeoutMs(5000L);
+		config.setDynamicPartition(true);
+		config.setBinlogPartitionSubscribeMode(BinlogPartitionSubscribeMode.DYNAMIC);
+
+		int shardCount = 3;
+		Set<Integer> shards = IntStream.range(0, shardCount).boxed().collect(Collectors.toSet());
+		int partitionCount = 5;
+		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
+			String tableName = "\"TEST\".\"test_BINLOG_partition_table_DYNAMIC_003\"";
+			String createSchema = "create schema if not exists \"TEST\"";
+			String dropSql1 = "drop table if exists " + tableName;
+			String createSql = String.format("create table %s"
+					+ "(id int not null, amount decimal(12,2), name text, dt text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id, dt)) "
+					+ "PARTITION BY LIST(dt) "
+					+ "with (binlog_level='replica', table_group='tg_3', auto_partitioning_enable='true', auto_partitioning_time_unit='HOUR');\n ", tableName);
+			execute(conn, new String[]{createSchema, dropSql1});
+			execute(conn, new String[]{createSql});
+
+			BinlogPartitionGroupReader reader = null;
+			try {
+				TableSchema schema = client.getTableSchema(tableName, true);
+				// 除了当前子表，同时创建符合动态分区命名方式的（partitionCount -1 )个历史子表, 和未来的一张子表
+				int[] dt = new int[partitionCount + 1];
+				ZonedDateTime old = ZonedDateTime.now(schema.getAutoPartitioning().getTimeZoneId()).minusHours(partitionCount - 1);
+				// 多创建一张子表，防止测试在时间单元切换时触发
+				for (int i = 0; i <= partitionCount; ++i) {
+					dt[i] = Integer.parseInt(PartitionUtil.getPartitionSuffixByDateTime(old, schema.getAutoPartitioning()));
+					old = old.plusHours(1);
+				}
+
+				for (int i = 0; i < (partitionCount + 1) * 100; ++i) {
+					Put put = new Put(schema);
+					put.setObject("id", i);
+					put.setObject("amount", "16.211");
+					put.setObject("name", "abc,d");
+					put.setObject("dt", dt[i / 100]); // 自动创建符合动态分区格式的历史子表
+					put.setObject("ts", "2021-04-12 12:12:12");
+					put.setObject("ba", new byte[]{(byte) (i % 128)});
+					put.setObject("t_a", new String[]{"a", "b,c"});
+					put.setObject("i_a", new int[]{1, 2, 3, 4, 5});
+					client.put(put);
+				}
+				client.flush();
+
+				Map<Tuple<String, Integer>, Long> expectTableShardMaxLsn = new HashMap<>();
+				try (Statement stat = conn.createStatement()) {
+					for (int i = 0; i < 3; ++i) {
+						String table = getPartitionTableName(tableName, dt[i]);
+						for (int shardId = 0; shardId < shardCount; shardId++) {
+							ResultSet rs = stat.executeQuery(String.format("select * from hg_get_binlog_cursor('%s','LATEST',%s);\n ", table, shardId));
+							if (rs.next()) {
+								expectTableShardMaxLsn.put(new Tuple<>(table, shardId), rs.getLong(2));
+							}
+						}
+					}
+				}
+
+				try {
+					Subscribe.OffsetBuilder builder = Subscribe.newOffsetBuilder(tableName)
+							.addShardsStartOffset(shards, new BinlogOffset().setTimestamp("2024-07-11 10:00:00"));
+					// 为前3张子表设置起始点位, 抛出异常
+					for (int i = 0; i < 3; i++) {
+						String table = getPartitionTableName(tableName, dt[i]);
+						for (int j = 0; j < shardCount; j++) {
+							builder.addShardStartOffsetForPartition(table, j, new BinlogOffset().setSequence(expectTableShardMaxLsn.get(new Tuple<>(getPartitionTableName(tableName, dt[i]), j))));
+						}
+					}
+					reader = client.partitionBinlogSubscribe(builder.build());
+				} catch (HoloClientException e) {
+					if (!e.getMessage().contains("need to specify at most two partition tables")) {
+						throw e;
+					}
+				}
+				Subscribe.OffsetBuilder builder = Subscribe.newOffsetBuilder(tableName)
+						.addShardsStartOffset(shards, new BinlogOffset().setTimestamp("2024-07-11 10:00:00"));
+				// 为前2张子表设置起始点位, 并且先设置第二张子表, 验证启动消费时是否按照分区顺序启动
+				int partitionIndex = 1; // 第2张子表
+				{
+					String table = getPartitionTableName(tableName, dt[partitionIndex]);
+					for (int j = 0; j < shardCount; j++) {
+						builder.addShardStartOffsetForPartition(table, j, new BinlogOffset().setSequence(expectTableShardMaxLsn.get(new Tuple<>(getPartitionTableName(tableName, dt[partitionIndex]), j))));
+					}
+				}
+				partitionIndex = 0; // 第1张子表
+				{
+					String table = getPartitionTableName(tableName, dt[partitionIndex]);
+					for (int j = 0; j < shardCount; j++) {
+						builder.addShardStartOffsetForPartition(table, j, new BinlogOffset().setSequence(expectTableShardMaxLsn.get(new Tuple<>(getPartitionTableName(tableName, dt[partitionIndex]), j))));
+					}
+				}
+
+				reader = client.partitionBinlogSubscribe(builder.build());
+
+				for (int i = 0; i < (partitionCount + 1) * 100; ++i) {
+					Put put = new Put(schema);
+					put.setObject("id", i);
+					put.setObject("amount", "16.211");
+					put.setObject("name", "abc,d");
+					put.setObject("dt", dt[i / 100]);
+					put.setObject("ts", "2021-04-12 12:12:12");
+					put.setObject("ba", new byte[]{(byte) (i % 128)});
+					put.setObject("t_a", new String[]{"a", "b,c"});
+					put.setObject("i_a", new int[]{1, 2, 3, 4, 5});
+					client.put(put);
+				}
+				client.flush();
+
+				try (Statement stat = conn.createStatement()) {
+					for (int i = 0; i < partitionCount; ++i) {
+						String table = getPartitionTableName(tableName, dt[i]);
+						for (int shardId = 0; shardId < shardCount; shardId++) {
+							ResultSet rs = stat.executeQuery(String.format("select * from hg_get_binlog_cursor('%s','LATEST',%s);\n ", table, shardId));
+							if (rs.next()) {
+								expectTableShardMaxLsn.put(new Tuple<>(table, shardId), rs.getLong(2));
+							}
+						}
+					}
+				}
+
+				Map<Tuple<String, Integer>, Long> tableShardMaxLsn = new HashMap<>();
+
+				int count = 0;
+				BinlogRecord record;
+				while ((record = reader.getBinlogRecord()) != null) {
+					String table = record.getSchema().getTableNameObj().getFullName();
+					int shardId = record.getShardId();
+					long lsn = record.getBinlogLsn();
+					if (!(record instanceof BinlogHeartBeatRecord)) {
+						count++;
+						tableShardMaxLsn.put(new Tuple<>(table, shardId), lsn);
+					}
+					System.out.println(count + ": " + record.getTableName() + ": " + record.getShardId() + ", " + record.getBinlogLsn() + ", " + Arrays.toString(record.getValues()));
+					if (count == 2 * 200 + 3 * 300) {
+						Assert.assertTrue(reader.getCurrentPartitionsInSubscribe().size() <= 2);
+						if (tableShardMaxLsn.equals(expectTableShardMaxLsn)) {
+							reader.cancel();
+							LOG.info("reader cancel because test ok.");
+							break;
+						}
+					}
+					// 测试过程中，新的时间单元到来，多消费了一张分区
+					if (count == 2 * 200 + 4 * 300) {
+						Assert.assertTrue(reader.getCurrentPartitionsInSubscribe().size() <= 2);
+						if (isMapContained(tableShardMaxLsn, expectTableShardMaxLsn)) {
+							reader.cancel();
+							Set<String> extraTable = mapSubtract(tableShardMaxLsn, expectTableShardMaxLsn).keySet().stream().map(a -> a.l).collect(Collectors.toSet());
+							if (extraTable.size() != 1 || !extraTable.iterator().next().equals(getPartitionTableName(tableName, dt[partitionCount]))) {
+								Assert.fail("should not happen: bad result");
+							}
+							LOG.info("reader cancel because test ok: new partition started consuming during the test.");
+							break;
+						} else {
+							Assert.fail("should not happen: tableShardMaxLsn does not contain expectTableShardMaxLsn");
+						}
+					}
+				}
+			} finally {
+				if (reader != null) {
+					reader.cancel();
+				}
+				execute(conn, new String[]{dropSql1});
+			}
+		}
+	}
+
+	/**
+	 * BinlogPartitionGroupReader.
+	 * 读取分区父表的binlog
+	 * DYNAMIC模式,从某个指定了lsn的子表开始消费,但表已经不存在
+	 */
+	@Test
+	public void binlogReaderPartitionTableDynamic004() throws Exception {
+		if (properties == null || holoVersion.compareTo(needVersion) < 0) {
+			return;
+		}
+		HoloConfig config = buildConfig();
+		config.setWriteMode(WriteMode.INSERT_OR_REPLACE);
+		config.setBinlogReadBatchSize(128);
+		config.setBinlogHeartBeatIntervalMs(500L);
+		config.setDynamicPartition(true);
+		config.setBinlogPartitionSubscribeMode(BinlogPartitionSubscribeMode.DYNAMIC);
+
+		int shardCount = 3;
+		int partitionCount = 5;
+		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
+			String tableName = "\"TEST\".\"test_BINLOG_partition_table_DYNAMIC_004\"";
+			String createSchema = "create schema if not exists \"TEST\"";
+			String dropSql1 = "drop table if exists " + tableName;
+			String createSql = String.format("create table %s"
+					+ "(id int not null, amount decimal(12,2), name text, dt text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id, dt)) "
+					+ "PARTITION BY LIST(dt) "
+					+ "with (binlog_level='replica', table_group='tg_3', auto_partitioning_enable='true', auto_partitioning_time_unit='HOUR');\n ", tableName);
+			execute(conn, new String[]{createSchema, dropSql1});
+			execute(conn, new String[]{createSql});
+
+			BinlogPartitionGroupReader reader = null;
+			try {
+				TableSchema schema = client.getTableSchema(tableName, true);
+				// 除了当前子表，同时创建符合动态分区命名方式的（partitionCount -1 )个历史子表, 和未来的一张子表
+				int[] dt = new int[partitionCount + 1];
+				ZonedDateTime old = ZonedDateTime.now(schema.getAutoPartitioning().getTimeZoneId()).minusHours(partitionCount - 1);
+				// 多创建一张子表，防止测试在时间单元切换时触发
+				for (int i = 0; i <= partitionCount; ++i) {
+					dt[i] = Integer.parseInt(PartitionUtil.getPartitionSuffixByDateTime(old, schema.getAutoPartitioning()));
+					old = old.plusHours(1);
+				}
+
+				for (int i = 0; i < (partitionCount + 1) * 100; ++i) {
+					Put put = new Put(schema);
+					put.setObject("id", i);
+					put.setObject("amount", "16.211");
+					put.setObject("name", "abc,d");
+					put.setObject("dt", dt[i / 100]); // 自动创建符合动态分区格式的历史子表
+					put.setObject("ts", "2021-04-12 12:12:12");
+					put.setObject("ba", new byte[]{(byte) (i % 128)});
+					put.setObject("t_a", new String[]{"a", "b,c"});
+					put.setObject("i_a", new int[]{1, 2, 3, 4, 5});
+					client.put(put);
+				}
+				client.flush();
+
+				Map<Tuple<String, Integer>, Long> expectTableShardMaxLsn = new HashMap<>();
+				try (Statement stat = conn.createStatement()) {
+					for (int i = 0; i < 2; ++i) {
+						String table = getPartitionTableName(tableName, dt[i]);
+						for (int shardId = 0; shardId < shardCount; shardId++) {
+							ResultSet rs = stat.executeQuery(String.format("select * from hg_get_binlog_cursor('%s','LATEST',%s);\n ", table, shardId));
+							if (rs.next()) {
+								expectTableShardMaxLsn.put(new Tuple<>(table, shardId), rs.getLong(2));
+							}
+						}
+					}
+				}
+
+				Subscribe parentSubscribe = Subscribe.newOffsetBuilder(tableName)
+						.addShardsStartOffset(IntStream.range(0, shardCount).boxed().collect(Collectors.toSet()), new BinlogOffset().setTimestamp("2024-07-11 10:00:00"))
+						.build();
+				// 为第一张子表设置起始点位
+				parentSubscribe.getPartitionToSubscribeMap().clear();
+				for (int i = 0; i < 1; i++) {
+					String table = getPartitionTableName(tableName, dt[i]);
+					Subscribe.OffsetBuilder offsetBuilder = Subscribe.newOffsetBuilder(table);
+					for (int j = 0; j < shardCount; j++) {
+						offsetBuilder.addShardStartOffset(j,
+								new BinlogOffset().setSequence(expectTableShardMaxLsn.get(new Tuple<>(getPartitionTableName(tableName, dt[i]), j))));
+					}
+					parentSubscribe.getPartitionToSubscribeMap().put(table, offsetBuilder.build());
+				}
+				// drop 前两个子表
+				for (int i = 0; i < 2; i++) {
+					String table = getPartitionTableName(tableName, dt[i]);
+					execute(conn, new String[]{"drop table if exists " + table});
+				}
+				// 指定从lsn恢复但子表不存在,抛异常
+				try {
+					reader = client.partitionBinlogSubscribe(parentSubscribe);
+				} catch (HoloClientException e) {
+					if (!e.getMessage().contains("it may be an earlier partition table that has been dropped, could not start subscribe from lsn")) {
+						throw e;
+					}
+				}
+			} finally {
+				if (reader != null) {
+					reader.cancel();
+				}
+				execute(conn, new String[]{dropSql1});
+			}
+		}
+	}
+
+	/**
+	 * BinlogPartitionGroupReader.
+	 * 读取分区父表的binlog,默认读取所有子表binlog
+	 * 为每个需要消费的子表指定offsetMap
+	 */
+	@Test
+	public void binlogReaderPartitionTableStatic001() throws Exception {
+		if (properties == null || holoVersion.compareTo(needVersion) < 0) {
+			return;
+		}
+		HoloConfig config = buildConfig();
+		config.setWriteMode(WriteMode.INSERT_OR_REPLACE);
+		config.setBinlogReadBatchSize(128);
+		config.setDynamicPartition(true);
+		config.setBinlogHeartBeatIntervalMs(10000L);
+		config.setBinlogPartitionSubscribeMode(BinlogPartitionSubscribeMode.STATIC);
+
+		int shardCount = 3;
+		int partitionCount = 5;
+		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
+			String createSchema = "create schema if not exists \"Test\"";
+			String tableName = "\"Test\".\"Test_Binlog_partition_table_STATIC_001\"";
+			String dropSql1 = "drop table if exists " + tableName;
+			String createSql = String.format("create table %s"
+					+ "(id int not null, amount decimal(12,2), name text, pt text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id, pt)) "
+					+ "PARTITION BY LIST(pt) "
+					+ "with (binlog_level='replica', table_group='tg_3');\n ", tableName);
+			execute(conn, new String[]{createSchema, dropSql1});
+			execute(conn, new String[]{createSql});
+			BinlogPartitionGroupReader reader = null;
+
+			try {
+				TableSchema schema = client.getTableSchema(tableName, true);
+				for (int i = 0; i < partitionCount * 100; ++i) {
+					Put put = new Put(schema);
+					put.setObject("id", i);
+					put.setObject("amount", "16.211");
+					put.setObject("name", "abc,d");
+					int pt = i / 100;
+					put.setObject("pt", "kind_" + pt);
+					put.setObject("ts", "2021-04-12 12:12:12");
+					put.setObject("ba", new byte[]{(byte) (i % 128)});
+					put.setObject("t_a", new String[]{"a", "b,c"});
+					put.setObject("i_a", new int[]{1, 2, 3, 4, 5});
+					client.put(put);
+				}
+				client.flush();
+
+				Map<Tuple<String, Integer>, Long> expectTableShardMaxLsn = new HashMap<>();
+				try (Statement stat = conn.createStatement()) {
+					for (int i = 0; i < partitionCount; ++i) {
+						String table = getPartitionTableName(tableName, "kind_" + i);
+						for (int shardId = 0; shardId < shardCount; shardId++) {
+							ResultSet rs = stat.executeQuery(String.format("select * from hg_get_binlog_cursor('%s','LATEST',%s);\n ", table, shardId));
+							if (rs.next()) {
+								expectTableShardMaxLsn.put(new Tuple<>(table, shardId), rs.getLong(2));
+							}
+						}
+					}
+				}
+
+				Subscribe.OffsetBuilder offsetBuilder = Subscribe.newOffsetBuilder(tableName);
+				for (int shardId = 0; shardId < shardCount; shardId++) {
+					offsetBuilder.addShardStartOffset(shardId, new BinlogOffset().setTimestamp(1));
+				}
+				Subscribe parentSubscribe = offsetBuilder.build();
+				reader = client.partitionBinlogSubscribe(parentSubscribe);
+
+				Map<Tuple<String, Integer>, Long> tableShardMaxLsn = new HashMap<>();
+
+				int count = 0;
+				BinlogRecord record;
+				while ((record = reader.getBinlogRecord()) != null) {
+					String table = record.getSchema().getTableNameObj().getFullName();
+					int shardId = record.getShardId();
+					long lsn = record.getBinlogLsn();
+					if (!(record instanceof BinlogHeartBeatRecord)) {
+						count++;
+						tableShardMaxLsn.put(new Tuple<>(table, shardId), lsn);
+					}
+					if (count == partitionCount * 100) {
+						Assert.assertEquals(reader.getCurrentPartitionsInSubscribe().size(), partitionCount);
+						reader.cancel();
+						break;
+					}
+				}
+				LOG.info("reader cancel");
+				Assert.assertEquals(count, 500);
+				Assert.assertEquals(tableShardMaxLsn, expectTableShardMaxLsn);
+
+				// 指定仅消费前4张子表
+				parentSubscribe.getPartitionToSubscribeMap().clear();
+				for (int i = 0; i < partitionCount - 1; ++i) {
+					String table = getPartitionTableName(tableName, "kind_" + i);
+					Subscribe.OffsetBuilder builder = Subscribe.newOffsetBuilder(table);
+					for (int shardId = 0; shardId < shardCount; shardId++) {
+						builder.addShardStartOffset(shardId, new BinlogOffset().setSequence(expectTableShardMaxLsn.get(new Tuple<>(table, shardId))));
+					}
+					parentSubscribe.getPartitionToSubscribeMap().put(table, builder.build());
+				}
+
+				reader = client.partitionBinlogSubscribe(parentSubscribe);
+				for (int i = 0; i < partitionCount * 100; ++i) {
+					Put put = new Put(schema);
+					put.setObject("id", i);
+					put.setObject("amount", "16.211");
+					put.setObject("name", "abc,d");
+					int pt = i / 100;
+					put.setObject("pt", "kind_" + pt);
+					put.setObject("ts", "2021-04-12 12:12:12");
+					put.setObject("ba", new byte[]{(byte) (i % 128)});
+					put.setObject("t_a", new String[]{"a", "b,c"});
+					put.setObject("i_a", new int[]{1, 2, 3, 4, 5});
+					client.put(put);
+				}
+				client.flush();
+
+				try (Statement stat = conn.createStatement()) {
+					for (int i = 0; i < partitionCount - 1; ++i) {
+						String table = getPartitionTableName(tableName, "kind_" + i);
+						for (int shardId = 0; shardId < shardCount; shardId++) {
+							ResultSet rs = stat.executeQuery(String.format("select * from hg_get_binlog_cursor('%s','LATEST',%s);\n ", table, shardId));
+							if (rs.next()) {
+								expectTableShardMaxLsn.put(new Tuple<>(table, shardId), rs.getLong(2));
+							}
+						}
+					}
+				}
+				reader = client.partitionBinlogSubscribe(parentSubscribe);
+				count = 0;
+				while ((record = reader.getBinlogRecord()) != null) {
+					String table = record.getSchema().getTableNameObj().getFullName();
+					int shardId = record.getShardId();
+					long lsn = record.getBinlogLsn();
+					if (!(record instanceof BinlogHeartBeatRecord)) {
+						count++;
+						tableShardMaxLsn.put(new Tuple<>(table, shardId), lsn);
+					}
+					// update before + update after
+					if (count == (partitionCount - 1) * 100 * 2) {
+						Assert.assertEquals(reader.getCurrentPartitionsInSubscribe().size(), partitionCount - 1);
+						reader.cancel();
+						break;
+					}
+				}
+				LOG.info("reader cancel");
+				Assert.assertEquals(count, (partitionCount - 1) * 100 * 2);
+				Assert.assertEquals(tableShardMaxLsn, expectTableShardMaxLsn);
+			} finally {
+				if (reader != null) {
+					reader.cancel();
+				}
+				execute(conn, new String[]{dropSql1});
+			}
+		}
+	}
+
+	/**
+	 * BinlogPartitionGroupReader.
+	 * 读取分区父表的binlog, 通过参数指定部分子表
+	 */
+	@Test
+	public void binlogReaderPartitionTableStatic002() throws Exception {
+		if (properties == null || holoVersion.compareTo(needVersion) < 0) {
+			return;
+		}
+		HoloConfig config = buildConfig();
+		config.setWriteMode(WriteMode.INSERT_OR_REPLACE);
+		config.setBinlogReadBatchSize(128);
+		config.setDynamicPartition(true);
+		config.setBinlogHeartBeatIntervalMs(10000L);
+		config.setBinlogPartitionSubscribeMode(BinlogPartitionSubscribeMode.STATIC);
+		config.setPartitionValuesToSubscribe(new String[] {"kind_1", "kind_2", "kind_3", "kind_4"});
+
+		int shardCount = 3;
+		int partitionCount = 5;
+		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
+			String createSchema = "create schema if not exists \"Test\"";
+			String tableName = "\"Test\".\"Test_Binlog_partition_table_STATIC_002\"";
+			String dropSql1 = "drop table if exists " + tableName;
+			String createSql = String.format("create table %s"
+					+ "(id int not null, amount decimal(12,2), name text, pt text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id, pt)) "
+					+ "PARTITION BY LIST(pt) "
+					+ "with (binlog_level='replica', table_group='tg_3');\n ", tableName);
+			execute(conn, new String[]{createSchema, dropSql1});
+			execute(conn, new String[]{createSql});
+			BinlogPartitionGroupReader reader = null;
+
+			try {
+				TableSchema schema = client.getTableSchema(tableName, true);
+				for (int i = 0; i < partitionCount * 100; ++i) {
+					Put put = new Put(schema);
+					put.setObject("id", i);
+					put.setObject("amount", "16.211");
+					put.setObject("name", "abc,d");
+					int pt = i / 100;
+					put.setObject("pt", "kind_" + pt);
+					put.setObject("ts", "2021-04-12 12:12:12");
+					put.setObject("ba", new byte[]{(byte) (i % 128)});
+					put.setObject("t_a", new String[]{"a", "b,c"});
+					put.setObject("i_a", new int[]{1, 2, 3, 4, 5});
+					client.put(put);
+				}
+				client.flush();
+
+				Map<Tuple<String, Integer>, Long> expectTableShardMaxLsn = new HashMap<>();
+
+				try (Statement stat = conn.createStatement()) {
+					for (int i = 1; i < partitionCount; ++i) {
+						String table = getPartitionTableName(tableName, "kind_" + i);
+						for (int shardId = 0; shardId < shardCount; shardId++) {
+							ResultSet rs = stat.executeQuery(String.format("select * from hg_get_binlog_cursor('%s','LATEST',%s);\n ", table, shardId));
+							if (rs.next()) {
+								expectTableShardMaxLsn.put(new Tuple<>(table, shardId), rs.getLong(2));
+							}
+						}
+					}
+				}
+
+				Subscribe.OffsetBuilder offsetBuilder = Subscribe.newOffsetBuilder(tableName);
+				for (int shardId = 0; shardId < shardCount; shardId++) {
+					offsetBuilder.addShardStartOffset(shardId, new BinlogOffset().setTimestamp(1));
+				}
+				Subscribe parentSubscribe = offsetBuilder.build();
+				reader = client.partitionBinlogSubscribe(parentSubscribe);
+
+				Map<Tuple<String, Integer>, Long> tableShardMaxLsn = new HashMap<>();
+
+				int count = 0;
+				BinlogRecord record;
+				while ((record = reader.getBinlogRecord()) != null) {
+					String table = record.getSchema().getTableNameObj().getFullName();
+					int shardId = record.getShardId();
+					long lsn = record.getBinlogLsn();
+					if (!(record instanceof BinlogHeartBeatRecord)) {
+						count++;
+						tableShardMaxLsn.put(new Tuple<>(table, shardId), lsn);
+					}
+					if (count == (partitionCount - 1) * 100) {
+						Assert.assertEquals(reader.getCurrentPartitionsInSubscribe().size(), partitionCount - 1);
+						reader.cancel();
+						break;
+					}
+				}
+				LOG.info("reader cancel");
+				Assert.assertEquals(count, 400);
+				Assert.assertEquals(expectTableShardMaxLsn, tableShardMaxLsn);
+			} finally {
+				if (reader != null) {
+					reader.cancel();
+				}
+				execute(conn, new String[]{dropSql1});
+			}
+		}
+	}
+
+
+	/**
+	 * BinlogPartitionGroupReader.
+	 * 读取分区父表的binlog, 通过参数指定不存在的分区值,期望抛出异常
+	 */
+	@Test
+	public void binlogReaderPartitionTableStatic003() throws Exception {
+		if (properties == null || holoVersion.compareTo(needVersion) < 0) {
+			return;
+		}
+		HoloConfig config = buildConfig();
+		config.setWriteMode(WriteMode.INSERT_OR_REPLACE);
+		config.setBinlogReadBatchSize(128);
+		config.setDynamicPartition(true);
+		config.setBinlogHeartBeatIntervalMs(10000L);
+		config.setBinlogPartitionSubscribeMode(BinlogPartitionSubscribeMode.STATIC);
+		config.setPartitionValuesToSubscribe(new String[] {"kind_1", "kind_2", "kind_3", "kind_488"});
+
+		int shardCount = 3;
+		int partitionCount = 5;
+		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
+			String createSchema = "create schema if not exists \"Test\"";
+			String tableName = "\"Test\".\"Test_Binlog_partition_table_STATIC_003\"";
+			String dropSql1 = "drop table if exists " + tableName;
+			String createSql = String.format("create table %s"
+					+ "(id int not null, amount decimal(12,2), name text, pt text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id, pt)) "
+					+ "PARTITION BY LIST(pt) "
+					+ "with (binlog_level='replica', table_group='tg_3');\n ", tableName);
+			execute(conn, new String[]{createSchema, dropSql1});
+			execute(conn, new String[]{createSql});
+			BinlogPartitionGroupReader reader = null;
+
+			try {
+				TableSchema schema = client.getTableSchema(tableName, true);
+				for (int i = 0; i < partitionCount * 100; ++i) {
+					Put put = new Put(schema);
+					put.setObject("id", i);
+					put.setObject("amount", "16.211");
+					put.setObject("name", "abc,d");
+					int pt = i / 100;
+					put.setObject("pt", "kind_" + pt);
+					put.setObject("ts", "2021-04-12 12:12:12");
+					put.setObject("ba", new byte[]{(byte) (i % 128)});
+					put.setObject("t_a", new String[]{"a", "b,c"});
+					put.setObject("i_a", new int[]{1, 2, 3, 4, 5});
+					client.put(put);
+				}
+				client.flush();
+
+				Subscribe.OffsetBuilder offsetBuilder = Subscribe.newOffsetBuilder(tableName);
+				for (int shardId = 0; shardId < shardCount; shardId++) {
+					offsetBuilder.addShardStartOffset(shardId, new BinlogOffset());
+				}
+				Subscribe parentSubscribe = offsetBuilder.build();
+				try {
+					reader = client.partitionBinlogSubscribe(parentSubscribe);
+				} catch (HoloClientException e) {
+					if (!e.getMessage().contains("partition value kind_488 not found in partitioned table Test_Binlog_partition_table_STATIC_003")) {
+						throw e;
+					}
+				}
+			} finally {
+				if (reader != null) {
+					reader.cancel();
+				}
+				execute(conn, new String[]{dropSql1});
+			}
+		}
+	}
+
+
+	/**
+	 * BinlogPartitionGroupReader.
+	 * 读取分区父表的binlog, 通过参数指定部分子表的分区值. 父表指定起始消费时间
+	 */
+	@Test
+	public void binlogReaderPartitionTableStatic004() throws Exception {
+		if (properties == null || holoVersion.compareTo(needVersion) < 0) {
+			return;
+		}
+		HoloConfig config = buildConfig();
+		config.setWriteMode(WriteMode.INSERT_OR_REPLACE);
+		config.setBinlogReadBatchSize(128);
+		config.setDynamicPartition(true);
+		config.setBinlogHeartBeatIntervalMs(10000L);
+		config.setBinlogPartitionSubscribeMode(BinlogPartitionSubscribeMode.STATIC);
+		config.setPartitionValuesToSubscribe(new String[] {"kind_1", "kind_2", "kind_3", "kind_4"});
+
+		int shardCount = 3;
+		int partitionCount = 5;
+		try (Connection conn = buildConnection(); HoloClient client = new HoloClient(config)) {
+			String createSchema = "create schema if not exists \"Test\"";
+			String tableName = "\"Test\".\"Test_Binlog_partition_table_STATIC_004\"";
+			String dropSql1 = "drop table if exists " + tableName;
+			String createSql = String.format("create table %s"
+					+ "(id int not null, amount decimal(12,2), name text, pt text, ts timestamptz, ba bytea, t_a text[],i_a int[], primary key(id, pt)) "
+					+ "PARTITION BY LIST(pt) "
+					+ "with (binlog_level='replica', table_group='tg_3');\n ", tableName);
+			execute(conn, new String[]{createSchema, dropSql1});
+			execute(conn, new String[]{createSql});
+			BinlogPartitionGroupReader reader = null;
+
+			try {
+				TableSchema schema = client.getTableSchema(tableName, true);
+				for (int i = 0; i < partitionCount * 100; ++i) {
+					Put put = new Put(schema);
+					put.setObject("id", i);
+					put.setObject("amount", "16.211");
+					put.setObject("name", "abc,d");
+					int pt = i / 100;
+					put.setObject("pt", "kind_" + pt);
+					put.setObject("ts", "2021-04-12 12:12:12");
+					put.setObject("ba", new byte[]{(byte) (i % 128)});
+					put.setObject("t_a", new String[]{"a", "b,c"});
+					put.setObject("i_a", new int[]{1, 2, 3, 4, 5});
+					client.put(put);
+				}
+				client.flush();
+
+				String startTime = new Timestamp(System.currentTimeMillis()).toString();
+
+				for (int i = 0; i < partitionCount * 100; ++i) {
+					Put put = new Put(schema);
+					put.setObject("id", i);
+					put.setObject("amount", "16.211");
+					put.setObject("name", "abc,d");
+					int pt = i / 100;
+					put.setObject("pt", "kind_" + pt);
+					put.setObject("ts", "2021-04-12 12:12:12");
+					put.setObject("ba", new byte[]{(byte) (i % 128)});
+					put.setObject("t_a", new String[]{"a", "b,c"});
+					put.setObject("i_a", new int[]{1, 2, 3, 4, 5});
+					client.put(put);
+				}
+				client.flush();
+
+				Map<Tuple<String, Integer>, Long> expectTableShardMaxLsn = new HashMap<>();
+
+				try (Statement stat = conn.createStatement()) {
+					for (int i = 1; i < partitionCount; ++i) {
+						String table = getPartitionTableName(tableName, "kind_" + i);
+						for (int shardId = 0; shardId < shardCount; shardId++) {
+							ResultSet rs = stat.executeQuery(String.format("select * from hg_get_binlog_cursor('%s','LATEST',%s);\n ", table, shardId));
+							if (rs.next()) {
+								expectTableShardMaxLsn.put(new Tuple<>(table, shardId), rs.getLong(2));
+							}
+						}
+					}
+				}
+
+				Subscribe.OffsetBuilder offsetBuilder = Subscribe.newOffsetBuilder(tableName);
+				for (int shardId = 0; shardId < shardCount; shardId++) {
+					offsetBuilder.addShardStartOffset(shardId, new BinlogOffset().setTimestamp(startTime));
+				}
+				Subscribe parentSubscribe = offsetBuilder.build();
+				reader = client.partitionBinlogSubscribe(parentSubscribe);
+
+				Map<Tuple<String, Integer>, Long> tableShardMaxLsn = new HashMap<>();
+
+				int count = 0;
+				BinlogRecord record;
+				while ((record = reader.getBinlogRecord()) != null) {
+					String table = record.getSchema().getTableNameObj().getFullName();
+					int shardId = record.getShardId();
+					long lsn = record.getBinlogLsn();
+					if (!(record instanceof BinlogHeartBeatRecord)) {
+						count++;
+						tableShardMaxLsn.put(new Tuple<>(table, shardId), lsn);
+					}
+					System.out.println(count + ": " + record.getTableName() + ": " + record.getShardId() + ", " + record.getBinlogEventType() + ", "  + record.getBinlogLsn() + ", " + Arrays.toString(record.getValues()));
+					if (count == (partitionCount - 1) * 200) {
+						Assert.assertEquals(reader.getCurrentPartitionsInSubscribe().size(), partitionCount - 1);
+						reader.cancel();
+						break;
+					}
+				}
+				LOG.info("reader cancel");
+				Assert.assertEquals(count, 800);
+				Assert.assertEquals(expectTableShardMaxLsn, tableShardMaxLsn);
 			} finally {
 				if (reader != null) {
 					reader.cancel();
@@ -1815,9 +2739,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
 			String tableName = "holo_client_type_binlog_reader_" + typeName;
 			String dropSql1 = "drop table if exists " + tableName;
 			String createSql = "create table " + tableName
-					+ "(id " + typeCaseData.getColumnType() + ", pk int primary key);\n"
-					+ "call set_table_property('" + tableName + "', 'binlog.level', 'replica');\n"
-					+ "call set_table_property('" + tableName + "', 'shard_count', '1');\n";
+					+ "(id " + typeCaseData.getColumnType() + ", pk int primary key) with (binlog_level='replica',table_group='tg_1')\n";
 
 			execute(conn, new String[]{dropSql1});
 			execute(conn, new String[]{"begin;", createSql, "commit;"});
@@ -1839,7 +2761,9 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				}
 				client.flush();
 
-				reader = client.binlogSubscribe(Subscribe.newStartTimeBuilder(tableName).build());
+				reader = client.binlogSubscribe(Subscribe.newOffsetBuilder(tableName)
+						.addShardsStartOffset(IntStream.range(0, 1).boxed().collect(Collectors.toSet()), new BinlogOffset().setTimestamp("2021-04-12 12:12:12"))
+						.build());
 
 				int count = 0;
 				BinlogRecord record;
@@ -1866,5 +2790,27 @@ public class BinlogReaderTest extends HoloClientTestBase {
 				execute(conn, new String[]{dropSql1});
 			}
 		}
+	}
+
+	public static <K, V> boolean isMapContained(Map<K, V> largeMap, Map<K, V> smallMap) {
+		// 检查 smallMap 的每一个键值对是否都在 largeMap 中
+		for (Map.Entry<K, V> entry : smallMap.entrySet()) {
+			if (!largeMap.containsKey(entry.getKey()) || !largeMap.get(entry.getKey()).equals(entry.getValue())) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	public static <K, V> Map<K, V> mapSubtract(Map<K, V> largeMap, Map<K, V> smallMap) {
+		if (!isMapContained(largeMap, smallMap)) {
+            Assert.fail();
+        }
+		for (Map.Entry<K, V> entry : smallMap.entrySet()) {
+			if (largeMap.containsKey(entry.getKey())  && largeMap.get(entry.getKey()).equals(entry.getValue())) {
+				largeMap.remove(entry.getKey());
+			}
+		}
+		return largeMap;
 	}
 }

@@ -123,6 +123,22 @@ public class TableSchema implements Serializable {
 			return this;
 		}
 
+		public void setAutoPartitioningEnable(boolean autoPartitioningEnable) {
+			tableSchema.autoPartitioning.setEnable(autoPartitioningEnable);
+		}
+
+		public void setAutoPartitioningTimeUnit(String autoPartitioningTimeUnit) {
+			tableSchema.autoPartitioning.setTimeUnit(autoPartitioningTimeUnit);
+		}
+
+		public void setAutoPartitioningTimeZone(String autoPartitioningTimeZone) {
+			tableSchema.autoPartitioning.setTimeZone(autoPartitioningTimeZone);
+		}
+
+		public void setAutoPartitioningPreCreateNum(int autoPartitioningPreCreateNum) {
+			tableSchema.autoPartitioning.setPreCreateNum(autoPartitioningPreCreateNum);
+		}
+
 		public TableSchema build() {
 			tableSchema.columns = columns.toArray(new Column[]{});
 			return tableSchema;
@@ -184,6 +200,8 @@ public class TableSchema implements Serializable {
 	Map<String, Integer> columnNameToIndexMapping;
 	Map<String, Integer> lowerColumnNameToIndexMapping;
 	int partitionIndex = -2;
+
+	AutoPartitioning autoPartitioning = new AutoPartitioning();
 	String[] primaryKeys;
 	int[] keyIndex;
 	int[] distributionKeyIndex;
@@ -401,6 +419,10 @@ public class TableSchema implements Serializable {
 			return primaryKeySet.contains(columnName);
 		}
 		return false;
+	}
+
+	public AutoPartitioning getAutoPartitioning() {
+		return autoPartitioning;
 	}
 
 	/**

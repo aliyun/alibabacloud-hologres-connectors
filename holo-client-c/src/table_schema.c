@@ -56,6 +56,7 @@ HoloTableSchema* holo_client_new_tableschema() {
 }
 
 void holo_client_destroy_tableschema(HoloTableSchema* schema) {
+    LOG_DEBUG("destory table schema:%s", schema->tableName->fullName);
     holo_client_destroy_tablename(schema->tableName);
     FREE(schema->tableName);
     holo_client_destroy_columns(schema->columns, schema->nColumns);

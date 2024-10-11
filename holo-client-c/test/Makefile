@@ -39,7 +39,7 @@ COBJS:=$(SRCS:.c=.o)
 all:$(BIN)
 
 $(COBJS) : %.o: %.c
-	$(CC) -c $< -o $@ $(INCS) $(VERSION_FLAG) -std=c11 -D_XOPEN_SOURCE=600 -Wall -Werror
+	$(CC) -c $< -o $@ $(INCS) $(VERSION_FLAG) -std=c11 -D_XOPEN_SOURCE=600 -Wall -Werror -O0 -g3
 
 $(BIN):$(COBJS)
 	$(CC) -o $(BIN) $(COBJS) $(STATCI_LIBS) $(SHARED_LIBS) $(CFLAGS)

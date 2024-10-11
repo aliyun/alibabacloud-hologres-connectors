@@ -9,6 +9,9 @@ import com.alibaba.hologres.client.impl.binlog.BinlogOffset;
 import java.security.InvalidParameterException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.NavigableMap;
+import java.util.Set;
+import java.util.TreeMap;
 
 /**
  * 消费binlog的请求.
@@ -20,11 +23,19 @@ public class Subscribe {
 	private final Map<Integer, BinlogOffset> offsetMap;
 	private final String binlogReadStartTime;
 
+	// tableName是分区父表时,分区子表的消费请求
+	private final NavigableMap<String, Subscribe> partitionToSubscribeMap;
+
 	protected Subscribe(String tableName, String slotName, Map<Integer, BinlogOffset> offsetMap, String binlogReadStartTime) {
+		this(tableName, slotName, offsetMap, binlogReadStartTime, new TreeMap<>());
+	}
+
+	protected Subscribe(String tableName, String slotName, Map<Integer, BinlogOffset> offsetMap, String binlogReadStartTime, NavigableMap<String, Subscribe> partitionToSubscribeMap) {
 		this.tableName = tableName;
 		this.slotName = slotName;
 		this.offsetMap = offsetMap;
 		this.binlogReadStartTime = binlogReadStartTime;
+		this.partitionToSubscribeMap = partitionToSubscribeMap;
 	}
 
 	public String getTableName() {
@@ -43,12 +54,27 @@ public class Subscribe {
 		return binlogReadStartTime;
 	}
 
-	public static OffsetBuilder newOffsetBuilder(String tableName, String slotName) {
-		return new OffsetBuilder(tableName, slotName);
+	public NavigableMap<String, Subscribe> getPartitionToSubscribeMap() {
+		return partitionToSubscribeMap;
 	}
+
+	@Override
+	public String toString() {
+        return "Subscribe{" +
+                "tableName='" + tableName + '\'' +
+                ", slotName='" + slotName + '\'' +
+                ", offsetMap=" + offsetMap +
+                ", binlogReadStartTime='" + binlogReadStartTime + '\'' +
+                ", partitionToSubscribeMap=" + partitionToSubscribeMap +
+                '}';
+    }
 
 	public static OffsetBuilder newOffsetBuilder(String tableName) {
 		return new OffsetBuilder(tableName);
+	}
+
+	public static OffsetBuilder newOffsetBuilder(String tableName, String slotName) {
+		return new OffsetBuilder(tableName, slotName);
 	}
 
 	public static StartTimeBuilder newStartTimeBuilder(String tableName, String slotName) {
@@ -88,6 +114,7 @@ public class Subscribe {
 	 */
 	public static class OffsetBuilder extends Builder {
 		private Map<Integer, BinlogOffset> offsetMap;
+		private Map<String, Subscribe.OffsetBuilder> partitionToBuilderMap;
 
 		public OffsetBuilder(String tableName, String slotName) {
 			super(tableName, slotName);
@@ -112,16 +139,55 @@ public class Subscribe {
 			return this;
 		}
 
+		/**
+		 * 为一组shard设置offset.
+		 * 	一般用于批量设置启动时间.
+		 *
+		 * @param shardIds
+		 * @param offset
+		 * @return
+		 */
+		public OffsetBuilder addShardsStartOffset(Set<Integer> shardIds, BinlogOffset offset) {
+			shardIds.forEach(shardId -> addShardStartOffset(shardId, offset));
+			return this;
+		}
+
+		public OffsetBuilder addShardStartOffsetForPartition(String partitionName, int shardId, BinlogOffset offset) {
+			if (partitionToBuilderMap == null) {
+				partitionToBuilderMap = new HashMap<>();
+            }
+			OffsetBuilder partitionBuilder = partitionToBuilderMap.computeIfAbsent(partitionName, k -> new OffsetBuilder(partitionName));
+			partitionBuilder.addShardStartOffset(shardId, offset);
+            return this;
+        }
+
+		public OffsetBuilder addShardsStartOffsetForPartition(String partitionName, Set<Integer> shardIds, BinlogOffset offset) {
+			if (partitionToBuilderMap == null) {
+				partitionToBuilderMap = new HashMap<>();
+            }
+			OffsetBuilder partitionBuilder = partitionToBuilderMap.computeIfAbsent(partitionName, k -> new OffsetBuilder(partitionName));
+			partitionBuilder.addShardsStartOffset(shardIds, offset);
+			return this;
+        }
+
 		public Subscribe build() {
 			if (offsetMap == null) {
 				throw new InvalidParameterException("must call addShardStartOffset before build");
 			}
-			return new Subscribe(tableName, slotName, offsetMap, null);
+			if (partitionToBuilderMap != null) {
+                NavigableMap<String, Subscribe> partitionToSubscribeMap = new TreeMap<>();
+				partitionToBuilderMap.forEach((partition, subscribe) -> {
+                    partitionToSubscribeMap.put(partition, subscribe.build());
+                });
+                return new Subscribe(tableName, slotName, offsetMap, null, partitionToSubscribeMap);
+            } else {
+                return new Subscribe(tableName, slotName, offsetMap, null);
+            }
 		}
 	}
 
 	/**
-	 * 指定时间时用的.
+	 * 指定时间时用的, 不能指定shard, 运行时会默认给表的所有shard指定相同的启动时间.
 	 */
 	public static class StartTimeBuilder extends Builder {
 		private String binlogReadStartTime;

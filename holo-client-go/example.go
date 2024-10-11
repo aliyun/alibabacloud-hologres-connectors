@@ -5,11 +5,11 @@ import (
 	holoclient "holoclient/holo-client"
 	"math/rand"
 	"strconv"
+	"sync"
 	"time"
 )
 
-func simpleGetTest() {
-	connInfo := "host=xxxxx port=xxx dbname=xxxx user=xxxxx password=xxxxx"
+func simpleGetTest(connInfo string) {
 	config := holoclient.NewHoloConfig(connInfo)
 	client := holoclient.NewHoloClient(config)
 	//create table test_get(id int, name text, address text, primary key(id));
@@ -35,10 +35,10 @@ func simpleGetTest() {
 	client.Close()
 }
 
-func getListTest() {
-	connInfo := "host=xxxxx port=xxx dbname=xxxx user=xxxxx password=xxxxx"
+func getListTest(connInfo string) {
 	config := holoclient.NewHoloConfig(connInfo)
 	client := holoclient.NewHoloClient(config)
+	//create table test_get(id int, name text, address text, primary key(id));
 	schema := client.GetTableschema("", "test_get", false)
 
 	getList := make([]*holoclient.GetRequest, 100)
@@ -64,8 +64,7 @@ func getListTest() {
 	client.Close()
 }
 
-func simplePutTest() {
-	connInfo := "host=xxxxx port=xxx dbname=xxxx user=xxxxx password=xxxxx"
+func simplePutTest(connInfo string) {
 	config := holoclient.NewHoloConfig(connInfo)
 	config.SetWriteMode(holoclient.INSERT_OR_REPLACE)
 	client := holoclient.NewHoloClient(config)
@@ -93,12 +92,48 @@ func simplePutTest() {
 	client.Close()
 }
 
-func getInMultiThread() {
-	connInfo := "host=xxxxx port=xxx dbname=xxxx user=xxxxx password=xxxxx"
+func partitionPutTest(connInfo string) {
+	config := holoclient.NewHoloConfig(connInfo)
+	config.SetWriteMode(holoclient.INSERT_OR_REPLACE)
+	client := holoclient.NewHoloClient(config)
+	//create table test_go_partition_put (id int not null,name text,address text,primary key(id, name)) partition by list(name); create table test_go_partition_put_001 partition of test_go_partition_put for values in ('001');
+	schema := client.GetTableschema("", "test_go_partition_put", true)
+
+	var wg sync.WaitGroup
+	start := time.Now()
+	f := func() {
+		defer wg.Done()
+		for j := 0; j < 1; j++ {
+
+			for i := 0; i < 1000; i++ {
+				put := holoclient.NewMutationRequest(schema)
+				put.SetInt32ValByColName("id", int32(i))
+				put.SetTextValByColName("name", "001", 3)
+				put.SetTextValByColName("address", "aaa", 3)
+				client.Submit(put)
+			}
+			client.Flush()
+		}
+	}
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go f()
+	}
+	wg.Wait()
+
+	end := time.Now()
+	duration := end.Sub(start)
+	fmt.Printf("cost: %s\n", duration)
+
+	client.Close()
+}
+
+func getInMultiThread(connInfo string) {
 	config := holoclient.NewHoloConfig(connInfo)
 	config.SetThreadSize(20)
 	numThread := 100
 	client := holoclient.NewHoloClient(config)
+	//create table test_get(id int, name text, address text, primary key(id));
 	schema := client.GetTableschema("", "test_get", false)
 	running := true
 	numRecord := make(chan int)
@@ -138,9 +173,11 @@ func getInMultiThread() {
 
 func main() {
 	holoclient.HoloClientLoggerOpen() //HoloClientLoggerOpen()和HoloClientLoggerClose()只需要全局调用一次
-	simpleGetTest()
-	getListTest()
-	simplePutTest()
-	getInMultiThread()
+	connInfo := "host=xxxxx port=xxx dbname=xxxx user=xxxxx password=xxxxx"
+	simpleGetTest(connInfo)
+	getListTest(connInfo)
+	simplePutTest(connInfo)
+	partitionPutTest(connInfo)
+	getInMultiThread(connInfo)
 	holoclient.HoloClientLoggerClose()
 }

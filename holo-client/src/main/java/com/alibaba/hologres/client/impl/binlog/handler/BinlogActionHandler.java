@@ -144,7 +144,7 @@ public class BinlogActionHandler extends ActionHandler<BinlogAction> {
 				if (startTime != null) {
 					logicalStreamBuilder.withSlotOption("start_time", startTime);
 				}
-				LOG.info("Connected to url {}, shard {} start, start_lsn={}, start_time={}", url, action.getShardId(), startLsn, startTime);
+				LOG.info("Connected to url {}, table {} shard {} start, start_lsn={}, start_time={}", url, action.getTableName(), action.getShardId(), startLsn, startTime);
 				this.pgReplicationStream = logicalStreamBuilder.start();
 			} catch (SQLException e) {
 				close();
@@ -251,6 +251,10 @@ public class BinlogActionHandler extends ActionHandler<BinlogAction> {
 	}
 
 	private void tryFlush(ConnectionContext connContext, Queue<Tuple<CompletableFuture<Void>, Long>> commitJob) throws SQLException {
+		// 用户不传入slotName和commit job，没必要flush
+		if (null == commitJob) {
+            return;
+        }
 
 		Tuple<CompletableFuture<Void>, Long> job = commitJob.poll();
 		if (job == null) {

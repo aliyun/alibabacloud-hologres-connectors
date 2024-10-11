@@ -25,7 +25,7 @@ public class CopyUtil {
 	public static final char DELIMITER = ',';
 	public static final char NEWLINE = '\n';
 
-	public static String buildCopyInSql(String tableName, List<String> columns, boolean binary, boolean withPk, WriteMode mode, boolean streamMode) {
+	public static String buildCopyInSql(String tableName, List<String> columns, boolean binary, boolean withPk, WriteMode writeMode, CopyMode copyMode) {
 		StringBuilder sb = new StringBuilder();
 		sb.append("copy ").append(tableName).append("(");
 		boolean first = true;
@@ -41,7 +41,7 @@ public class CopyUtil {
 		}
 		sb.append(")");
 		sb.append(" from stdin with(");
-		if (streamMode) {
+		if (copyMode == CopyMode.STREAM) {
 			sb.append("stream_mode true");
 			if (binary) {
 				sb.append(", format binary");
@@ -51,14 +51,6 @@ public class CopyUtil {
 						.append("', QUOTE '").append(QUOTE)
 						.append("', NULL '").append(NULL).append("'");
 			}
-
-			if (withPk) {
-				sb.append(", on_conflict ")
-						.append(
-								mode == WriteMode.INSERT_OR_IGNORE
-										? "ignore"
-										: "update");
-			}
 		} else {
 			// 目前hologres普通copy（非stream_mode）只支持format csv
 			sb.append("format csv, DELIMITER '").append(DELIMITER)
@@ -66,24 +58,40 @@ public class CopyUtil {
 					.append("', QUOTE '").append(QUOTE)
 					.append("', NULL '").append(NULL).append("'");
 		}
+		// bulkLoad 自Hologres 2.2.25版本起支持on_conflict, 为了兼容历史版本, 分为两种模式
+		if (withPk && (copyMode == CopyMode.STREAM || copyMode == CopyMode.BULK_LOAD_ON_CONFLICT)) {
+			sb.append(", on_conflict ")
+					.append(
+							writeMode == WriteMode.INSERT_OR_IGNORE
+									? "ignore"
+									: "update");
+		}
 		sb.append(")");
 		return sb.toString();
 	}
 
 	public static String buildCopyInSql(TableSchema schema, boolean binary, WriteMode mode) {
-		return buildCopyInSql(schema, binary, mode, true);
+		return buildCopyInSql(schema, binary, mode, CopyMode.STREAM);
 	}
 
 	public static String buildCopyInSql(TableSchema schema, boolean binary, WriteMode mode, boolean streamMode) {
+        return buildCopyInSql(schema, binary, mode, streamMode ? CopyMode.STREAM : CopyMode.BULK_LOAD);
+    }
+
+	public static String buildCopyInSql(TableSchema schema, boolean binary, WriteMode mode, CopyMode copyMode) {
 		List<String> columns = Arrays.stream(schema.getColumnSchema()).map(Column::getName).collect(Collectors.toList());
-		return buildCopyInSql(schema.getTableNameObj().getFullName(), columns, binary, schema.getPrimaryKeys() != null && schema.getPrimaryKeys().length > 0, mode, streamMode);
+		return buildCopyInSql(schema.getTableNameObj().getFullName(), columns, binary, schema.getPrimaryKeys() != null && schema.getPrimaryKeys().length > 0, mode, copyMode);
 	}
 
 	public static String buildCopyInSql(Record jdbcRecord, boolean binary, WriteMode mode) {
-		return buildCopyInSql(jdbcRecord, binary, mode, true);
+		return buildCopyInSql(jdbcRecord, binary, mode, CopyMode.STREAM);
 	}
 
 	public static String buildCopyInSql(Record jdbcRecord, boolean binary, WriteMode mode, boolean streamMode) {
+        return buildCopyInSql(jdbcRecord, binary, mode, streamMode ? CopyMode.STREAM : CopyMode.BULK_LOAD);
+    }
+
+	public static String buildCopyInSql(Record jdbcRecord, boolean binary, WriteMode mode, CopyMode copyMode) {
 		TableSchema schema = jdbcRecord.getSchema();
 		List<String> columns = new ArrayList<>();
 		for (int i = 0; i < schema.getColumnSchema().length; ++i) {
@@ -91,6 +99,7 @@ public class CopyUtil {
 				columns.add(schema.getColumn(i).getName());
 			}
 		}
-		return buildCopyInSql(schema.getTableNameObj().getFullName(), columns, binary, schema.getPrimaryKeys() != null && schema.getPrimaryKeys().length > 0, mode, streamMode);
+		// for partition table, the jdbcRecord.getTableName() is partition child table name.
+		return buildCopyInSql(jdbcRecord.getTableName().getFullName(), columns, binary, schema.getPrimaryKeys() != null && schema.getPrimaryKeys().length > 0, mode, copyMode);
 	}
 }

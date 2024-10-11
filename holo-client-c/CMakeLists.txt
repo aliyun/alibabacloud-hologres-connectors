@@ -12,6 +12,9 @@ add_definitions(-DBUILD_VERSION=\"${GIT_VERSION}\")
 include(GNUInstallDirs)
 add_compile_options(-Wall)
 add_compile_options(-Werror)
+# 编译带符号
+# add_compile_options(-O0)
+# add_compile_options(-g3)
 # 当前使用的c编译器
 message("-- CMAKE_C_COMPILER: ${CMAKE_C_COMPILER_ID}")
 # 当前使用的c编译器的版本

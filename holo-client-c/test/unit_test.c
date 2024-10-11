@@ -78,6 +78,8 @@ CU_TestInfo testcase_type[] = {
 CU_TestInfo testcase_multithread[] = {
     {"testMultiThread01", testMT1},
     {"testMultiThread02", testMT2},
+    {"testMultiThread03", testMT3},
+    {"testMultiThread03", testMT4},
     CU_TEST_INFO_NULL
 };
 

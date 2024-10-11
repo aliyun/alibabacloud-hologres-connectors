@@ -9,6 +9,7 @@
 typedef struct _MetaCache {
     dlist_head schemaList;
     dlist_head parentList;
+    dlist_head garbageList;
     pthread_rwlock_t* rwlock;
 } MetaCache;
 
@@ -38,5 +39,6 @@ HoloTableSchema* find_tableschema_in_metacache(MetaCache*, HoloTableName);
 void add_tableschema_to_metacache(MetaCache*, HoloTableSchema*);
 HoloTableSchema* meta_cache_find_partition(MetaCache*, HoloTableSchema*, char*);
 void meta_cache_add_partition(MetaCache*, HoloTableSchema*, HoloTableSchema*, char*);
+void add_tableschema_to_garbage_list(MetaCache*, HoloTableSchema*);
 
 #endif

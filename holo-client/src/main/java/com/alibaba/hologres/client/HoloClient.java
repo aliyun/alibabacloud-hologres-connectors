@@ -14,6 +14,7 @@ import com.alibaba.hologres.client.impl.action.PutAction;
 import com.alibaba.hologres.client.impl.action.ScanAction;
 import com.alibaba.hologres.client.impl.action.SqlAction;
 import com.alibaba.hologres.client.impl.binlog.BinlogOffset;
+import com.alibaba.hologres.client.impl.binlog.BinlogRecordCollector;
 import com.alibaba.hologres.client.impl.binlog.Committer;
 import com.alibaba.hologres.client.impl.binlog.TableSchemaSupplier;
 import com.alibaba.hologres.client.impl.binlog.action.BinlogAction;
@@ -30,10 +31,11 @@ import com.alibaba.hologres.client.model.RecordScanner;
 import com.alibaba.hologres.client.model.TableName;
 import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.model.WriteMode;
+import com.alibaba.hologres.client.model.binlog.BinlogPartitionSubscribeMode;
 import com.alibaba.hologres.client.model.checkandput.CheckAndPutCondition;
 import com.alibaba.hologres.client.model.checkandput.CheckAndPutRecord;
 import com.alibaba.hologres.client.model.checkandput.CheckCompareOp;
-import com.alibaba.hologres.client.utils.IdentifierUtil;
+import com.alibaba.hologres.client.utils.PartitionUtil;
 import com.alibaba.hologres.client.utils.Tuple;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,12 +49,17 @@ import java.io.PipedOutputStream;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Types;
+import java.time.Instant;
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
@@ -338,7 +345,7 @@ public class HoloClient implements Closeable {
 	private ScanAction doScan(Scan scan) throws HoloClientException {
 		ensurePoolOpen();
 		ScanAction action = new ScanAction(scan);
-		ExecutionPool execPool = useFixedFe ? fixedPool : pool;
+		ExecutionPool execPool = getExecPool();
 		while (!execPool.submit(action)) {
 
 		}
@@ -403,6 +410,13 @@ public class HoloClient implements Closeable {
 		isEmbeddedFixedPool = false;
 	}
 
+	/**
+	 * 根据配置选择使用fixed pool或者fe pool，仅在fixed fe支持的情况下使用.
+	 */
+	public synchronized ExecutionPool getExecPool() {
+        return this.useFixedFe ? fixedPool : pool;
+    }
+
 	private void tryThrowException() throws HoloClientException {
 		if (pool != null) {
 			pool.tryThrowException();
@@ -428,7 +442,7 @@ public class HoloClient implements Closeable {
 			String value = String.valueOf(record.getObject(schema.getPartitionIndex()));
 			Partition partition = pool.getOrSubmitPartition(schema.getTableNameObj(), value, isStr, createIfNotExists);
 			if (partition != null) {
-				TableSchema newSchema = pool.getOrSubmitTableSchema(TableName.valueOf(IdentifierUtil.quoteIdentifier(partition.getSchemaName(), true), IdentifierUtil.quoteIdentifier(partition.getTableName(), true)), false);
+				TableSchema newSchema = pool.getOrSubmitTableSchema(TableName.quoteValueOf(partition.getSchemaName(), partition.getTableName()), false);
 				record.changeToChildSchema(newSchema);
 			} else if (exceptionIfNotExists) {
 				throw new HoloClientWithDetailsException(ExceptionCode.TABLE_NOT_FOUND, "child table is not found", record);
@@ -443,7 +457,7 @@ public class HoloClient implements Closeable {
 		ensurePoolOpen();
 		tryThrowException();
 		checkPut(put);
-		ExecutionPool execPool = useFixedFe ? fixedPool : pool;
+		ExecutionPool execPool = getExecPool();
 		if (!rewriteForPartitionTable(put.getRecord(), config.isDynamicPartition() && !Put.MutationType.DELETE.equals(put.getRecord().getType()), !Put.MutationType.DELETE.equals(put.getRecord().getType()))) {
 			if (!asyncCommit) {
 				Record r = put.getRecord();
@@ -720,8 +734,36 @@ public class HoloClient implements Closeable {
 		}
 	}
 
+	/**
+	 * 检查传入的binlog offset map是否合法.
+	 */
+	private Map<Integer, BinlogOffset> checkBinlogOffsetMap(Subscribe subscribe, int shardCount) throws HoloClientException {
+		Map<Integer, BinlogOffset> offsetMap = subscribe.getOffsetMap();
+		if (offsetMap == null && subscribe.getBinlogReadStartTime() == null) {
+			// 至少得设置一个
+			throw new HoloClientException(ExceptionCode.INVALID_REQUEST, String.format("at least one of offsetMap and binlogReadStartTime must be set for subscribe %s", subscribe));
+		}
+		// 如果只设置了起始时间, 默认为所有shard初始化offset
+		if (offsetMap == null) {
+			offsetMap = new HashMap<>();
+			for (int i = 0; i < shardCount; i++) {
+				offsetMap.put(i, new BinlogOffset().setTimestamp(subscribe.getBinlogReadStartTime()));
+			}
+		}
+		for (Integer shardId : offsetMap.keySet()) {
+			if (shardId < 0 || shardId >= shardCount) {
+				throw new HoloClientException(ExceptionCode.INVALID_REQUEST, String.format("invalid shard id [%s] for table %s", shardId, subscribe.getTableName()));
+			}
+		}
+		return offsetMap;
+	}
+
 	public BinlogShardGroupReader binlogSubscribe(Subscribe subscribe) throws HoloClientException {
 		ensurePoolOpen();
+		if (config.getBinlogReadTimeoutMs() > 0 && config.getBinlogReadTimeoutMs() < config.getBinlogHeartBeatIntervalMs()) {
+			// 心跳时间间隔必须小于超时时间
+			throw new HoloClientException(ExceptionCode.INVALID_REQUEST, "Subscribe binlog need set BinlogReadTimeoutSeconds greater than BinlogHeartBeatIntervalMs.");
+		}
 		TableSchemaSupplier supplier = new TableSchemaSupplier() {
 			@Override
 			public TableSchema apply() throws HoloClientException {
@@ -739,42 +781,220 @@ public class HoloClient implements Closeable {
 				throw new HoloClientException(ExceptionCode.INVALID_REQUEST, String.format("For hologres instance version lower than r2.1.0, need to provide slotName to subscribe binlog. your version is %s", holoVersion));
 			}
 		}
-		Map<Integer, BinlogOffset> offsetMap = subscribe.getOffsetMap();
-		if (null != offsetMap) {
-			for (Integer shardId : offsetMap.keySet()) {
-				if (shardId < 0 || shardId >= shardCount) {
-					throw new HoloClientException(ExceptionCode.INVALID_REQUEST, String.format("invalid shard id [%s] for table %s", shardId, subscribe.getTableName()));
-				}
-			}
-		} else {
-			offsetMap = new HashMap<>();
-			for (int i = 0; i < shardCount; i++) {
-				offsetMap.put(i, new BinlogOffset().setTimestamp(subscribe.getBinlogReadStartTime()));
-			}
-		}
+		Map<Integer, BinlogOffset> offsetMap = checkBinlogOffsetMap(subscribe, shardCount);
 
 		BinlogShardGroupReader reader = null;
 		try {
 			AtomicBoolean started = new AtomicBoolean(true);
 			Map<Integer, Committer> committerMap = new HashMap<>();
-			reader = new BinlogShardGroupReader(config, subscribe, offsetMap.size(), committerMap, started);
+			BinlogRecordCollector collector = new BinlogRecordCollector(new ArrayBlockingQueue<>(Math.max(1024, offsetMap.size() * config.getBinlogReadBatchSize() / 2)));
+			reader = new BinlogShardGroupReader(config, subscribe, committerMap, started, collector);
 			for (Map.Entry<Integer, BinlogOffset> entry : offsetMap.entrySet()) {
-				BlockingQueue<Tuple<CompletableFuture<Void>, Long>> queue = new ArrayBlockingQueue<>(1);
-				Committer committer = new Committer(queue);
+				BlockingQueue<Tuple<CompletableFuture<Void>, Long>> commiterJobQueue = new ArrayBlockingQueue<>(1);
+				Committer committer = new Committer(commiterJobQueue);
 				committerMap.put(entry.getKey(), committer);
-				BinlogAction action = new BinlogAction(subscribe.getTableName(), subscribe.getSlotName(), entry.getKey(), entry.getValue().getSequence(), entry.getValue().getStartTimeText(), reader.getCollector(), supplier, queue);
-				if (this.useFixedFe) {
-					reader.addThread(fixedPool.submitOneShotAction(started, entry.getKey(), action));
-				} else {
-					reader.addThread(pool.submitOneShotAction(started, entry.getKey(), action));
+				BinlogAction action = new BinlogAction(subscribe.getTableName(), subscribe.getSlotName(), entry.getKey(), entry.getValue().getSequence(), entry.getValue().getStartTimeText(), reader.getCollector(), supplier, commiterJobQueue);
+				reader.addThread(getExecPool().submitOneShotAction(started, String.format("binlog-%s-%s", subscribe.getTableName(), entry.getKey()), action));
+			}
+		} catch (HoloClientException e) {
+            reader.close();
+            throw e;
+		}
+		return reader;
+	}
+
+	/**
+	 * 验证分区订阅配置是否有效.
+	 *	检查配置是否符合要求,需要消费的分区是否存在,分期需要消费的shard是否正确等
+	 *
+	 * @param partitionedSubscribe 父级订阅对象
+	 * @throws HoloClientException 如果验证失败，则抛出此异常
+	 * @return 必要的话, 会对分区订阅对象进行调整
+	 */
+	private Subscribe validatePartitionSubscription(Subscribe partitionedSubscribe) throws HoloClientException {
+		TableSchema parentSchema = getTableSchema(partitionedSubscribe.getTableName());
+		if (!parentSchema.isPartitionParentTable()) {
+			throw new HoloClientException(ExceptionCode.INVALID_REQUEST, String.format("The table %s is not a partition parent table.", partitionedSubscribe.getTableName()));
+		}
+		if (config.getBinlogPartitionSubscribeMode() == BinlogPartitionSubscribeMode.DISABLE) {
+			throw new HoloClientException(ExceptionCode.INVALID_REQUEST, String.format("Subscribe partition table %s binlog should set BinlogPartitionSubscribeMode.", partitionedSubscribe.getTableName()));
+		}
+		HoloVersion holoVersion = Command.getHoloVersion(this);
+		// 消费分区父表binlog,可能占用较多的连接数,建议2.1.20版本以上结合fixed fe模式来使用.
+		if (holoVersion.compareTo(new HoloVersion("2.1.20")) < 0) {
+			throw new HoloClientException(ExceptionCode.INVALID_REQUEST, String.format("Subscription partition parent table requires the hologres instance version greater than 2.1.20. your version is %s", holoVersion));
+		}
+		// 消费分区父表需要设置心跳时间间隔
+		if (config.getBinlogHeartBeatIntervalMs() <= 0) {
+			throw new HoloClientException(ExceptionCode.INVALID_REQUEST, String.format("Subscribe partition parent table %s binlog need set BinlogHeartBeatIntervalMs.", partitionedSubscribe.getTableName()));
+		}
+		// 心跳时间间隔必须小于超时时间
+		if (config.getBinlogReadTimeoutMs() > 0 && config.getBinlogReadTimeoutMs() < config.getBinlogHeartBeatIntervalMs()) {
+			throw new HoloClientException(ExceptionCode.INVALID_REQUEST, "Subscribe binlog need set BinlogReadTimeoutSeconds greater than BinlogHeartBeatIntervalMs.");
+		}
+		NavigableMap<String, Subscribe> partitionToSubscribe = partitionedSubscribe.getPartitionToSubscribeMap();
+		int shardCount = Command.getShardCount(this, parentSchema);
+		Map<Integer, BinlogOffset> offsetMap = checkBinlogOffsetMap(partitionedSubscribe, shardCount);
+		Set<Integer> shardIds = offsetMap.keySet();
+		LinkedHashMap<String, TableName> partValueToPartitionTableMap = Command.getPartValueToPartitionTableMap(this, parentSchema);
+		if (config.getBinlogPartitionSubscribeMode() == BinlogPartitionSubscribeMode.STATIC) {
+			// STATIC mode
+			for (Subscribe subscribe : partitionToSubscribe.values()) {
+				TableName partitionName = TableName.valueOf(subscribe.getTableName());
+				if (!partValueToPartitionTableMap.containsValue(partitionName)) {
+					throw new HoloClientException(ExceptionCode.INVALID_REQUEST, String.format("partition table %s not a child table of %s.", partitionName, partitionedSubscribe.getTableName()));
+				}
+				if (!subscribe.getOffsetMap().keySet().equals(shardIds)) {
+					throw new HoloClientException(ExceptionCode.INVALID_REQUEST, String.format("shardIds %s to subscribe of partition table %s not same with parent table %s binlog offset shardIds %s.",
+							offsetMap.keySet(),
+							subscribe.getTableName(),
+							partitionedSubscribe.getTableName(),
+							shardIds));
 				}
 			}
-
-		} catch (HoloClientException e) {
-			if (null != reader) {
-				reader.close();
+		} else if (config.getBinlogPartitionSubscribeMode() == BinlogPartitionSubscribeMode.DYNAMIC) {
+			// DYNAMIC模式需要开启自动分区, 且需要设置预创建分区数量大于等于1
+			if (!parentSchema.getAutoPartitioning().isEnable()) {
+				throw new HoloClientException(ExceptionCode.INVALID_REQUEST, String.format("Subscribe partition parent table %s binlog by DYNAMIC mode need enable auto partitioning.", partitionedSubscribe.getTableName()));
 			}
-			throw e;
+			if (parentSchema.getAutoPartitioning().getPreCreateNum() < 1) {
+                throw new HoloClientException(ExceptionCode.INVALID_REQUEST, String.format("Subscribe partition parent table %s binlog by DYNAMIC mode need set PreCreateNum lager than 1, but now is %s.",
+						partitionedSubscribe.getTableName(),
+						parentSchema.getAutoPartitioning().getPreCreateNum()));
+            }
+			// DYNAMIC模式有状态恢复,最多只能指定2张表,在消费延迟数据时,可能存在两张表同时保存checkpoint的情况
+			if (partitionToSubscribe.size() > 2) {
+				throw new HoloClientException(ExceptionCode.INVALID_REQUEST, String.format("Subscribe partition parent table %s binlog by DYNAMIC mode," +
+						" need to specify at most two partition tables, but now is %s.", partitionedSubscribe.getTableName(), partitionToSubscribe.size()));
+			}
+			// 考虑用户传入的表可能是较早的分区子表，已经被删除
+			Iterator<Map.Entry<String, Subscribe>> iterator = partitionToSubscribe.entrySet().iterator();
+			while (iterator.hasNext()) {
+				Map.Entry<String, Subscribe> entry = iterator.next();
+				if (!partValueToPartitionTableMap.containsValue(TableName.valueOf(entry.getKey()))) {
+					boolean hasLsn = entry.getValue().getOffsetMap().values().stream()
+							.anyMatch(BinlogOffset::hasSequence);
+					if (hasLsn) {
+						throw new HoloClientException(ExceptionCode.INVALID_REQUEST, String.format("partition table %s not found, it may be an earlier partition table that has been dropped, could not start subscribe from lsn.", entry.getKey()));
+					} else {
+						LOGGER.warn("partition table {} not found, it may be an earlier partition table that has been dropped, ignore it.", entry.getKey());
+						iterator.remove();
+					}
+				}
+			}
+			// 传入的子表都已经过期被删除了，消费默认从目前最早的分区子表开始
+			if (partitionToSubscribe.isEmpty()) {
+				Iterator<Map.Entry<String, TableName>> iter = partValueToPartitionTableMap.entrySet().iterator();
+				TableName oldestPartition = null;
+				while (iter.hasNext()) {
+					TableName tableName = iter.next().getValue();
+					if (PartitionUtil.isPartitionTableNameLegal(tableName.getTableName(), parentSchema.getAutoPartitioning())) {
+						oldestPartition = tableName;
+						break;
+					} else {
+						// 分区子表表名不符合规则, 忽略
+						LOGGER.warn("partition table {} is illegal, ignore it.", tableName);
+					}
+				}
+				if (oldestPartition == null) {
+                    throw new HoloClientException(ExceptionCode.INVALID_REQUEST, String.format("partition parent table %s has no valid partition table.", partitionedSubscribe.getTableName()));
+                }
+				// 继承部分传入的父表订阅信息, 重新构建
+				Subscribe.OffsetBuilder newBuilder = Subscribe.newOffsetBuilder(partitionedSubscribe.getTableName());
+				for (Map.Entry<Integer, BinlogOffset> entry : offsetMap.entrySet()) {
+					newBuilder.addShardStartOffset(entry.getKey(), entry.getValue());
+				}
+				newBuilder.addShardsStartOffsetForPartition(oldestPartition.getFullName(), shardIds, new BinlogOffset());
+				partitionedSubscribe = newBuilder.build();
+				LOGGER.info("start binlog subscribe from oldest partition {} by default.", oldestPartition);
+			}
+		}
+		return partitionedSubscribe;
+	}
+
+	/**
+	 * 订阅分区表binlog.
+	 * 	1. 如果未指定子表的订阅信息,则根据父表订阅信息选择需要消费的子表
+	 * 		1.1 STATIC mode: 从参数获取需要消费的子表,或者消费所有子表
+	 * 		1.2 DYNAMIC mode: 从父表订阅信息中获取最早的起始时间,选择此时间对应的子表开始消费
+	 * 	2. 验证分区订阅配置是否有效
+	 * 	3. 创建分区父表reader, 启动对分区binlog的读取
+	 *
+	 * @param partitionedSubscribe 分区父表的订阅信息
+	 * @return  返回分区父表binlog的reader, 内部可能消费多个子表
+	 */
+	public BinlogPartitionGroupReader partitionBinlogSubscribe(Subscribe partitionedSubscribe) throws HoloClientException {
+		ensurePoolOpen();
+		TableSchema parentSchema = this.getTableSchema(partitionedSubscribe.getTableName());
+		int shardCount = Command.getShardCount(this, parentSchema);
+		Map<Integer, BinlogOffset> offsetMap = checkBinlogOffsetMap(partitionedSubscribe, shardCount);
+		Set<Integer> shards = offsetMap.keySet();
+
+		// 没有特别指定子表的订阅信息
+		if (partitionedSubscribe.getPartitionToSubscribeMap().isEmpty()) {
+			// 继承部分传入的父表订阅信息, 重新构建
+			Subscribe.OffsetBuilder newBuilder = Subscribe.newOffsetBuilder(partitionedSubscribe.getTableName());
+			for (Map.Entry<Integer, BinlogOffset> entry : offsetMap.entrySet()) {
+				newBuilder.addShardStartOffset(entry.getKey(), entry.getValue());
+            }
+			if (config.getBinlogPartitionSubscribeMode() == BinlogPartitionSubscribeMode.STATIC) {
+				// STATIC mode: 从参数获取需要消费的子表,或者消费所有子表
+				LinkedHashMap<String, TableName> partValueToPartitionTableMap = Command.getPartValueToPartitionTableMap(this, parentSchema);
+				if (config.getPartitionValuesToSubscribe() != null && config.getPartitionValuesToSubscribe().length > 0) {
+					// 通过指定的分区值,计算消费指定的子表
+					String[] partitionTables = new String[config.getPartitionValuesToSubscribe().length];
+					for (int i = 0; i < config.getPartitionValuesToSubscribe().length; i++) {
+						String partValue = config.getPartitionValuesToSubscribe()[i];
+						if (partValueToPartitionTableMap.containsKey(partValue)) {
+							partitionTables[i] = partValueToPartitionTableMap.get(partValue).getFullName();
+						} else {
+							throw new HoloClientException(ExceptionCode.INVALID_REQUEST, String.format("partition value %s not found in partitioned table %s.", partValue, parentSchema.getTableName()));
+
+						}
+					}
+					for (Map.Entry<Integer, BinlogOffset> entry : offsetMap.entrySet()) {
+						int shard = entry.getKey();
+						long startTime = entry.getValue().getTimestamp();
+						// 每个子表都从父表对应shard指定的消费时间开始消费
+						for (String partitionTable : partitionTables) {
+							newBuilder.addShardStartOffsetForPartition(partitionTable, shard, new BinlogOffset().setTimestamp(startTime));
+						}
+					}
+				} else {
+					//  未指定子表,默认消费所有子表
+					for (Map.Entry<Integer, BinlogOffset> entry :offsetMap.entrySet()) {
+						int shard = entry.getKey();
+						long startTime = entry.getValue().getTimestamp();
+						// 每个子表都从父表对应shard指定的消费时间开始消费
+						for (TableName partitionName : partValueToPartitionTableMap.values()) {
+							newBuilder.addShardStartOffsetForPartition(partitionName.getFullName(), shard, new BinlogOffset().setTimestamp(startTime));
+						}
+					}
+				}
+			} else {
+				// DYNAMIC mode: 从父表订阅信息中获取时间,选择此时间对应的子表开始消费
+				// 获取最早的时间: 我们认为指定时间消费的场景,所有shard的时间应该都是相同的,这里取最早的时间并计算对应的分区,作为相应子表所有shard的开始分区及开始时间
+				long startTime = Long.MAX_VALUE;
+				for (BinlogOffset binlogOffset : offsetMap.values()) {
+					startTime = Math.min(startTime, binlogOffset.getTimestamp());
+				}
+				ZonedDateTime z = ZonedDateTime.ofInstant(Instant.ofEpochMilli(startTime / 1000L), parentSchema.getAutoPartitioning().getTimeZoneId());
+				TableName earliestPartition = TableName.quoteValueOf(parentSchema.getSchemaName(),
+								PartitionUtil.getPartitionNameByDateTime(parentSchema.getTableName(), z, parentSchema.getAutoPartitioning()));
+				LOGGER.info("start binlog subscribe from partition {}, startTime {}", earliestPartition, z);
+				newBuilder.addShardsStartOffsetForPartition(earliestPartition.getFullName(), shards, new BinlogOffset().setTimestamp(startTime));
+			}
+			partitionedSubscribe = newBuilder.build();
+        }
+
+		// 验证分区订阅配置是否有效
+		partitionedSubscribe = validatePartitionSubscription(partitionedSubscribe);
+
+		AtomicBoolean started = new AtomicBoolean(true);
+		BinlogRecordCollector collector = new BinlogRecordCollector(new ArrayBlockingQueue<>(Math.max(1024, shards.size() * config.getBinlogReadBatchSize() * 5)));
+		BinlogPartitionGroupReader reader = new BinlogPartitionGroupReader(config, partitionedSubscribe, started, parentSchema, this, collector);
+		for (Subscribe subscribe : partitionedSubscribe.getPartitionToSubscribeMap().values()) {
+			reader.startPartitionSubscribe(TableName.valueOf(subscribe.getTableName()), subscribe);
 		}
 		return reader;
 	}

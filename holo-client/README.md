@@ -18,6 +18,8 @@
     - [基于完整主键查询](#基于完整主键查询)
     - [Scan查询](#scan查询)
   - [消费Binlog](#消费binlog)
+    - [消费普通表](#消费普通表)
+    - [消费分区表](#消费分区表)
   - [异常处理](#异常处理)
   - [自定义操作](#自定义操作)
   - [实现](#实现)
@@ -56,13 +58,13 @@ select count(*) from pg_stat_activity where backend_type='client backend';
 <dependency>
   <groupId>com.alibaba.hologres</groupId>
   <artifactId>holo-client</artifactId>
-  <version>2.4.2</version>
+  <version>2.5.4</version>
 </dependency>
 ```
 
 - Gradle
 ```
-implementation 'com.alibaba.hologres:holo-client:2.4.2'
+implementation 'com.alibaba.hologres:holo-client:2.5.4'
 ```
 
 ## 连接数说明
@@ -388,7 +390,8 @@ try (HoloClient client = new HoloClient(config)) {
 
 ## 消费Binlog
 Hologres V1.1版本之后，支持使用holo-client进行表的Binlog消费。
-Binlog相关知识可以参考文档 [订阅Hologres Binlog](https://help.aliyun.com/document_detail/201024.html) , 使用Holo-client消费Binlog的建表、权限等准备工作和注意事项可以参考 [通过JDBC消费Hologres Binlog](https://help.aliyun.com/document_detail/321431.html) 
+Binlog相关知识可以参考文档 [订阅Hologres Binlog](https://help.aliyun.com/document_detail/201024.html) , 使用Holo-client消费Binlog的建表、权限等准备工作和注意事项可以参考 [通过JDBC消费Hologres Binlog](https://help.aliyun.com/document_detail/321431.html)
+### 消费普通表
 ```java
 import com.alibaba.hologres.client.BinlogShardGroupReader;
 import com.alibaba.hologres.client.Command;
@@ -434,7 +437,8 @@ public class HoloBinlogExample {
       shardIdToLsn.put(i, 0L);
     }
 
-    // 消费binlog的请求，tableName和slotname为必要参数，Subscribe有StartTimeBuilder和OffsetBuilder两种，此处以前者为例
+    // 消费binlog的请求，2.1版本前tableName和slotName为必要参数，2.1版本起仅需传入tableName
+    // Subscribe有StartTimeBuilder和OffsetBuilder两种，此处以前者为例
     Subscribe subscribe = Subscribe.newStartTimeBuilder(tableName, slotName)
             .setBinlogReadStartTime("2021-01-01 12:00:00")
             .build();
@@ -491,6 +495,127 @@ public class HoloBinlogExample {
       }
     }
   }
+}
+
+```
+
+### 消费分区表
+这里只简单展示接口的使用，完整代码可以参考上方消费普通表。
+#### STATIC模式
+```java
+/*
+    CREATE TABLE test_message_src (
+        id int NOT NULL,
+        name text,
+        kind text,
+        PRIMARY KEY (id, kind)
+    )
+    PARTITION BY LIST (kind) WITH (binlog_level = 'replica');
+    CREATE TABLE test_message_src_kind1 partition of test_message_src for values in ('kind1');
+    CREATE TABLE test_message_src_kind2 partition of test_message_src for values in ('kind2');
+    CREATE TABLE test_message_src_kind3 partition of test_message_src for values in ('kind3');
+    INSERT INTO test_message_src_kind1 SELECT generate_series(1, 100), 'foo' , 'kind1';
+    INSERT INTO test_message_src_kind2 SELECT generate_series(1, 100), 'foo' , 'kind2';
+    INSERT INTO test_message_src_kind3 SELECT generate_series(1, 100), 'foo' , 'kind3';
+*/
+// 创建client的参数
+HoloConfig holoConfig = new HoloConfig();
+holoConfig.setJdbcUrl(url);
+holoConfig.setUsername(username);
+holoConfig.setPassword(password);
+holoConfig.setUseFixedFe(true);
+holoConfig.setBinlogReadBatchSize(128);
+// 分区表订阅模式, STATIC表示消费指定的分区，且消费过程中无法调整
+holoConfig.setBinlogPartitionSubscribeMode(BinlogPartitionSubscribeMode.STATIC);
+// 仅消费kind2和kind3这两个分区
+holoConfig.setPartitionValuesToSubscribe(new String[]{"kind2", "kind3"});
+holoConfig.setBinlogHeartBeatIntervalMs(1000L);
+HoloClient client = new HoloClient(holoConfig);
+
+// 消费binlog的请求
+// Subscribe有StartTimeBuilder和OffsetBuilder两种，此处以前者为例
+Subscribe subscribe = Subscribe.newStartTimeBuilder(tableName)
+        .setBinlogReadStartTime("2021-01-01 12:00:00")
+        .build();
+// 创建binlog reader
+reader = client.partitionBinlogSubscribe(subscribe);
+
+BinlogRecord record;
+while ((record = reader.getBinlogRecord()) != null) {
+    // 消费到最新
+    if (record instanceof BinlogHeartBeatRecord) {
+      // do something
+      continue;
+    }
+  
+    // 处理读取到的binlog record，这里只做打印
+    System.out.println(Arrays.toString(record.getValues()));
+}
+```
+#### DYNAMIC模式
+```java
+/*
+    -- 必须开启动态分区功能
+    CREATE TABLE test_message_src (
+        id int NOT NULL,
+        name text,
+        kind text,
+        PRIMARY KEY (id, kind)
+    )
+    PARTITION BY LIST (kind) WITH (
+        binlog_level = 'replica',
+        auto_partitioning_enable = 'true',
+        auto_partitioning_time_unit = 'DAY',
+        auto_partitioning_num_precreate = '2'
+    );
+    -- 假设今天是2024-10-12, 消费时所有子表必须存在
+    CREATE TABLE test_message_src_20241010 PARTITION OF test_message_src FOR VALUES IN ('20241010');
+    CREATE TABLE test_message_src_20241011 PARTITION OF test_message_src FOR VALUES IN ('20241011');
+    CREATE TABLE test_message_src_20241012 PARTITION OF test_message_src FOR VALUES IN ('20241012');
+
+    INSERT INTO test_message_src_20241010 SELECT generate_series(1, 100), 'foo', '20241010';
+    INSERT INTO test_message_src_20241011 SELECT generate_series(1, 100), 'foo', '20241011';
+    INSERT INTO test_message_src_20241012 SELECT generate_series(1, 100), 'foo', '20241012';
+*/
+// 创建client的参数
+HoloConfig holoConfig = new HoloConfig();
+holoConfig.setJdbcUrl(url);
+holoConfig.setUsername(username);
+holoConfig.setPassword(password);
+holoConfig.setUseFixedFe(true);
+holoConfig.setBinlogReadBatchSize(128);
+// 分区表订阅模式, DYNAMIC表示动态消费分区子表，会在新的一天到来时开启对新分区的消费
+holoConfig.setBinlogPartitionSubscribeMode(BinlogPartitionSubscribeMode.DYNAMIC);
+// 上一个分区表允许的数据迟到时间
+holoConfig.setBinlogPartitionLatenessTimeoutSecond(60000);
+holoConfig.setBinlogHeartBeatIntervalMs(1000L);
+HoloClient client = new HoloClient(holoConfig);
+
+int shardCount = Command.getShardCount(client, client.getTableSchema(tableName));
+
+// 消费binlog的请求
+// Subscribe有StartTimeBuilder和OffsetBuilder两种，此处以后者为例
+Subscribe.OffsetBuilder builder = Subscribe.newOffsetBuilder(tableName);
+for (int i = 0; i < shardCount; i++) {
+    // 父表仅需要shard信息
+    builder.addShardStartOffset(i, new BinlogOffset());
+    // 从20241011这个分区的最早binlog开始消费
+    builder.addShardStartOffsetForPartition("test_message_src_20241011", i, new BinlogOffset());
+}
+// 创建binlog reader
+reader = client.partitionBinlogSubscribe(builder.build());
+
+BinlogRecord record;
+while ((record = reader.getBinlogRecord()) != null) {
+    // 消费到最新
+    if (record instanceof BinlogHeartBeatRecord) {
+        // do something
+        continue;
+    }
+
+    // 处理读取到的binlog record，这里只做打印
+    System.out.println(Arrays.toString(record.getValues()));
+
 }
 
 ```
@@ -560,17 +685,15 @@ insert into t0 (c0,c1,c2) values (?,?,?),(?,?,?) on conflict
 ```sql
 insert into to (c0,c1,c2) select unnest(?),unnest(?),unnest(?) on conflict
 ```
-
-unnest格式相比multi values有如下优点:
-- ？个数等于列数，不再会因攒批过大导致？个数超过Short.MAX_VALUE
-- batchSize不稳定时，不会产生多个PreparedStatement，节省服务端内存
-
 ### checkandput
 写入所拼sql上，增加对某个字段的check条件.详见[Fixed Plan加速SQL执行](https://help.aliyun.com/zh/hologres/user-guide/accelerate-the-execution-of-sql-statements-by-using-fixed-plans#section-jje-75s-m2w)文档中的带有条件判断的Upsert.
 ```sql
 insert into test_check_and_insert(pk,c1,update_time) as old values(?, ?, ?) on conflict (pk) 
   do update set c1 = excluded.c1, update_time = excluded.update_time where excluded.update_time > old.update_time;
 ```
+unnest格式相比multi values有如下优点:
+- ？个数等于列数，不再会因攒批过大导致？个数超过Short.MAX_VALUE
+- batchSize不稳定时，不会产生多个PreparedStatement，节省服务端内存
 
 ## 1.X与2.X升级说明
 - HoloConfig配置
@@ -607,6 +730,16 @@ insert into test_check_and_insert(pk,c1,update_time) as old values(?, ?, ?) on c
 - 2.4.2
   - 支持checkandput接口,仅在数据满足条件时，才进行写入
   - 进行连接池复用时,会根据新的HoloConfig往大了更新连接池的线程数
+- 2.5.0
+  - pgjdbc 更新到42.2.26.2，解决消费binlog时吞异常导致的unexpected type问题
+  - 当连接的host对应多个ip时，支持load balance
+  - worker poo复用死锁问题，2.4.2修复不彻底，再次调整
+- 2.5.4
+  - pgjdbc 更新到42.3.10
+  - binlog 消费支持分区父表
+  - 修复 scan 操作通过 clustering key 排序不生效的问题
+  - copy 模式支持 time，timetz 类型；
+  - 新增 copyMode，分为 STREAM，BULK_LOAD, BULK_LOAD_ON_CONFLICT
 
 ## 附录
 ### HoloConfig参数说明
@@ -674,12 +807,20 @@ insert into test_check_and_insert(pk,c1,update_time) as old values(?, ?, ?) on c
 | metaAutoRefreshFactor | 4                              | 当tableSchema cache剩余存活时间短于 metaCacheTTL/metaAutoRefreshFactor 将自动刷新cache | 1.2.10.1 |
 
 #### 消费Binlog配置
-| 参数名 | 默认值 | 说明 |引入版本 |
-| --- | --- | --- | --- |
-| binlogReadBatchSize | 1024 | 从每个shard单次获取的Binlog最大批次大小 | 1.2.16.5 |
-| binlogHeartBeatIntervalMs | -1 | binlogRead 发送BinlogHeartBeatRecord的间隔.<br>-1表示不发送,<br>当binlog没有新数据，每间隔binlogHeartBeatIntervalMs会下发一条BinlogHeartBeatRecord，此record的timestamp表示截止到这个时间的数据都已经消费完成.| 2.1.0 |
-| binlogIgnoreDelete |false| 是否忽略消费Delete类型的binlog | 1.2.16.5 |
-| binlogIgnoreBeforeUpdate | false | 是否忽略消费BeforeUpdate类型的binlog | 1.2.16.5 |
+| 参数名                                  | 默认值   | 说明                                                                                                                                                                                                                                                                        | 引入版本     |
+|--------------------------------------|-------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------|
+| binlogReadBatchSize                  | 1024  | 从每个shard单次获取的Binlog最大批次大小                                                                                                                                                                                                                                                 | 1.2.16.5 |
+| binlogHeartBeatIntervalMs            | -1    | binlogRead 发送BinlogHeartBeatRecord的间隔.<br>-1表示不发送,<br>当binlog没有新数据，每间隔binlogHeartBeatIntervalMs会下发一条BinlogHeartBeatRecord，此record的timestamp表示截止到这个时间的数据都已经消费完成.                                                                                                           | 2.1.0    |
+| binlogIgnoreDelete                   | false | 是否忽略消费Delete类型的binlog                                                                                                                                                                                                                                                     | 1.2.16.5 |
+| binlogIgnoreBeforeUpdate             | false | 是否忽略消费BeforeUpdate类型的binlog                                                                                                                                                                                                                                               | 1.2.16.5 |
+| binlogPartitionSubscribeMode         | false | 取值如下 <br>STATIC: 消费分区父表时，同时消费多张子表，子表在消费过程中无法新增或移除。默认消费此父表的所有子表。 <br>DYNAMIC: 动态消费分区父表，要求分区父表必须开启[动态分区管理](https://help.aliyun.com/zh/hologres/user-guide/dynamic-partition-management)。动态分区管理功能会按照时间单元自动创建分区子表，DYNAMIC 模式会按照从旧到新的顺序消费各个子表。当消费到次新子表时，会在新的时间单元到来时，开启最新子表的消费。 | 2.5.4    |
+| partitionValuesToSubscribe           | 空数组   | STATIC模式默认消费此父表的所有子表， 可以通过此参数指定需要消费的分区值数组                                                                                                                                                                                                                                 | 2.5.4  |
+| binlogPartitionLatenessTimeoutSecond | 60    | DYNAMIC 模式消费分区父表时，容忍的数据迟到时间。DYNAMIC 模式会在新的一天到来时开启当前时间对应的最新子表的消费，但不会立刻关闭前一个分区，而是会持续监听lateness-timeout 配置的时间，以保证可以读取到上一个分区的迟到数据。例如： 对20240920 这张子表， 其消费会在 2024-09-21 00:01:00 关闭，而不是在2024-09-21 00:00:00 就停止消费。                                                               | 2.5.4  |
+
+> 消费分区父表目前有如下要求：
+1. 子表名称必须严格由父表名 + 下划线 + 分区值组成， 即{parent_table}_{partition_value} ，非此格式的子表可能无法消费到，对 DYNAMIC 模式，分区值格式与动态分区的时间单元有关，如 20240910。
+2. 对于 DYNAMIC 模式，要求分区父表必须开启动态分区管理。并且子表预创建参数auto_partitioning.num_precreate必须大于 1，否则作业在尝试消费最新子表时发现表不存在会抛出异常。
+3. 考虑 jdbc 模式消费 binlog 存在连接数的限制，消费分区父表需要使用 jdbc_fixed 模式，要求 Hologres 实例版本大于等于 2.1.27。
 
 ### 参数详解
 #### writeMode
@@ -698,4 +839,4 @@ INSERT INTO t0 (pk, c0, c1, c2) values (?, ?, ?) ON CONFLICT(pk) DO UPDATE SET c
 INSERT INTO t0 (c0, c1, c2) values (?, ?, ?);
 ```
 - INSERT_OR_REPLACE
-INSERT_OR_REPLACE相比INSERT_OR_UPDATE最大的区别是，UPDATE只有显式调用过Put.setObject的列才会参与到SQL中，而REPLACE模式下，没有调用put.setObject列等同于调用过一次put.setObject(index, null)，所有列都会参与到sql中
+  INSERT_OR_REPLACE相比INSERT_OR_UPDATE最大的区别是，UPDATE只有显式调用过Put.setObject的列才会参与到SQL中，而REPLACE模式下，没有调用put.setObject列等同于调用过一次put.setObject(index, null)，所有列都会参与到sql中

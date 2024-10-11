@@ -16,6 +16,7 @@ import java.util.concurrent.TimeoutException;
 /**
  * 用来提交lsn的.
  */
+@Deprecated
 public class Committer {
 	public static final Logger LOGGER = LoggerFactory.getLogger(Committer.class);
 

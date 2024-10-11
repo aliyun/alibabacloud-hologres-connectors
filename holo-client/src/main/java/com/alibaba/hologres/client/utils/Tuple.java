@@ -37,4 +37,12 @@ public class Tuple<L, R> {
 	public int hashCode() {
 		return Objects.hash(l, r);
 	}
+
+	@Override
+    public String toString() {
+        return "Tuple{" +
+                "l=" + l +
+                ", r=" + r +
+                '}';
+    }
 }

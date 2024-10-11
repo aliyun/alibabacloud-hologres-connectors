@@ -7,6 +7,7 @@ package com.alibaba.hologres.client;
 import com.alibaba.hologres.client.model.SSLMode;
 import com.alibaba.hologres.client.model.WriteFailStrategy;
 import com.alibaba.hologres.client.model.WriteMode;
+import com.alibaba.hologres.client.model.binlog.BinlogPartitionSubscribeMode;
 
 import java.io.Serializable;
 import java.lang.reflect.Field;
@@ -322,6 +323,16 @@ public class HoloConfig implements Serializable {
 	int binlogReadBatchSize = 1024;
 
 	/**
+	 * binlog read的超时时间.
+	 * 默认值-1表示不超时
+	 * 超时时间大于0时，必须设置binlogHeartBeatIntervalMs参数，要求binlogHeartBeatIntervalMs < binlogReadTimeoutMs
+	 *
+	 * @HasGetter
+	 * @HasSetter
+	 */
+	long binlogReadTimeoutMs = -1;
+
+	/**
 	 * binlogRead 发送BinlogHeartBeatRecord的间隔.
 	 * -1表示不发送
 	 * 当binlog没有新数据，每binlogHeartBeatIntervalMs会下发一条BinlogHeartBeatRecord，record的timestamp表示截止到这个时间的数据都已经消费完了.
@@ -346,6 +357,31 @@ public class HoloConfig implements Serializable {
 	 * @HasSetter
 	 */
 	boolean binlogIgnoreBeforeUpdate = false;
+
+
+	/**
+	 * 分区子表消费模式.
+	 *
+	 * @HasGetter
+	 * @HasSetter
+	 */
+	BinlogPartitionSubscribeMode binlogPartitionSubscribeMode = BinlogPartitionSubscribeMode.DISABLE;
+
+	/**
+	 * STATIC模式, 指定希望消费的分区的分区值,字符串数组.
+	 *
+	 * @HasGetter
+	 * @HasSetter
+	 */
+	String[] partitionValues = new String[0];
+
+	/**
+	 * 对于历史分区，会保留一段时间，防止上游数据有延迟.
+	 *
+	 * @HasGetter
+	 * @HasSetter
+	 */
+	int binlogPartitionLatenessTimeoutSecond = 60;
 
 	//---------------------------conn conf------------------------------------------
 	/**
@@ -856,6 +892,14 @@ public class HoloConfig implements Serializable {
 		this.binlogReadBatchSize = binlogReadBatchSize;
 	}
 
+	public long getBinlogReadTimeoutMs() {
+		return binlogReadTimeoutMs;
+	}
+
+	public void setBinlogReadTimeoutMs(long binlogReadTimeoutMs) {
+        this.binlogReadTimeoutMs = binlogReadTimeoutMs;
+    }
+
 	public long getBinlogHeartBeatIntervalMs() {
 		return binlogHeartBeatIntervalMs;
 	}
@@ -878,6 +922,30 @@ public class HoloConfig implements Serializable {
 
 	public void setBinlogIgnoreBeforeUpdate(boolean binlogIgnoreBeforeUpdate) {
 		this.binlogIgnoreBeforeUpdate = binlogIgnoreBeforeUpdate;
+	}
+
+	public BinlogPartitionSubscribeMode getBinlogPartitionSubscribeMode() {
+		return binlogPartitionSubscribeMode;
+	}
+
+	public void setBinlogPartitionSubscribeMode(BinlogPartitionSubscribeMode binlogPartitionSubscribeMode) {
+        this.binlogPartitionSubscribeMode = binlogPartitionSubscribeMode;
+    }
+
+	public String[] getPartitionValuesToSubscribe() {
+		return partitionValues;
+	}
+
+	public void setPartitionValuesToSubscribe(String[] partitionValues) {
+        this.partitionValues = partitionValues;
+    }
+
+	public int getBinlogPartitionLatenessTimeoutSecond() {
+		return binlogPartitionLatenessTimeoutSecond;
+	}
+
+	public void setBinlogPartitionLatenessTimeoutSecond(int binlogPartitionLatenessTimeoutSecond) {
+		this.binlogPartitionLatenessTimeoutSecond = binlogPartitionLatenessTimeoutSecond;
 	}
 
 	public boolean isEnableShutdownHook() {

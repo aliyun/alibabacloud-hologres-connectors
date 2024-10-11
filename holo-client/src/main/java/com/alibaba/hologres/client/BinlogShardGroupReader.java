@@ -2,7 +2,6 @@ package com.alibaba.hologres.client;
 
 import com.alibaba.hologres.client.exception.ExceptionCode;
 import com.alibaba.hologres.client.exception.HoloClientException;
-import com.alibaba.hologres.client.impl.binlog.ArrayBuffer;
 import com.alibaba.hologres.client.impl.binlog.BinlogEventType;
 import com.alibaba.hologres.client.impl.binlog.BinlogRecordCollector;
 import com.alibaba.hologres.client.impl.binlog.Committer;
@@ -14,7 +13,6 @@ import java.io.Closeable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -34,18 +32,21 @@ public class BinlogShardGroupReader implements Closeable {
 	private final AtomicBoolean started;
 
 	BlockingQueue<BinlogRecord> queue;
-	volatile HoloClientException exception = null;
-	Collector collector;
+	BinlogRecordCollector collector;
 
 	List<Thread> threadList = new ArrayList<Thread>();
 
-	public BinlogShardGroupReader(HoloConfig config, Subscribe subscribe, int shardCount, Map<Integer, Committer> committerMap, AtomicBoolean started) {
+	public BinlogShardGroupReader(HoloConfig config, Subscribe subscribe, Map<Integer, Committer> committerMap, AtomicBoolean started, BinlogRecordCollector collector) {
 		this.config = config;
 		this.subscribe = subscribe;
 		this.committerMap = committerMap;
-		this.queue = new ArrayBlockingQueue<>(Math.max(1024, committerMap.size() * config.getBinlogReadBatchSize() / 2));
 		this.started = started;
-		collector = new Collector();
+		this.collector = collector;
+		this.queue = collector.getQueue();
+	}
+
+	public BinlogShardGroupReader(HoloConfig config, Subscribe subscribe, AtomicBoolean started, BinlogRecordCollector collector) {
+		this(config, subscribe, null, started, collector);
 	}
 
 	int bufferPosition = 0;
@@ -59,8 +60,8 @@ public class BinlogShardGroupReader implements Closeable {
 			}
 			BinlogRecord r = null;
 			while (r == null) {
-				if (null != exception) {
-					throw exception;
+				if (null != collector.getException()) {
+					throw collector.getException();
 				}
 				if (System.nanoTime() > target) {
 					throw new TimeoutException();
@@ -75,7 +76,7 @@ public class BinlogShardGroupReader implements Closeable {
 		}
 	}
 
-	public Collector getCollector() {
+	public BinlogRecordCollector getCollector() {
 		return collector;
 	}
 
@@ -83,30 +84,32 @@ public class BinlogShardGroupReader implements Closeable {
 	 * Call getBinlogRecord until null or call BinlogShardGroupReader.cancel() to interrupt.
 	 */
 	public BinlogRecord getBinlogRecord() throws HoloClientException, InterruptedException, TimeoutException {
-		return getBinlogRecord(-1);
+		return getBinlogRecord(config.getBinlogReadTimeoutMs());
 	}
 
 	/**
 	 * Call getBinlogRecord until null or call BinlogShardGroupReader.cancel() to interrupt.
 	 */
-	public BinlogRecord getBinlogRecord(long timeout) throws HoloClientException, InterruptedException, TimeoutException {
-		if (null != exception) {
-			throw exception;
+	public BinlogRecord getBinlogRecord(long timeoutMs) throws HoloClientException, InterruptedException, TimeoutException {
+		if (null != collector.getException()) {
+			throw collector.getException();
 		}
 		BinlogRecord r = null;
 
-		long target = timeout > 0 ? (System.nanoTime() + timeout * 1000000L) : Long.MAX_VALUE;
+		long target = timeoutMs > 0 ? (System.nanoTime() + timeoutMs * 1000000L) : Long.MAX_VALUE;
 		while (r == null) {
 			tryFetch(target);
 			if (buffer.size() > bufferPosition) {
 				r = buffer.get(bufferPosition++);
 			}
 			if (r != null) {
-				Committer committer = committerMap.get(r.getShardId());
-				if (committer == null) {
-					throw new HoloClientException(ExceptionCode.INTERNAL_ERROR, "reader for shard " + r.getShardId() + " is not exists!");
-				}
-				committer.updateLastReadLsn(r.getBinlogLsn());
+				if (committerMap != null) {
+					Committer committer = committerMap.get(r.getShardId());
+					if (committer == null) {
+						throw new HoloClientException(ExceptionCode.INTERNAL_ERROR, "reader for shard " + r.getShardId() + " is not exists!");
+					}
+					committer.updateLastReadLsn(r.getBinlogLsn());
+                }
 				if ((r.getBinlogEventType() == BinlogEventType.DELETE && config.getBinlogIgnoreDelete()) || (r.getBinlogEventType() == BinlogEventType.BEFORE_UPDATE && config.getBinlogIgnoreBeforeUpdate())) {
 					r = null;
 				}
@@ -120,38 +123,11 @@ public class BinlogShardGroupReader implements Closeable {
 		cancel();
 	}
 
-	/**
-	 * 采集器实现.
-	 */
-	class Collector implements BinlogRecordCollector {
-
-		@Override
-		public BinlogRecord emit(int shardId, ArrayBuffer<BinlogRecord> recordList) throws InterruptedException {
-			BinlogRecord lastSuccessRecord = null;
-			do {
-				BinlogRecord record = recordList.peek();
-				boolean succ = queue.offer(record, 1000L, TimeUnit.MILLISECONDS);
-				if (succ) {
-					lastSuccessRecord = recordList.pop();
-				} else {
-					break;
-				}
-			} while (recordList.remain() > 0);
-			return lastSuccessRecord;
-		}
-
-		@Override
-		public void exceptionally(int shardId, Throwable e) {
-			LOGGER.error("shard id " + shardId + "fetch binlog fail", e);
-			if (e instanceof HoloClientException) {
-				exception = (HoloClientException) e;
-			} else {
-				exception = new HoloClientException(ExceptionCode.INTERNAL_ERROR, "shard id " + shardId + " fetch binlog fail", e);
-			}
-		}
-	}
-
+	@Deprecated
 	public void commit(long timeoutMs) throws HoloClientException, TimeoutException, InterruptedException {
+		if (committerMap == null) {
+            throw new HoloClientException(ExceptionCode.INTERNAL_ERROR, "could not commit without committer");
+        }
 		List<CompletableFuture<Void>> futureList = new ArrayList<>();
 		for (Map.Entry<Integer, Committer> entry : committerMap.entrySet()) {
 			futureList.add(commitFlushedLsn(entry.getValue(), entry.getKey(), entry.getValue().getLastReadLsn(), timeoutMs));
@@ -214,14 +190,6 @@ public class BinlogShardGroupReader implements Closeable {
 
 	public void cancel() {
 		started.set(false);
-		while (queue.size() > 0) {
-			queue.clear();
-			try {
-				Thread.sleep(100L);
-			} catch (InterruptedException e) {
-				e.printStackTrace();
-			}
-		}
 		for (Thread thread : threadList) {
 			if (thread.isAlive()) {
 				try {

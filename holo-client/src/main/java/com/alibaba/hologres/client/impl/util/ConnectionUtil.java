@@ -461,6 +461,27 @@ public class ConnectionUtil {
 				default:
 			}
 		}
+		if (partitionColumnName != null) {
+			sql = "SELECT time_unit,time_zone,num_precreate from hologres.hg_partitioning_config where enable = true and nsp_name=? and tbl_name=?";
+			try (PreparedStatement stat = conn.prepareStatement(sql)) {
+				stat.setString(1, tableName.getSchemaName());
+				stat.setString(2, tableName.getTableName());
+				try (ResultSet rs = stat.executeQuery()) {
+					while (rs.next()) {
+						builder.setAutoPartitioningEnable(true);
+						builder.setAutoPartitioningTimeUnit(rs.getString("time_unit"));
+						builder.setAutoPartitioningTimeZone(rs.getString("time_zone"));
+						builder.setAutoPartitioningPreCreateNum(rs.getInt("num_precreate"));
+					}
+				}
+			} catch (SQLException e) {
+				if (e.getMessage().contains("relation \"hologres.hg_partitioning_config\" does not exist")) {
+                    builder.setAutoPartitioningEnable(false);
+                } else {
+                    throw e;
+                }
+            }
+		}
 		TableSchema tableSchema = builder.build();
 		tableSchema.calculateProperties();
 		return tableSchema;
