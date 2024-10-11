@@ -16,7 +16,11 @@
 package com.alibaba.ververica.connectors.hologres.sink;
 
 import org.apache.flink.core.testutils.FlinkAssertions;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.table.api.EnvironmentSettings;
+import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
 
+import com.alibaba.hologres.client.copy.CopyMode;
 import com.alibaba.ververica.connectors.hologres.HologresTestBase;
 import com.alibaba.ververica.connectors.hologres.utils.JDBCUtils;
 import org.junit.After;
@@ -43,13 +47,12 @@ import static com.alibaba.ververica.connectors.hologres.HologresTestUtils.expect
 public class HologresSinkTableITTest extends HologresTestBase {
     private final String sdkMode;
     private boolean fixedMode = false;
-    private boolean copyMode = false;
-    private boolean bulkLoad = false;
+    private CopyMode copyMode = null;
     private String sinkTableWithSchema;
 
     @Parameterized.Parameters(name = "use sdkMode = {0}")
     public static List<String> parameters() {
-        return Arrays.asList("jdbc", "jdbc_copy", "jdbc_fixed", "bulkload");
+        return Arrays.asList("jdbc", "jdbc_fixed", "stream", "bulkload");
     }
 
     public HologresSinkTableITTest(String sdkMode) throws IOException {
@@ -58,12 +61,11 @@ public class HologresSinkTableITTest extends HologresTestBase {
             case "jdbc_fixed":
                 this.fixedMode = true;
                 break;
-            case "jdbc_copy":
-                this.copyMode = true;
+            case "stream":
+                this.copyMode = CopyMode.STREAM;
                 break;
             case "bulkload":
-                this.copyMode = true;
-                this.bulkLoad = true;
+                this.copyMode = CopyMode.BULK_LOAD;
                 break;
         }
     }
@@ -92,12 +94,80 @@ public class HologresSinkTableITTest extends HologresTestBase {
                     + "t json,\n"
                     + "u jsonb,\n"
                     + "PRIMARY KEY (a)\n"
-                    + ");\n";
+                    + ") with (table_group='tg_3');\n";
+
+    private static final String insertStatement =
+            "INSERT INTO %s "
+                    + " (a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u) values ("
+                    + "0,'dim',cast(20.2007 as double),false,652482,cast('2020-07-08' as date),'source_test',cast('2020-07-10 16:28:07.737' as timestamp),"
+                    + "cast(8.58965 as float),cast(ARRAY [464,98661,32489] as array<int>),cast(ARRAY [8589934592,8589934593,8589934594] as array<bigint>),"
+                    + "ARRAY[cast(8.58967 as float),cast(96.4667 as float),cast(9345.16 as float)], ARRAY [cast(587897.4646746 as double),cast(792343.646446 as double),cast(76.46464 as double)],"
+                    + "cast(ARRAY [true,true,false,true] as array<boolean>),cast(ARRAY ['monday','saturday','sunday'] as array<STRING>),true,cast(8119.21 as numeric(6,2)), "
+                    + "cast('2020-07-10 16:28:07.737' as timestamp), cast(2 as smallint), cast('{\"a\":\"bbbb\", \"c\":\"dddd\"}' as varchar), cast('{\"a\":\"bbbb\", \"c\":\"dddd\"}' as varchar)"
+                    + "), ("
+                    + "2,'dim',cast(20.2007 as double),false,652482,cast('2020-07-08' as date),'source_test',cast('2020-07-10 16:28:07.737' as timestamp),"
+                    + "cast(8.58965 as float),cast(ARRAY [464,98661,32489] as array<int>),cast(ARRAY [8589934592,8589934593,8589934594] as array<bigint>),"
+                    + "ARRAY[cast(8.58967 as float),cast(96.4667 as float),cast(9345.16 as float)], ARRAY [cast(587897.4646746 as double),cast(792343.646446 as double),cast(76.46464 as double)],"
+                    + "cast(ARRAY [true,true,false,true] as array<boolean>),cast(ARRAY ['monday','saturday','sunday'] as array<STRING>),true,cast(8119.21 as numeric(6,2)), "
+                    + "cast('2020-07-10 16:28:07.737' as timestamp), cast(2 as smallint), cast('{\"a\":\"bbbb\", \"c\":\"dddd\"}' as varchar), cast('{\"a\":\"bbbb\", \"c\":\"dddd\"}' as varchar)"
+                    + "),("
+                    + "11,'dim',cast(20.2007 as double),false,652482,cast('2020-07-08' as date),'source_test',cast('2020-07-10 16:28:07.737' as timestamp),"
+                    + "cast(8.58965 as float),cast(ARRAY [464,98661,32489] as array<int>),cast(ARRAY [8589934592,8589934593,8589934594] as array<bigint>),"
+                    + "ARRAY[cast(8.58967 as float),cast(96.4667 as float),cast(9345.16 as float)], ARRAY [cast(587897.4646746 as double),cast(792343.646446 as double),cast(76.46464 as double)],"
+                    + "cast(ARRAY [true,true,false,true] as array<boolean>),cast(ARRAY ['monday','saturday','sunday'] as array<STRING>),true,cast(8119.21 as numeric(6,2)), "
+                    + "cast('2020-07-10 16:28:07.737' as timestamp), cast(2 as smallint), cast('{\"a\":\"bbbb\", \"c\":\"dddd\"}' as varchar), cast('{\"a\":\"bbbb\", \"c\":\"dddd\"}' as varchar)"
+                    + ")";
 
     public static final Object[][] EXPECTED =
             new Object[][] {
                 new Object[] {
-                    1,
+                    0,
+                    "dim",
+                    20.2007,
+                    false,
+                    652482,
+                    new java.sql.Date(120, 6, 8),
+                    "source_test",
+                    Timestamp.valueOf("2020-07-10 16:28:07.737"),
+                    8.58965,
+                    "{464,98661,32489}",
+                    "{8589934592,8589934593,8589934594}",
+                    "{8.58967018,96.4666977,9345.16016}",
+                    "{587897.464674600051,792343.64644599997,76.4646400000000028}",
+                    "{t,t,f,t}",
+                    "{monday,saturday,sunday}",
+                    true,
+                    new BigDecimal("8119.21"),
+                    Timestamp.valueOf("2020-07-10 16:28:07.737"),
+                    2,
+                    "{\"a\":\"bbbb\", \"c\":\"dddd\"}",
+                    "{\"a\": \"bbbb\", \"c\": \"dddd\"}"
+                },
+                new Object[] {
+                    2,
+                    "dim",
+                    20.2007,
+                    false,
+                    652482,
+                    new java.sql.Date(120, 6, 8),
+                    "source_test",
+                    Timestamp.valueOf("2020-07-10 16:28:07.737"),
+                    8.58965,
+                    "{464,98661,32489}",
+                    "{8589934592,8589934593,8589934594}",
+                    "{8.58967018,96.4666977,9345.16016}",
+                    "{587897.464674600051,792343.64644599997,76.4646400000000028}",
+                    "{t,t,f,t}",
+                    "{monday,saturday,sunday}",
+                    true,
+                    new BigDecimal("8119.21"),
+                    Timestamp.valueOf("2020-07-10 16:28:07.737"),
+                    2,
+                    "{\"a\":\"bbbb\", \"c\":\"dddd\"}",
+                    "{\"a\": \"bbbb\", \"c\": \"dddd\"}"
+                },
+                new Object[] {
+                    11,
                     "dim",
                     20.2007,
                     false,
@@ -140,70 +210,50 @@ public class HologresSinkTableITTest extends HologresTestBase {
         dropTable(sinkTable);
     }
 
-    private static final String insertStatement =
-            "INSERT INTO %s "
-                    + " (a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u) values ("
-                    + "1,'dim',cast(20.2007 as double),false,652482,cast('2020-07-08' as date),'source_test',cast('2020-07-10 16:28:07.737' as timestamp),"
-                    + "cast(8.58965 as float),cast(ARRAY [464,98661,32489] as array<int>),cast(ARRAY [8589934592,8589934593,8589934594] as array<bigint>),"
-                    + "ARRAY[cast(8.58967 as float),cast(96.4667 as float),cast(9345.16 as float)], ARRAY [cast(587897.4646746 as double),cast(792343.646446 as double),cast(76.46464 as double)],"
-                    + "cast(ARRAY [true,true,false,true] as array<boolean>),cast(ARRAY ['monday','saturday','sunday'] as array<STRING>),true,cast(8119.21 as numeric(6,2)), "
-                    + "cast('2020-07-10 16:28:07.737' as timestamp), cast(2 as smallint), cast('{\"a\":\"bbbb\", \"c\":\"dddd\"}' as varchar), cast('{\"a\":\"bbbb\", \"c\":\"dddd\"}' as varchar)"
-                    + ")";
-
     @Test
     public void testSinkTable() throws Exception {
         tEnv.executeSql(
-                "create table sinkTable"
-                        + "(\n"
-                        + "a int not null,\n"
-                        + "b STRING not null,\n"
-                        + "c double,\n"
-                        + "d boolean,\n"
-                        + "e bigint,\n"
-                        + "f date,\n"
-                        + "g varchar,\n"
-                        + "h TIMESTAMP,\n"
-                        + "i float,\n"
-                        + "j array<int> not null,\n"
-                        + "k array<bigint> not null,\n"
-                        + "l array<float>,\n"
-                        + "m array<double>,\n"
-                        + "n array<boolean>,\n"
-                        + "o array<STRING>,\n"
-                        + "p boolean,\n"
-                        + "q numeric(6,2),\n"
-                        + "r timestamp,\n"
-                        + "s smallint,\n"
-                        + "t varchar,\n"
-                        + "u varchar\n"
-                        + ") with ("
-                        + "'connector'='hologres',\n"
-                        + "'fixedConnectionMode'='"
-                        + fixedMode
-                        + "',\n"
-                        + "'jdbcCopyWriteMode'='"
-                        + copyMode
-                        + "',\n"
-                        + "'bulkLoad'='"
-                        + bulkLoad
-                        + "',\n"
-                        + "'mutatetype'='insertorignore',\n"
-                        + "'endpoint'='"
-                        + endpoint
-                        + "',\n"
-                        + "'dbname'='"
-                        + database
-                        + "',\n"
-                        + "'tablename'='"
-                        + sinkTable
-                        + "',\n"
-                        + "'username'='"
-                        + username
-                        + "',\n"
-                        + "'password'='"
-                        + password
-                        + "'\n"
-                        + ")");
+                String.format(
+                        "CREATE TABLE sinkTable ("
+                                + "a INT NOT NULL,"
+                                + "b STRING NOT NULL,"
+                                + "c DOUBLE,"
+                                + "d BOOLEAN,"
+                                + "e BIGINT,"
+                                + "f DATE,"
+                                + "g VARCHAR,"
+                                + "h TIMESTAMP,"
+                                + "i FLOAT,"
+                                + "j ARRAY<INT> NOT NULL,"
+                                + "k ARRAY<BIGINT> NOT NULL,"
+                                + "l ARRAY<FLOAT>,"
+                                + "m ARRAY<DOUBLE>,"
+                                + "n ARRAY<BOOLEAN>,"
+                                + "o ARRAY<STRING>,"
+                                + "p BOOLEAN,"
+                                + "q NUMERIC(6,2),"
+                                + "r TIMESTAMP,"
+                                + "s SMALLINT,"
+                                + "t VARCHAR,"
+                                + "u VARCHAR"
+                                + ") WITH ("
+                                + "'connector'='hologres',"
+                                + "'fixedConnectionMode'='%s',"
+                                + "%s"
+                                + "'mutateType'='insertorignore',"
+                                + "'endpoint'='%s',"
+                                + "'dbName'='%s',"
+                                + "'tableName'='%s',"
+                                + "'userName'='%s',"
+                                + "'password'='%s'"
+                                + ")",
+                        fixedMode,
+                        (copyMode == null ? "" : "'jdbcCopyWriteMode'='" + copyMode + "',"),
+                        endpoint,
+                        database,
+                        sinkTable,
+                        username,
+                        password));
 
         tEnv.executeSql(String.format(insertStatement, "sinkTable")).await();
 
@@ -220,59 +270,116 @@ public class HologresSinkTableITTest extends HologresTestBase {
     @Test
     public void testSinkTableWithSchema() throws Exception {
         tEnv.executeSql(
-                "create table sinkTable"
-                        + "(\n"
-                        + "a int not null,\n"
-                        + "b STRING not null,\n"
-                        + "c double,\n"
-                        + "d boolean,\n"
-                        + "e bigint,\n"
-                        + "f date,\n"
-                        + "g varchar,\n"
-                        + "h TIMESTAMP,\n"
-                        + "i float,\n"
-                        + "j array<int> not null,\n"
-                        + "k array<bigint> not null,\n"
-                        + "l array<float>,\n"
-                        + "m array<double>,\n"
-                        + "n array<boolean>,\n"
-                        + "o array<STRING>,\n"
-                        + "p boolean,\n"
-                        + "q numeric(6,2),\n"
-                        + "r timestamp,\n"
-                        + "s smallint,\n"
-                        + "t varchar,\n"
-                        + "u varchar\n"
-                        + ") with ("
-                        + "'connector'='hologres',\n"
-                        + "'fixedConnectionMode'='"
-                        + fixedMode
-                        + "',\n"
-                        + "'jdbcCopyWriteMode'='"
-                        + copyMode
-                        + "',\n"
-                        + "'bulkLoad'='"
-                        + bulkLoad
-                        + "',\n"
-                        + "'jdbcCopyWriteFormat'='text',\n"
-                        + "'mutatetype'='insertorignore',\n"
-                        + "'connectionPoolName'='pool',\n"
-                        + "'endpoint'='"
-                        + endpoint
-                        + "',\n"
-                        + "'dbname'='"
-                        + database
-                        + "',\n"
-                        + "'tablename'='"
-                        + sinkTableWithSchema
-                        + "',\n"
-                        + "'username'='"
-                        + username
-                        + "',\n"
-                        + "'password'='"
-                        + password
-                        + "'\n"
-                        + ")");
+                String.format(
+                        "CREATE TABLE sinkTable ("
+                                + "a INT NOT NULL,"
+                                + "b STRING NOT NULL,"
+                                + "c DOUBLE,"
+                                + "d BOOLEAN,"
+                                + "e BIGINT,"
+                                + "f DATE,"
+                                + "g VARCHAR,"
+                                + "h TIMESTAMP,"
+                                + "i FLOAT,"
+                                + "j ARRAY<INT> NOT NULL,"
+                                + "k ARRAY<BIGINT> NOT NULL,"
+                                + "l ARRAY<FLOAT>,"
+                                + "m ARRAY<DOUBLE>,"
+                                + "n ARRAY<BOOLEAN>,"
+                                + "o ARRAY<STRING>,"
+                                + "p BOOLEAN,"
+                                + "q NUMERIC(6,2),"
+                                + "r TIMESTAMP,"
+                                + "s SMALLINT,"
+                                + "t VARCHAR,"
+                                + "u VARCHAR"
+                                + ") WITH ("
+                                + "'connector'='hologres',"
+                                + "'fixedConnectionMode'='%s',"
+                                + "%s"
+                                + "'mutateType'='insertorignore',"
+                                + "'jdbcCopyWriteFormat'='text',"
+                                + "'connectionPoolName'='pool',"
+                                + "'endpoint'='%s',"
+                                + "'dbName'='%s',"
+                                + "'tableName'='%s',"
+                                + "'userName'='%s',"
+                                + "'password'='%s'"
+                                + ")",
+                        fixedMode,
+                        (copyMode == null ? "" : "'jdbcCopyWriteMode'='" + copyMode + "',"),
+                        endpoint,
+                        database,
+                        sinkTableWithSchema,
+                        username,
+                        password));
+
+        tEnv.executeSql(String.format(insertStatement, "sinkTable")).await();
+
+        checkResultWithTimeout(
+                expectedRowsToString(EXPECTED),
+                "select * from " + sinkTableWithSchema,
+                FIELD_NAMES,
+                JDBCUtils.getDbUrl(endpoint, database),
+                username,
+                password,
+                10000);
+    }
+
+    @Test
+    public void testSinkTableWithReShuffle() throws Exception {
+        if (copyMode == null) {
+            return;
+        }
+        EnvironmentSettings.Builder streamBuilder =
+                EnvironmentSettings.newInstance().inStreamingMode();
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.createLocalEnvironment();
+        env.setParallelism(3);
+        StreamTableEnvironment tEnv = StreamTableEnvironment.create(env, streamBuilder.build());
+        tEnv.executeSql(
+                String.format(
+                        "CREATE TABLE sinkTable ("
+                                + "a INT NOT NULL,"
+                                + "b STRING NOT NULL,"
+                                + "c DOUBLE,"
+                                + "d BOOLEAN,"
+                                + "e BIGINT,"
+                                + "f DATE,"
+                                + "g VARCHAR,"
+                                + "h TIMESTAMP,"
+                                + "i FLOAT,"
+                                + "j ARRAY<INT> NOT NULL,"
+                                + "k ARRAY<BIGINT> NOT NULL,"
+                                + "l ARRAY<FLOAT>,"
+                                + "m ARRAY<DOUBLE>,"
+                                + "n ARRAY<BOOLEAN>,"
+                                + "o ARRAY<STRING>,"
+                                + "p BOOLEAN,"
+                                + "q NUMERIC(6,2),"
+                                + "r TIMESTAMP,"
+                                + "s SMALLINT,"
+                                + "t VARCHAR,"
+                                + "u VARCHAR"
+                                + ") WITH ("
+                                + "'connector'='hologres',"
+                                + "'fixedConnectionMode'='%s',"
+                                + "%s"
+                                + "'mutateType'='insertorignore',"
+                                + "'reshuffle-by-holo-distribution-key.enabled'='true',"
+                                + "'sink.parallelism'='3',"
+                                + "'endpoint'='%s',"
+                                + "'dbName'='%s',"
+                                + "'tableName'='%s',"
+                                + "'userName'='%s',"
+                                + "'password'='%s'"
+                                + ")",
+                        fixedMode,
+                        (copyMode == null ? "" : "'jdbcCopyWriteMode'='" + copyMode + "',"),
+                        endpoint,
+                        database,
+                        sinkTableWithSchema,
+                        username,
+                        password));
 
         tEnv.executeSql(String.format(insertStatement, "sinkTable")).await();
 
@@ -292,38 +399,29 @@ public class HologresSinkTableITTest extends HologresTestBase {
             return;
         }
         tEnv.executeSql(
-                "create table sinkTable"
-                        + "(\n"
-                        + "a int,\n"
-                        + "b STRING\n"
-                        + ") with ("
-                        + "'connector'='hologres',\n"
-                        + "'fixedConnectionMode'='"
-                        + fixedMode
-                        + "',\n"
-                        + "'jdbcCopyWriteMode'='"
-                        + copyMode
-                        + "',\n"
-                        + "'bulkLoad'='"
-                        + bulkLoad
-                        + "',\n"
-                        + "'mutatetype'='insertorignore',\n"
-                        + "'endpoint'='"
-                        + endpoint
-                        + "',\n"
-                        + "'dbname'='"
-                        + database
-                        + "',\n"
-                        + "'tablename'='"
-                        + sinkTable
-                        + "',\n"
-                        + "'username'='"
-                        + username
-                        + "',\n"
-                        + "'password'='"
-                        + password
-                        + "'\n"
-                        + ")");
+                String.format(
+                        "create table sinkTable"
+                                + "("
+                                + "a int,"
+                                + "b STRING"
+                                + ") with ("
+                                + "'connector'='hologres',"
+                                + "'fixedConnectionMode'='%s',"
+                                + "%s"
+                                + "'mutateType'='insertorignore',"
+                                + "'endpoint'='%s',"
+                                + "'dbName'='%s',"
+                                + "'tableName'='%s',"
+                                + "'userName'='%s',"
+                                + "'password'='%s'"
+                                + ")",
+                        fixedMode,
+                        (copyMode == null ? "" : "'jdbcCopyWriteMode'='" + copyMode + "',"),
+                        endpoint,
+                        database,
+                        sinkTable,
+                        username,
+                        password));
 
         String insertStatement = "INSERT INTO %s (a) values (1)";
         try {
@@ -339,7 +437,7 @@ public class HologresSinkTableITTest extends HologresTestBase {
 
     @Test
     public void testSinkTableCheckAndPut() throws Exception {
-        if (copyMode) {
+        if (copyMode != null) {
             return;
         }
         String sinkTableName = "\"TEST_sink_table_for_check_and_put" + randomSuffix + "\"";
@@ -354,44 +452,38 @@ public class HologresSinkTableITTest extends HologresTestBase {
                         + "CALL set_table_property('TABLE_NAME', 'binlog.level', 'replica');\n"
                         + "commit;";
         executeSql(createTableSql.replace("TABLE_NAME", sinkTableName), false);
+
         tEnv.executeSql(
-                "create table sinkTable"
-                        + "(\n"
-                        + "a int not null,\n"
-                        + "b STRING not null,\n"
-                        + "`C,C` timestamp\n"
-                        + ") with ("
-                        + "'connector'='hologres',\n"
-                        + "'check-and-put.column'='C,C',\n"
-                        + "'check-and-put.null-as'='2023-10-10 12:00:00',\n"
-                        + "'check-and-put.operator'='GREATER_OR_EQUAL',\n"
-                        + "'jdbcWriteBatchSize'='1',\n"
-                        + "'fixedConnectionMode'='"
-                        + fixedMode
-                        + "',\n"
-                        + "'jdbcCopyWriteMode'='"
-                        + copyMode
-                        + "',\n"
-                        + "'bulkLoad'='"
-                        + bulkLoad
-                        + "',\n"
-                        + "'mutatetype'='insertorupdate',\n"
-                        + "'endpoint'='"
-                        + endpoint
-                        + "',\n"
-                        + "'dbname'='"
-                        + database
-                        + "',\n"
-                        + "'tablename'='"
-                        + sinkTableName
-                        + "',\n"
-                        + "'username'='"
-                        + username
-                        + "',\n"
-                        + "'password'='"
-                        + password
-                        + "'\n"
-                        + ")");
+                String.format(
+                        "create table sinkTable"
+                                + "("
+                                + "a int not null,"
+                                + "b STRING not null,"
+                                + "`C,C` timestamp"
+                                + ") with ("
+                                + "'connector'='hologres',"
+                                + "'connector'='hologres',"
+                                + "'check-and-put.column'='C,C',"
+                                + "'check-and-put.null-as'='2023-10-10 12:00:00',"
+                                + "'check-and-put.operator'='GREATER_OR_EQUAL',"
+                                + "'jdbcWriteBatchSize'='1',"
+                                + "'fixedConnectionMode'='%s',"
+                                + "%s"
+                                + "'mutateType'='insertorupdate',"
+                                + "'endpoint'='%s',"
+                                + "'dbName'='%s',"
+                                + "'tableName'='%s',"
+                                + "'userName'='%s',"
+                                + "'password'='%s'"
+                                + ")",
+                        fixedMode,
+                        (copyMode == null ? "" : "'jdbcCopyWriteMode'='" + copyMode + "',"),
+                        endpoint,
+                        database,
+                        sinkTableName,
+                        username,
+                        password));
+
         String insertStatement =
                 "INSERT INTO %s "
                         + " (a,b,`C,C`) values "

@@ -1,15 +1,14 @@
 package com.alibaba.ververica.connectors.hologres.sink;
 
+import org.apache.flink.api.common.functions.RuntimeContext;
 import org.apache.flink.api.common.io.RichOutputFormat;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.metrics.Counter;
 import org.apache.flink.metrics.Meter;
 
-import com.alibaba.hologres.client.exception.HoloClientException;
 import com.alibaba.ververica.connectors.common.MetricUtils;
 import com.alibaba.ververica.connectors.common.sink.HasRetryTimeout;
 import com.alibaba.ververica.connectors.common.sink.Syncable;
-import com.alibaba.ververica.connectors.common.source.resolver.DirtyDataStrategy;
 import com.alibaba.ververica.connectors.hologres.api.HologresWriter;
 import com.alibaba.ververica.connectors.hologres.config.HologresConnectionParam;
 import org.apache.commons.lang3.exception.ExceptionUtils;
@@ -23,7 +22,7 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
 /** Hologres sync output format implement. */
 public class HologresOutputFormat<T> extends RichOutputFormat<T>
         implements Syncable, HasRetryTimeout {
-    private static final transient Logger LOG = LoggerFactory.getLogger(HologresOutputFormat.class);
+    private static final Logger LOG = LoggerFactory.getLogger(HologresOutputFormat.class);
     private static final long serialVersionUID = 5113221824076190115L;
 
     protected final HologresConnectionParam param;
@@ -32,7 +31,6 @@ public class HologresOutputFormat<T> extends RichOutputFormat<T>
     protected Meter outTps;
     protected Meter outBps;
     protected Counter sinkSkipCounter;
-    protected DirtyDataStrategy dirtyDataStrategy;
     protected HologresWriter<T> hologresIOClient;
 
     protected Exception exception = null;
@@ -42,7 +40,6 @@ public class HologresOutputFormat<T> extends RichOutputFormat<T>
 
         // set params
         this.ignoreDelete = param.isIgnoreDelete();
-        this.dirtyDataStrategy = param.getDirtyDataStrategy();
         this.hologresIOClient = hologresIOClient;
     }
 
@@ -54,10 +51,13 @@ public class HologresOutputFormat<T> extends RichOutputFormat<T>
                 param.getEndpoint(),
                 param.getDatabase(),
                 param.getTable());
-        outTps = MetricUtils.registerNumRecordsOutRate(getRuntimeContext());
-        outBps = MetricUtils.registerNumBytesOutRate(getRuntimeContext(), "hologres");
-        sinkSkipCounter = MetricUtils.registerNumRecordsOutErrors(getRuntimeContext());
-        hologresIOClient.open(getRuntimeContext());
+        RuntimeContext runtimeContext = getRuntimeContext();
+        outTps = MetricUtils.registerNumRecordsOutRate(runtimeContext);
+        outBps = MetricUtils.registerNumBytesOutRate(runtimeContext, "hologres");
+        sinkSkipCounter = MetricUtils.registerNumRecordsOutErrors(runtimeContext);
+        hologresIOClient.open(
+                runtimeContext.getIndexOfThisSubtask(),
+                runtimeContext.getNumberOfParallelSubtasks());
         LOG.info("Finished opening {}", getClass().getSimpleName());
     }
 
@@ -67,7 +67,7 @@ public class HologresOutputFormat<T> extends RichOutputFormat<T>
         try {
             hologresIOClient.flush();
             hologresIOClient.close();
-        } catch (HoloClientException | IOException e) {
+        } catch (IOException e) {
             throw new IOException(e);
         }
         LOG.info("Finished closing {}", getClass().getSimpleName());
@@ -91,13 +91,7 @@ public class HologresOutputFormat<T> extends RichOutputFormat<T>
                     "Upsert data '{}' failed, caused by {}",
                     value,
                     ExceptionUtils.getStackTrace(e));
-
-            if (dirtyDataStrategy.equals(DirtyDataStrategy.SKIP)
-                    || dirtyDataStrategy.equals(DirtyDataStrategy.SKIP_SILENT)) {
-                sinkSkipCounter.inc();
-            } else {
-                throw new IOException(e);
-            }
+            throw new IOException(e);
         }
     }
 
@@ -112,13 +106,8 @@ public class HologresOutputFormat<T> extends RichOutputFormat<T>
         try {
             hologresIOClient.flush();
             LOG.info("end to wait request to finish");
-        } catch (HoloClientException | IOException e) {
-            LOG.info("Flush messages failed, %s", e);
-            if (!dirtyDataStrategy.equals(DirtyDataStrategy.SKIP)
-                    && !dirtyDataStrategy.equals(DirtyDataStrategy.SKIP_SILENT)) {
-                exception = e;
-                throw new IOException(e);
-            }
+        } catch (IOException e) {
+            throw new IOException(e);
         }
     }
 

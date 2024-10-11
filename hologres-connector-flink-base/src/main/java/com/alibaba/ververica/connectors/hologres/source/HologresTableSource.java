@@ -8,12 +8,11 @@ import org.apache.flink.table.connector.source.DynamicTableSource;
 import org.apache.flink.table.connector.source.InputFormatProvider;
 import org.apache.flink.table.connector.source.LookupTableSource;
 import org.apache.flink.table.connector.source.ScanTableSource;
-import org.apache.flink.table.connector.source.ScanTableSource.ScanContext;
-import org.apache.flink.table.connector.source.ScanTableSource.ScanRuntimeProvider;
 import org.apache.flink.table.connector.source.TableFunctionProvider;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.functions.AsyncTableFunction;
 import org.apache.flink.table.functions.TableFunction;
+import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.util.Preconditions;
 
 import com.alibaba.ververica.connectors.common.dim.AsyncLookupFunctionWrapper;
@@ -26,6 +25,7 @@ import com.alibaba.ververica.connectors.hologres.config.HologresConnectionParam;
 import com.alibaba.ververica.connectors.hologres.config.JDBCOptions;
 import com.alibaba.ververica.connectors.hologres.jdbc.HologresJDBCReader;
 import com.alibaba.ververica.connectors.hologres.source.bulkread.HologresBulkreadInputFormat;
+import com.alibaba.ververica.connectors.hologres.utils.SchemaUtil;
 
 import java.util.Arrays;
 import java.util.ServiceLoader;
@@ -39,6 +39,8 @@ public class HologresTableSource implements DynamicTableSource, LookupTableSourc
     private HologresConnectionParam connectionParam;
     private ReadableConfig config;
     private JDBCOptions jdbcOptions;
+    private String[] fieldNames;
+    private LogicalType[] fieldTypes;
 
     public HologresTableSource(
             String tableName,
@@ -49,6 +51,8 @@ public class HologresTableSource implements DynamicTableSource, LookupTableSourc
             ReadableConfig config) {
         this.tableName = tableName;
         this.tableSchema = tableSchema;
+        this.fieldNames = tableSchema.getFieldNames();
+        this.fieldTypes = SchemaUtil.getLogicalTypes(tableSchema);
         this.cacheConfig = cacheConfig;
         this.connectionParam = connectionParam;
         this.jdbcOptions = jdbcOptions;
@@ -90,7 +94,7 @@ public class HologresTableSource implements DynamicTableSource, LookupTableSourc
         HologresReader<RowData> hologresReader;
         hologresReader =
                 HologresJDBCReader.createTableReader(
-                        connectionParam, tableSchema, lookupKeys, hologresTableSchema);
+                        connectionParam, fieldNames, fieldTypes, lookupKeys, hologresTableSchema);
 
         ServiceLoader<HologresLookUpFunctionFactory> loader =
                 ServiceLoader.load(HologresLookUpFunctionFactory.class);

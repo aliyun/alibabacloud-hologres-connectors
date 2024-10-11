@@ -8,8 +8,6 @@ import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.LogicalTypeRoot;
 import org.apache.flink.table.types.logical.utils.LogicalTypeChecks;
 
-import com.alibaba.ververica.connectors.hologres.utils.PostgresTypeUtil;
-
 import java.io.Serializable;
 import java.sql.Types;
 
@@ -113,7 +111,7 @@ public interface RowDataWriter<T> extends Serializable {
                         fieldType
                                 .getTypeRoot()
                                 .equals(LogicalTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE);
-                if (hologresTypeName.equals(PostgresTypeUtil.PG_TIMESTAMPTZ)) {
+                if (hologresTypeName.equals("timestamptz")) {
                     if (isFlinkLTZ) {
                         // flink TIMESTAMP_LTZ -> holo TIMESTAMPTZ
                         fieldWriter =

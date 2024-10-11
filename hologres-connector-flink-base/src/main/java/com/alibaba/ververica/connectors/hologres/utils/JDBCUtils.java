@@ -7,7 +7,6 @@ import com.alibaba.hologres.client.model.SSLMode;
 import com.alibaba.hologres.org.postgresql.PGProperty;
 import com.alibaba.ververica.connectors.hologres.config.JDBCOptions;
 import com.alibaba.ververica.connectors.hologres.jdbc.HologresJDBCConfigs;
-import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,6 +32,7 @@ import static com.alibaba.ververica.connectors.hologres.config.HologresConfigs.U
 /** JDBCUtils. */
 public class JDBCUtils {
     private static final Logger LOG = LoggerFactory.getLogger(JDBCUtils.class);
+    private static final String DEFAULT_APP_NAME = "hologres-connector-flink-utils";
 
     public static String getDbUrl(String endpoint, String db) {
         return "jdbc:hologres://" + endpoint + "/" + db;
@@ -53,42 +53,55 @@ public class JDBCUtils {
 
     // use special jdbc url
     public static Connection createConnection(
-            JDBCOptions options, String url, boolean sslModeConnection) {
+            JDBCOptions options,
+            String url,
+            boolean sslModeConnection,
+            int maxRetryCount,
+            String appName) {
         try {
             DriverManager.getDrivers();
             Class.forName("com.alibaba.hologres.org.postgresql.Driver");
         } catch (ClassNotFoundException e) {
             throw new RuntimeException(e);
         }
-        try {
-            Properties properties = new Properties();
-            PGProperty.USER.set(properties, options.getUsername());
-            PGProperty.PASSWORD.set(properties, options.getPassword());
-            PGProperty.APPLICATION_NAME.set(properties, "ververica-connector-hologres-utils");
-            PGProperty.SOCKET_TIMEOUT.set(properties, 360);
-            if (sslModeConnection && options.getSslMode() != SSLMode.DISABLE) {
-                PGProperty.SSL.set(properties, true);
-                PGProperty.SSL_MODE.set(properties, options.getSslMode().getPgPropertyValue());
-                if (options.getSslMode() == SSLMode.VERIFY_CA
-                        || options.getSslMode() == SSLMode.VERIFY_FULL) {
-                    if (options.getSslRootCertLocation() == null) {
-                        throw new InvalidParameterException(
-                                "When SSL_MODE is set to VERIFY_CA or VERIFY_FULL, the location of the ssl root certificate must be configured.");
-                    }
-                    PGProperty.SSL_ROOT_CERT.set(properties, options.getSslRootCertLocation());
-                }
+        int retryCount = 0;
+        SQLException exception = new SQLException("Failed getting connection.");
+        while (retryCount < maxRetryCount) {
+            try {
+                Thread.sleep(5000L * retryCount);
+            } catch (InterruptedException ignore) {
             }
-            return DriverManager.getConnection(url, properties);
-        } catch (SQLException e) {
-            throw new RuntimeException(
-                    String.format(
-                            "Failed getting connection to %s because %s",
-                            options.getDbUrl(), ExceptionUtils.getStackTrace(e)));
+            try {
+                Properties properties = new Properties();
+                PGProperty.USER.set(properties, options.getUsername());
+                PGProperty.PASSWORD.set(properties, options.getPassword());
+                PGProperty.APPLICATION_NAME.set(properties, appName);
+                PGProperty.SOCKET_TIMEOUT.set(properties, 360);
+                if (sslModeConnection && options.getSslMode() != SSLMode.DISABLE) {
+                    PGProperty.SSL.set(properties, true);
+                    PGProperty.SSL_MODE.set(properties, options.getSslMode().getPgPropertyValue());
+                    if (options.getSslMode() == SSLMode.VERIFY_CA
+                            || options.getSslMode() == SSLMode.VERIFY_FULL) {
+                        if (options.getSslRootCertLocation() == null) {
+                            throw new InvalidParameterException(
+                                    "When SSL_MODE is set to VERIFY_CA or VERIFY_FULL, the location of the ssl root certificate must be configured.");
+                        }
+                        PGProperty.SSL_ROOT_CERT.set(properties, options.getSslRootCertLocation());
+                    }
+                }
+                return DriverManager.getConnection(url, properties);
+            } catch (SQLException e) {
+                exception = e;
+                retryCount++;
+            }
         }
+        throw new RuntimeException(
+                String.format("Failed getting connection to %s because:", url), exception);
     }
 
     public static Connection createConnection(JDBCOptions options) {
-        return createConnection(options, options.getDbUrl(), /*sslModeConnection*/ false);
+        return createConnection(
+                options, options.getDbUrl(), /*sslModeConnection*/ false, 3, DEFAULT_APP_NAME);
     }
 
     public static JDBCOptions getJDBCOptions(ReadableConfig properties) {
@@ -137,7 +150,7 @@ public class JDBCUtils {
         Properties info = new Properties();
         PGProperty.USER.set(info, options.getUsername());
         PGProperty.PASSWORD.set(info, options.getPassword());
-        PGProperty.APPLICATION_NAME.set(info, "hologres-connector-flink_copy");
+        PGProperty.APPLICATION_NAME.set(info, DEFAULT_APP_NAME);
         String directUrl = JDBCUtils.getJdbcDirectConnectionUrl(options, url);
         LOG.info("try connect directly to holo with url {}", url);
         try (Connection ignored = DriverManager.getConnection(directUrl, info)) {
@@ -152,7 +165,13 @@ public class JDBCUtils {
         // Returns the jdbc url directly connected to fe
         LOG.info("Try to connect {} for getting fe endpoint", url);
         String endpoint = null;
-        try (Connection conn = createConnection(options, url, /*sslModeConnection*/ false)) {
+        try (Connection conn =
+                createConnection(
+                        options,
+                        url, /*sslModeConnection*/
+                        false, /*maxRetryCount*/
+                        3, /*appName*/
+                        DEFAULT_APP_NAME)) {
             try (Statement stat = conn.createStatement()) {
                 try (ResultSet rs =
                         stat.executeQuery("select inet_server_addr(), inet_server_port()")) {
@@ -205,6 +224,23 @@ public class JDBCUtils {
                 return 0;
             }
             throw new RuntimeException("Failed to get hologres frontends number.", e);
+        }
+    }
+
+    public static void executeSql(Connection pgConn, String sql) {
+        executeSql(pgConn, sql, false);
+    }
+
+    public static void executeSql(Connection pgConn, String sql, boolean ignoreException) {
+        try (Statement stat = pgConn.createStatement()) {
+            LOG.info("execute sql: {}", sql);
+            stat.execute(sql);
+        } catch (SQLException e) {
+            if (ignoreException) {
+                return;
+            }
+            throw new RuntimeException(
+                    String.format("Failed to execute sql \"%s\". because:", sql), e);
         }
     }
 }

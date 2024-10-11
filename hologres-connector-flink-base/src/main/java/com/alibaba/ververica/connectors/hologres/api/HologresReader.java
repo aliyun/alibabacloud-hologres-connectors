@@ -1,6 +1,6 @@
 package com.alibaba.ververica.connectors.hologres.api;
 
-import org.apache.flink.table.api.TableSchema;
+import org.apache.flink.table.types.logical.LogicalType;
 
 import com.alibaba.ververica.connectors.hologres.config.HologresConnectionParam;
 
@@ -13,8 +13,11 @@ public abstract class HologresReader<T> extends HologresIOClient<T> {
     protected final String[] primaryKeys;
 
     public HologresReader(
-            HologresConnectionParam param, TableSchema tableSchema, String[] primaryKeys) {
-        super(param, tableSchema);
+            HologresConnectionParam param,
+            String[] fieldNames,
+            LogicalType[] logicalTypes,
+            String[] primaryKeys) {
+        super(param, fieldNames, logicalTypes);
         this.primaryKeys = primaryKeys;
     }
 

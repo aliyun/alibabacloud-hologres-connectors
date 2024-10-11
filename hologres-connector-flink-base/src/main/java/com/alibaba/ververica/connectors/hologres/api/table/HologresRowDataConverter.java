@@ -1,6 +1,5 @@
 package com.alibaba.ververica.connectors.hologres.api.table;
 
-import org.apache.flink.table.api.TableSchema;
 import org.apache.flink.table.data.GenericRowData;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.types.logical.LogicalType;
@@ -28,14 +27,16 @@ public class HologresRowDataConverter<T> implements HologresRecordConverter<RowD
     private PrimaryKeyBuilder<T> primaryKeyBuilder;
 
     public HologresRowDataConverter(
-            TableSchema tableSchema,
+            String[] fieldNames,
+            LogicalType[] fieldTypes,
             HologresConnectionParam param,
             RowDataWriter<T> rowDataWriter,
             RowDataReader<T> rowDataReader,
             HologresTableSchema hologresTableSchema) {
         this(
                 new String[] {},
-                tableSchema,
+                fieldNames,
+                fieldTypes,
                 param,
                 rowDataWriter,
                 rowDataReader,
@@ -44,14 +45,14 @@ public class HologresRowDataConverter<T> implements HologresRecordConverter<RowD
 
     public HologresRowDataConverter(
             String[] primaryKeyIndex,
-            TableSchema tableSchema,
+            String[] fieldNames,
+            LogicalType[] fieldTypes,
             HologresConnectionParam param,
             RowDataWriter<T> rowDataWriter,
             RowDataReader<T> rowDataReader,
             HologresTableSchema hologresTableSchema) {
-        this.fieldNames = tableSchema.getFieldNames();
+        this.fieldNames = fieldNames;
         this.columnNameToIndex = new HashMap<>();
-        LogicalType[] fieldTypes = getLogicalTypes(tableSchema);
         this.rowDataWriter = rowDataWriter;
         this.rowDataReader = rowDataReader;
         this.fieldLength = fieldNames.length;
@@ -95,17 +96,6 @@ public class HologresRowDataConverter<T> implements HologresRecordConverter<RowD
                             param);
         }
         validateDataTypeMapping(fieldTypes, hologresTableSchema);
-    }
-
-    public static LogicalType[] getLogicalTypes(TableSchema tableSchema) {
-        int columnsNum = tableSchema.getFieldCount();
-        String[] fieldNames = new String[columnsNum];
-        LogicalType[] fieldTypes = new LogicalType[columnsNum];
-        for (int idx = 0; idx < columnsNum; idx++) {
-            fieldNames[idx] = tableSchema.getFieldNames()[idx];
-            fieldTypes[idx] = tableSchema.getFieldDataType(fieldNames[idx]).get().getLogicalType();
-        }
-        return fieldTypes;
     }
 
     @Override

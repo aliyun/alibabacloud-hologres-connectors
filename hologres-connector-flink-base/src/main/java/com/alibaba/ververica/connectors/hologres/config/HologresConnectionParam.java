@@ -20,9 +20,9 @@ package com.alibaba.ververica.connectors.hologres.config;
 
 import org.apache.flink.configuration.ReadableConfig;
 
+import com.alibaba.hologres.client.copy.CopyMode;
 import com.alibaba.hologres.client.model.WriteMode;
 import com.alibaba.hologres.client.model.checkandput.CheckAndPutCondition;
-import com.alibaba.ververica.connectors.common.source.resolver.DirtyDataStrategy;
 import com.alibaba.ververica.connectors.hologres.jdbc.HologresJDBCConfigs;
 import com.alibaba.ververica.connectors.hologres.utils.HologresUtils;
 import com.alibaba.ververica.connectors.hologres.utils.JDBCUtils;
@@ -44,9 +44,6 @@ public class HologresConnectionParam implements Serializable {
     private final boolean enableDeduplication;
     private final boolean enableAggressive;
 
-    // dirty data strategy
-    private DirtyDataStrategy dirtyDataStrategy = DirtyDataStrategy.EXCEPTION;
-
     // JDBC connection
     private final int jdbcRetryCount;
     private final long jdbcRetrySleepInitMs;
@@ -57,6 +54,9 @@ public class HologresConnectionParam implements Serializable {
     private final String connectionPoolName;
     private final int connectionPoolSize;
     private final boolean fixedConnectionMode;
+    private final boolean enableServerlessComputing;
+    private final Integer serverlessComputingQueryPriority;
+    private final Integer statementTimeoutSeconds;
     // JDBC source
     private final int jdbcReadBatchSize;
     private final int jdbcReadBatchQueueSize;
@@ -69,18 +69,17 @@ public class HologresConnectionParam implements Serializable {
     private final long jdbcWriteBatchTotalByteSize;
     private final long jdbcWriteFlushInterval;
     private final boolean enableAffectedRows;
-    private final boolean enableTargetShards;
+    private final boolean enableHoldOnUpdateBefore;
+    private final boolean enableReshuffleByHolo;
     private final Boolean jdbcUseLegacyPutHandler;
     private final boolean jdbcEnableDefaultForNotNullColumn;
     private final CheckAndPutCondition checkAndPutCondition;
     // JDBC dim
     private final boolean insertIfNotExists;
     // JDBC copy sink
-    private final boolean copyWriteMode;
+    private final CopyMode copyMode;
     private final String copyWriteFormat;
     private boolean directConnect;
-
-    private final boolean bulkLoad;
 
     public HologresConnectionParam(ReadableConfig properties) {
         this.options = JDBCUtils.getJDBCOptions(properties);
@@ -92,13 +91,6 @@ public class HologresConnectionParam implements Serializable {
 
         this.splitDataSize = properties.get(HologresConfigs.OPTIONAL_SPLIT_DATA_SIZE);
         this.ignoreDelete = properties.get(HologresConfigs.OPTIONAL_SINK_IGNORE_DELETE);
-
-        String actionOnInsertError = properties.get(HologresConfigs.ACTION_ON_INSERT_ERROR);
-        if (actionOnInsertError.equalsIgnoreCase("SKIP")) {
-            this.dirtyDataStrategy = DirtyDataStrategy.SKIP;
-        } else if (actionOnInsertError.equalsIgnoreCase("SKIP_SILENT")) {
-            this.dirtyDataStrategy = DirtyDataStrategy.SKIP_SILENT;
-        }
 
         this.jdbcRetryCount = properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_RETRY_COUNT);
         this.jdbcRetrySleepInitMs =
@@ -116,6 +108,13 @@ public class HologresConnectionParam implements Serializable {
                 properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_FIXED_CONNECTION_MODE);
         this.connectionPoolSize =
                 properties.get(HologresJDBCConfigs.OPTIONAL_CLIENT_CONNECTION_POOL_SIZE);
+        this.enableServerlessComputing =
+                properties.get(HologresJDBCConfigs.ENABLE_SERVERLESS_COMPUTING);
+        this.serverlessComputingQueryPriority =
+                properties.get(HologresJDBCConfigs.SERVERLESS_COMPUTING_QUERY_PRIORITY);
+        this.statementTimeoutSeconds =
+                properties.get(HologresJDBCConfigs.STATEMENT_TIMEOUT_SECONDS);
+
         this.jdbcReadBatchSize = properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_READ_BATCH_SIZE);
         this.jdbcReadBatchQueueSize =
                 properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_READ_BATCH_QUEUE_SIZE);
@@ -131,7 +130,10 @@ public class HologresConnectionParam implements Serializable {
         this.jdbcWriteFlushInterval =
                 properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_WRITE_FLUSH_INTERVAL);
         this.enableAffectedRows = properties.get(HologresJDBCConfigs.OPTIONAL_ENABLE_AFFECTED_ROWS);
-        this.enableTargetShards = properties.get(HologresJDBCConfigs.OPTIONAL_ENABLE_TARGET_SHARDS);
+        this.enableHoldOnUpdateBefore =
+                properties.get(HologresJDBCConfigs.OPTIONAL_ENABLE_HOLD_ON_UPDATE_BEFORE);
+        this.enableReshuffleByHolo =
+                properties.get(HologresJDBCConfigs.OPTIONAL_ENABLE_RESHUFFLE_BY_HOLO);
         this.jdbcUseLegacyPutHandler =
                 properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_USE_LEGACY_PUT_HANDLER);
         this.jdbcEnableDefaultForNotNullColumn =
@@ -143,10 +145,9 @@ public class HologresConnectionParam implements Serializable {
                 properties.get(HologresJDBCConfigs.OPTIONAL_ENABLE_DEDUPLICATION);
         this.enableAggressive = properties.get(HologresJDBCConfigs.OPTIONAL_ENABLE_AGGRESSIVE);
         this.insertIfNotExists = properties.get(HologresJDBCConfigs.INSERT_IF_NOT_EXISTS);
-        this.copyWriteMode = properties.get(HologresJDBCConfigs.COPY_WRITE_MODE);
+        this.copyMode = properties.get(HologresJDBCConfigs.COPY_MODE);
         this.copyWriteFormat = properties.get(HologresJDBCConfigs.COPY_WRITE_FORMAT);
         this.directConnect = properties.get(HologresJDBCConfigs.DIRECT_CONNECT);
-        this.bulkLoad = properties.get(HologresJDBCConfigs.OPTIONAL_BULK_LOAD);
         this.checkAndPutCondition = HologresUtils.getCheckAndPutCondition(properties);
     }
 
@@ -220,10 +221,6 @@ public class HologresConnectionParam implements Serializable {
 
     public boolean isIgnoreDelete() {
         return ignoreDelete;
-    }
-
-    public DirtyDataStrategy getDirtyDataStrategy() {
-        return dirtyDataStrategy;
     }
 
     public int getJdbcWriteBatchSize() {
@@ -314,12 +311,8 @@ public class HologresConnectionParam implements Serializable {
         return this.writeMode;
     }
 
-    public boolean isCopyWriteMode() {
-        return copyWriteMode;
-    }
-
-    public boolean isBulkLoad() {
-        return bulkLoad;
+    public CopyMode getCopyMode() {
+        return copyMode;
     }
 
     public String getCopyWriteFormat() {
@@ -338,12 +331,28 @@ public class HologresConnectionParam implements Serializable {
         return enableAffectedRows;
     }
 
-    public boolean isEnableTargetShards() {
-        return enableTargetShards;
+    public boolean isEnableHoldOnUpdateBefore() {
+        return enableHoldOnUpdateBefore;
+    }
+
+    public boolean isEnableReshuffleByHolo() {
+        return enableReshuffleByHolo;
     }
 
     public CheckAndPutCondition getCheckAndPutCondition() {
         return checkAndPutCondition;
+    }
+
+    public boolean isEnableServerlessComputing() {
+        return enableServerlessComputing;
+    }
+
+    public Integer getServerlessComputingQueryPriority() {
+        return serverlessComputingQueryPriority;
+    }
+
+    public Integer getStatementTimeoutSeconds() {
+        return statementTimeoutSeconds;
     }
 
     @Override
@@ -367,10 +376,8 @@ public class HologresConnectionParam implements Serializable {
                 + enableAffectedRows
                 + ", aggressive.enabled="
                 + enableAggressive
-                + ", target-shards.enabled="
-                + enableTargetShards
-                + ", dirtyDataStrategy="
-                + dirtyDataStrategy
+                + ", reshuffle-by-holo-distribution-key.enabled="
+                + enableReshuffleByHolo
                 + ", jdbcRetryCount="
                 + jdbcRetryCount
                 + ", jdbcRetrySleepInitMs="
@@ -385,7 +392,6 @@ public class HologresConnectionParam implements Serializable {
                 + jdbcMetaAutoRefreshFactor
                 + ", connectionPoolName='"
                 + connectionPoolName
-                + '\''
                 + ", connectionPoolSize="
                 + connectionPoolSize
                 + ", fixedConnectionMode="
@@ -414,15 +420,22 @@ public class HologresConnectionParam implements Serializable {
                 + jdbcEnableDefaultForNotNullColumn
                 + ", insertIfNotExists="
                 + insertIfNotExists
-                + ", copyWriteMode="
-                + copyWriteMode
+                + ", copyMode="
+                + copyMode
                 + ", copyWriteFormat='"
                 + copyWriteFormat
-                + '\''
                 + ", directConnect="
                 + directConnect
-                + ", bulkLoad="
-                + bulkLoad
+                + ", checkAndPutCondition="
+                + checkAndPutCondition
+                + ", enableServerlessComputing="
+                + enableServerlessComputing
+                + ", serverlessComputingQueryPriority="
+                + serverlessComputingQueryPriority
+                + ", statementTimeoutSeconds="
+                + statementTimeoutSeconds
+                + ", enableHoldOnUpdateBefore="
+                + enableHoldOnUpdateBefore
                 + '}';
     }
 }

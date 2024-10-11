@@ -55,6 +55,7 @@ public class HologresTestBase {
     public String database;
     public String username;
     public String password;
+    public String sourceTable;
     public String dimTable;
     public String sinkTable;
 

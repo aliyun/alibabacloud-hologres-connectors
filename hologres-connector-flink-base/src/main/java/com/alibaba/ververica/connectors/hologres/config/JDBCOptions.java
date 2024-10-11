@@ -3,7 +3,6 @@ package com.alibaba.ververica.connectors.hologres.config;
 import com.alibaba.hologres.client.model.SSLMode;
 
 import java.io.Serializable;
-import java.util.Objects;
 
 /** Configs for JDBCOptions. */
 public class JDBCOptions implements Serializable {
@@ -73,33 +72,6 @@ public class JDBCOptions implements Serializable {
     // to prevent occasional exceptions where the driver cannot be found.
     public String getDbUrl() {
         return "jdbc:hologres://" + endpoint + "/" + database;
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-
-        JDBCOptions that = (JDBCOptions) o;
-
-        return Objects.equals(database, that.database)
-                && Objects.equals(table, that.table)
-                && Objects.equals(username, that.username)
-                && Objects.equals(password, that.password)
-                && Objects.equals(endpoint, that.endpoint)
-                && Objects.equals(sslMode, that.sslMode)
-                && Objects.equals(sslRootCertLocation, that.sslRootCertLocation)
-                && Objects.equals(delimiter, that.delimiter);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(database, table, username, password, endpoint, delimiter);
     }
 
     @Override

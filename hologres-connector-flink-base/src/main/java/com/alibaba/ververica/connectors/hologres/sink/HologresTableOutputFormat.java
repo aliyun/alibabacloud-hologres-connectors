@@ -3,7 +3,6 @@ package com.alibaba.ververica.connectors.hologres.sink;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.types.RowKind;
 
-import com.alibaba.ververica.connectors.common.source.resolver.DirtyDataStrategy;
 import com.alibaba.ververica.connectors.hologres.api.HologresWriter;
 import com.alibaba.ververica.connectors.hologres.config.HologresConnectionParam;
 import org.apache.commons.lang3.exception.ExceptionUtils;
@@ -46,13 +45,7 @@ public class HologresTableOutputFormat extends HologresOutputFormat<RowData> {
                     "Upsert data '{}' failed, caused by {}",
                     rowData,
                     ExceptionUtils.getStackTrace(e));
-
-            if (dirtyDataStrategy.equals(DirtyDataStrategy.SKIP)
-                    || dirtyDataStrategy.equals(DirtyDataStrategy.SKIP_SILENT)) {
-                sinkSkipCounter.inc();
-            } else {
-                throw new IOException(e);
-            }
+            throw new IOException(e);
         }
     }
 }

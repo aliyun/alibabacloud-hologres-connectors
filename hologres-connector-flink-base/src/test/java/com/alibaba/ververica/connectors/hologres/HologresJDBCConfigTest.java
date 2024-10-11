@@ -10,22 +10,15 @@ import com.alibaba.ververica.connectors.hologres.jdbc.HologresJDBCClientProvider
 import com.alibaba.ververica.connectors.hologres.jdbc.HologresJDBCConfigs;
 import org.junit.Test;
 
-import java.io.IOException;
-
 import static org.junit.Assert.assertEquals;
 
 /** HologresJDBCRecordReaderWriterTest. */
-public class HologresJDBCConfigTest extends HologresTestBase {
-    public HologresJDBCConfigTest() throws IOException {}
+public class HologresJDBCConfigTest {
+    public HologresJDBCConfigTest() {}
 
     @Test
     public void testDefaultHologresJDBCHoloClientConfig() {
         Configuration configuration = new Configuration();
-        configuration.set(HologresConfigs.ENDPOINT, this.endpoint);
-        configuration.set(HologresConfigs.DATABASE, this.database);
-        configuration.set(HologresConfigs.USERNAME, this.username);
-        configuration.set(HologresConfigs.PASSWORD, this.password);
-        configuration.set(HologresConfigs.TABLE, this.sinkTable);
 
         // common
         String mutateType = "InsertOrIgnore";
@@ -92,11 +85,6 @@ public class HologresJDBCConfigTest extends HologresTestBase {
     @Test
     public void testHologresJDBCHoloClientConfig() {
         Configuration configuration = new Configuration();
-        configuration.set(HologresConfigs.ENDPOINT, this.endpoint);
-        configuration.set(HologresConfigs.DATABASE, this.database);
-        configuration.set(HologresConfigs.USERNAME, this.username);
-        configuration.set(HologresConfigs.PASSWORD, this.password);
-        configuration.set(HologresConfigs.TABLE, this.sinkTable);
 
         // common
         String mutateType = "InsertOrUpdate";
@@ -193,7 +181,30 @@ public class HologresJDBCConfigTest extends HologresTestBase {
         assertEquals(config.isEnableDefaultForNotNullColumn(), enableDefaultForNotNullColumn);
     }
 
-    public WriteMode getJDBCWriteMode(String jdbcWriteMode) {
+    @Test
+    public void testDefaultConnectionParam() {
+        Configuration configuration = new Configuration();
+        HologresConnectionParam param = new HologresConnectionParam(configuration);
+        assertEquals(
+                "HologresConnectionParam{options=JDBCOptions{database='null', table='null', username='null', "
+                        + "password='********', endpoint='null', connection.ssl.mode='DISABLE', connection.ssl.root-cert.location='null', "
+                        + "delimiter='\u0002'}, splitDataSize=262144, ignoreDelete=true, createMissingPartTable=false,"
+                        + " ignoreNullWhenUpdate=false, remove-u0000-in-text.enabled=true, deduplication.enabled=true, "
+                        + "affect-rows.enabledtrue, aggressive.enabled=false, reshuffle-by-holo-distribution-key.enabled=false, "
+                        + "jdbcRetryCount=10, jdbcRetrySleepInitMs=1000, "
+                        + "jdbcRetrySleepStepMs=5000, jdbcConnectionMaxIdleMs=60000, jdbcMetaCacheTTL=60000, "
+                        + "jdbcMetaAutoRefreshFactor=-1, connectionPoolName='null, connectionPoolSize=3, "
+                        + "fixedConnectionMode=false, jdbcReadBatchSize=128, jdbcReadBatchQueueSize=256,"
+                        + " jdbcScanFetchSize=256, jdbcScanTimeoutSeconds=256, writeMode=INSERT_OR_IGNORE, "
+                        + "jdbcWriteBatchSize=256, jdbcWriteBatchByteSize=2097152, jdbcWriteBatchTotalByteSize=20971520,"
+                        + " jdbcWriteFlushInterval=10000, jdbcUseLegacyPutHandler=false, jdbcEnableDefaultForNotNullColumn=true, "
+                        + "insertIfNotExists=false, copyMode=null, copyWriteFormat='binary, directConnect=false, "
+                        + "checkAndPutCondition=null, enableServerlessComputing=false, serverlessComputingQueryPriority=3, "
+                        + "statementTimeoutSeconds=28800000, enableHoldOnUpdateBefore=false}",
+                param.toString());
+    }
+
+    private WriteMode getJDBCWriteMode(String jdbcWriteMode) {
         switch (jdbcWriteMode.toLowerCase()) {
             case "insertorignore":
                 return WriteMode.INSERT_OR_IGNORE;

@@ -22,8 +22,9 @@ import java.io.Serializable;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.Arrays;
+
+import static com.alibaba.ververica.connectors.hologres.utils.JDBCUtils.executeSql;
 
 /** HologresBulkReader. */
 public class HologresBulkReader implements Serializable {
@@ -65,24 +66,30 @@ public class HologresBulkReader implements Serializable {
         try {
             conn =
                     JDBCUtils.createConnection(
-                                    jdbcOptions, jdbcOptions.getDbUrl(), /*sslModeConnection*/ true)
+                                    jdbcOptions,
+                                    jdbcOptions.getDbUrl(), /*sslModeConnection*/
+                                    true, /*maxRetryCount*/
+                                    3, /*appName*/
+                                    "hologres-connector-flink-bulkread")
                             .unwrap(PgConnection.class);
             // The default statement_timeout in holo is 8 hours, but users may set this parameter
             // relatively small at the db level, which may affect full reading. Therefore, we
-            // specifically set it to 24 hours. We do not recommend a full bulk reader
-            // exceeding 24 hours. In this case, the concurrency should be increased or the user
-            // should adjust the db level of statement_timeout.
-            try (Statement stat = conn.createStatement()) {
-                stat.execute("set statement_timeout = '24h';");
-            } catch (SQLException e) {
-                throw new IOException("set statement_timeout to 24h failed because", e);
-            }
+            // specifically set it.
+            executeSql(
+                    conn,
+                    String.format(
+                            "set statement_timeout = %s",
+                            connectionParam.getStatementTimeoutSeconds()));
             // The default idle_in_transaction_session_timeout of holo is 10 minutes. If the user
             // processes data too slowly, it may time out.
-            try (Statement stat = conn.createStatement()) {
-                stat.execute(String.format("set idle_in_transaction_session_timeout = '1h';"));
-            } catch (SQLException e) {
-                throw new IOException("set statement_timeout to 1h failed because", e);
+            executeSql(conn, "set idle_in_transaction_session_timeout = '1h';");
+            if (connectionParam.isEnableServerlessComputing()) {
+                executeSql(conn, "set hg_computing_resource = 'serverless';");
+                executeSql(
+                        conn,
+                        String.format(
+                                "set hg_experimental_serverless_computing_query_priority = '%d';",
+                                connectionParam.getServerlessComputingQueryPriority()));
             }
             conn.setAutoCommit(false);
             statement =

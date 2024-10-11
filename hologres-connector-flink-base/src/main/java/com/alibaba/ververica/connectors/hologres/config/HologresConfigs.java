@@ -12,6 +12,7 @@ import java.util.HashSet;
 import java.util.Set;
 
 import static org.apache.flink.configuration.ConfigOptions.key;
+import static org.apache.flink.table.factories.FactoryUtil.SINK_PARALLELISM;
 
 /** Configs for hologres connector. */
 public class HologresConfigs {
@@ -92,6 +93,8 @@ public class HologresConfigs {
                             } catch (IllegalAccessException e) {
                             }
                         });
+
+        allOptions.add(SINK_PARALLELISM);
 
         return allOptions;
     }

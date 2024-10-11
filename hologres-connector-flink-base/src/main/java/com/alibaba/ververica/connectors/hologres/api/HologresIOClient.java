@@ -1,12 +1,10 @@
 package com.alibaba.ververica.connectors.hologres.api;
 
-import org.apache.flink.api.common.functions.RuntimeContext;
-import org.apache.flink.table.api.TableSchema;
 import org.apache.flink.table.types.logical.LogicalType;
-import org.apache.flink.table.types.logical.RowType;
 
-import com.alibaba.hologres.client.exception.HoloClientException;
 import com.alibaba.ververica.connectors.hologres.config.HologresConnectionParam;
+
+import javax.annotation.Nullable;
 
 import java.io.IOException;
 import java.io.Serializable;
@@ -17,22 +15,19 @@ public abstract class HologresIOClient<T> implements Serializable {
     protected final String[] fieldNames;
     protected final LogicalType[] logicalTypes;
 
-    public HologresIOClient(HologresConnectionParam param, TableSchema tableSchema) {
+    public HologresIOClient(
+            HologresConnectionParam param, String[] fieldNames, LogicalType[] logicalTypes) {
         this.param = param;
-        this.fieldNames = tableSchema.getFieldNames();
-        this.logicalTypes = getLogicalTypes(tableSchema);
+        this.fieldNames = fieldNames;
+        this.logicalTypes = logicalTypes;
     }
 
-    public abstract void open(RuntimeContext runtimeContext) throws IOException;
-
-    public abstract void close() throws IOException, HoloClientException;
-
-    public static LogicalType[] getLogicalTypes(TableSchema tableSchema) {
-        LogicalType[] logicalTypes = new LogicalType[tableSchema.getFieldCount()];
-        final RowType rowType = (RowType) tableSchema.toPhysicalRowDataType().getLogicalType();
-        for (int i = 0; i < tableSchema.getFieldCount(); i++) {
-            logicalTypes[i] = rowType.getTypeAt(i);
-        }
-        return logicalTypes;
+    public void open() throws IOException {
+        open(null, null);
     }
+
+    public abstract void open(@Nullable Integer taskNumber, @Nullable Integer numTasks)
+            throws IOException;
+
+    public abstract void close() throws IOException;
 }

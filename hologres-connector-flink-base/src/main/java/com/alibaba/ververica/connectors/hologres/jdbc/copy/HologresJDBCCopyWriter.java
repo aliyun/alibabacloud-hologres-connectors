@@ -1,17 +1,20 @@
 package com.alibaba.ververica.connectors.hologres.jdbc.copy;
 
-import org.apache.flink.api.common.functions.RuntimeContext;
-import org.apache.flink.table.api.TableSchema;
 import org.apache.flink.table.data.RowData;
+import org.apache.flink.table.types.logical.LogicalType;
 
 import com.alibaba.hologres.client.Put;
 import com.alibaba.hologres.client.copy.CopyInOutputStream;
-import com.alibaba.hologres.client.copy.CopyUtil;
+import com.alibaba.hologres.client.copy.CopyMode;
 import com.alibaba.hologres.client.copy.RecordBinaryOutputStream;
 import com.alibaba.hologres.client.copy.RecordOutputStream;
 import com.alibaba.hologres.client.copy.RecordTextOutputStream;
 import com.alibaba.hologres.client.exception.HoloClientException;
+import com.alibaba.hologres.client.impl.util.ConnectionUtil;
+import com.alibaba.hologres.client.model.Partition;
 import com.alibaba.hologres.client.model.Record;
+import com.alibaba.hologres.client.model.TableName;
+import com.alibaba.hologres.client.utils.IdentifierUtil;
 import com.alibaba.hologres.client.utils.RecordChecker;
 import com.alibaba.hologres.org.postgresql.copy.CopyIn;
 import com.alibaba.hologres.org.postgresql.copy.CopyManager;
@@ -22,6 +25,7 @@ import com.alibaba.ververica.connectors.hologres.api.HologresTableSchema;
 import com.alibaba.ververica.connectors.hologres.api.HologresWriter;
 import com.alibaba.ververica.connectors.hologres.api.table.HologresRowDataConverter;
 import com.alibaba.ververica.connectors.hologres.config.HologresConnectionParam;
+import com.alibaba.ververica.connectors.hologres.jdbc.HologresJDBCClientProvider;
 import com.alibaba.ververica.connectors.hologres.jdbc.HologresJDBCRecordReader;
 import com.alibaba.ververica.connectors.hologres.jdbc.HologresJDBCRecordWriter;
 import com.alibaba.ververica.connectors.hologres.utils.JDBCUtils;
@@ -31,13 +35,19 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.sql.Connection;
 import java.sql.SQLException;
-import java.sql.Statement;
+import java.sql.Types;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
+import java.util.Random;
 import java.util.stream.Collectors;
 
+import static com.alibaba.hologres.client.copy.CopyUtil.buildCopyInSql;
 import static com.alibaba.hologres.client.model.WriteMode.INSERT_OR_IGNORE;
 import static com.alibaba.hologres.client.model.WriteMode.INSERT_OR_UPDATE;
+import static com.alibaba.ververica.connectors.hologres.utils.JDBCUtils.executeSql;
 
 /** An IO writer implementation for JDBC. */
 public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
@@ -48,41 +58,47 @@ public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
     private int taskNumber;
     private int numTasks;
     private final int shardCount;
-    private final boolean bulkLoad;
-    private transient CopyContext copyContext;
+    private final CopyMode copyMode;
+    private transient Map<String, CopyContext> partitionValueToCopyContext;
+    private transient Map<String, com.alibaba.hologres.client.model.TableSchema>
+            partitionValueToTableSchema;
     private boolean checkDirtyData = true;
     private final HologresRecordConverter<T, Record> recordConverter;
+    private transient HologresJDBCClientProvider clientProvider;
 
     public HologresJDBCCopyWriter(
             HologresConnectionParam param,
-            TableSchema tableSchema,
+            String[] fieldNames,
+            LogicalType[] fieldTypes,
             HologresRecordConverter<T, Record> converter,
             int numFrontends,
             int frontendOffset,
             int shardCount) {
-        super(param, tableSchema);
+        super(param, fieldNames, fieldTypes);
         this.recordConverter = converter;
         this.numFrontends = numFrontends;
         this.frontendOffset = frontendOffset;
-        this.bulkLoad = param.isBulkLoad();
+        this.copyMode = param.getCopyMode();
         this.shardCount = shardCount;
     }
 
     public static HologresJDBCCopyWriter<RowData> createRowDataWriter(
             HologresConnectionParam param,
-            TableSchema tableSchema,
+            String[] fieldNames,
+            LogicalType[] fieldTypes,
             HologresTableSchema hologresTableSchema,
             int numFrontends,
             int frontendOffset) {
         return new HologresJDBCCopyWriter<>(
                 param,
-                tableSchema,
+                fieldNames,
+                fieldTypes,
                 new HologresRowDataConverter<>(
-                        tableSchema,
+                        fieldNames,
+                        fieldTypes,
                         param,
                         new HologresJDBCRecordWriter(param),
-                        new HologresJDBCRecordReader(
-                                tableSchema.getFieldNames(), hologresTableSchema),
+                        new HologresJDBCRecordReader(fieldNames, hologresTableSchema),
                         hologresTableSchema),
                 numFrontends,
                 frontendOffset,
@@ -90,16 +106,17 @@ public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
     }
 
     @Override
-    public void open(RuntimeContext runtimeContext) {
+    public void open(Integer taskNumber, Integer numTasks) {
         LOG.info(
                 "Initiating connection to database [{}] / table[{}], whole connection params: {}",
                 param.getJdbcOptions().getDatabase(),
                 param.getTable(),
                 param);
-        taskNumber = runtimeContext.getIndexOfThisSubtask();
-        numTasks = runtimeContext.getNumberOfParallelSubtasks();
-        copyContext = new CopyContext();
-        copyContext.init(param);
+        this.taskNumber = taskNumber;
+        this.numTasks = numTasks;
+        partitionValueToCopyContext = new HashMap<>();
+        partitionValueToTableSchema = new HashMap<>();
+        this.clientProvider = new HologresJDBCClientProvider(param);
         LOG.info(
                 "Successfully initiated connection to database [{}] / table[{}]",
                 param.getJdbcOptions().getDatabase(),
@@ -108,6 +125,7 @@ public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
 
     @Override
     public long writeAddRecord(T record) throws IOException {
+        CopyContext copyContext;
         Record jdbcRecord = recordConverter.convertFrom(record);
         LOG.debug("Hologres insert record in JDBC-COPY: {}", jdbcRecord);
         // The hologres instance cannot throw out dirty data details, so we do dirty data checking
@@ -128,24 +146,47 @@ public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
             }
         }
         jdbcRecord.setType(Put.MutationType.INSERT);
+        com.alibaba.hologres.client.model.TableSchema schema = jdbcRecord.getSchema();
+        if (schema.isPartitionParentTable()) {
+            String partitionValue =
+                    String.valueOf(jdbcRecord.getObject(schema.getPartitionIndex()));
+            if (partitionValueToCopyContext.containsKey(partitionValue)) {
+                copyContext = partitionValueToCopyContext.get(partitionValue);
+            } else {
+                com.alibaba.hologres.client.model.TableSchema childSchema =
+                        checkChildTableExists(schema, partitionValue);
+                partitionValueToTableSchema.put(partitionValue, childSchema);
+                copyContext = new CopyContext();
+                copyContext.init(param);
+                copyContext.schema = childSchema;
+                partitionValueToCopyContext.put(partitionValue, copyContext);
+                if (partitionValueToCopyContext.size() > 5) {
+                    throw new RuntimeException(
+                            "Only support to write less than 5 child table at the same time now.");
+                }
+            }
+            jdbcRecord.changeToChildSchema(partitionValueToTableSchema.get(partitionValue));
+        } else {
+            copyContext =
+                    partitionValueToCopyContext.computeIfAbsent(
+                            param.getTable(), k -> new CopyContext().init(param));
+        }
+
         try {
             if (copyContext.os == null) {
                 boolean binary = "binary".equalsIgnoreCase(param.getCopyWriteFormat());
-                com.alibaba.hologres.client.model.TableSchema schema = jdbcRecord.getSchema();
-                copyContext.schema = schema;
-
                 String sql =
-                        CopyUtil.buildCopyInSql(
+                        buildCopyInSql(
                                 jdbcRecord,
                                 binary,
                                 param.getJDBCWriteMode() == INSERT_OR_IGNORE
                                         ? INSERT_OR_IGNORE
                                         : INSERT_OR_UPDATE,
-                                !bulkLoad);
+                                copyMode);
                 LOG.info("copy sql :{}", sql);
                 CopyIn in = copyContext.manager.copyIn(sql);
                 // holo bulk load copy just support text, not support binary
-                if (bulkLoad) {
+                if (copyMode != CopyMode.STREAM) {
                     copyContext.os =
                             new RecordTextOutputStream(
                                     new CopyInOutputStream(in),
@@ -184,28 +225,52 @@ public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
     @Override
     public void flush() throws IOException {
         try {
-            if (copyContext.os != null) {
-                copyContext.os.close();
+            for (CopyContext copyContext : partitionValueToCopyContext.values()) {
+                if (copyContext.os != null) {
+                    copyContext.os.close();
+                } else {
+                    copyContext.active = false;
+                }
             }
             checkDirtyData = false;
         } finally {
-            copyContext.os = null;
+            Iterator<Map.Entry<String, CopyContext>> iterator =
+                    partitionValueToCopyContext.entrySet().iterator();
+            while (iterator.hasNext()) {
+                Map.Entry<String, CopyContext> entry = iterator.next();
+                CopyContext copyContext = entry.getValue();
+                if (copyContext.active) {
+                    copyContext.os = null;
+                } else {
+                    copyContext.close();
+                    iterator.remove();
+                }
+            }
         }
     }
 
     @Override
     public void close() {
-        if (copyContext.os != null) {
-            try {
-                copyContext.os.close();
-            } catch (IOException e) {
-                LOG.warn("close fail", e);
-            } finally {
-                copyContext.os = null;
+        for (Map.Entry<String, CopyContext> entry : partitionValueToCopyContext.entrySet()) {
+            CopyContext copyContext = entry.getValue();
+            if (copyContext.os != null) {
+                try {
+                    copyContext.os.close();
+                } catch (IOException e) {
+                    LOG.warn("close fail", e);
+                } finally {
+                    copyContext.os = null;
+                }
             }
+            copyContext.close();
+            LOG.error("close copyContext for {}", entry.getKey());
         }
-        copyContext.close();
-        LOG.error("close copyContext");
+        LOG.error("close all copyContext");
+        if (clientProvider != null) {
+            clientProvider.closeClient();
+        }
+        partitionValueToCopyContext.clear();
+        partitionValueToTableSchema.clear();
     }
 
     class CopyContext {
@@ -213,8 +278,9 @@ public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
         CopyManager manager;
         RecordOutputStream os = null;
         com.alibaba.hologres.client.model.TableSchema schema;
+        boolean active;
 
-        public void init(HologresConnectionParam param) {
+        public CopyContext init(HologresConnectionParam param) {
             Connection conn = null;
             String url = param.getJdbcOptions().getDbUrl();
             // Copy is generally used in scenarios with large parallelism, but load balancing of
@@ -238,28 +304,34 @@ public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
             try {
                 conn =
                         JDBCUtils.createConnection(
-                                param.getJdbcOptions(), url, /*sslModeConnection*/ true);
+                                param.getJdbcOptions(),
+                                url, /*sslModeConnection*/
+                                true, /*maxRetryCount*/
+                                3, /*appName*/
+                                "hologres-connector-flink-" + copyMode);
                 LOG.info("init conn success to fe " + url);
                 pgConn = conn.unwrap(PgConnection.class);
                 LOG.info("init unwrap conn success");
                 // Set statement_timeout at the session level，avoid being affected by db level
-                // configuration.
-                // (for example, less than the checkpoint time)
-                try (Statement stat = pgConn.createStatement()) {
-                    stat.execute("set statement_timeout = '8h';");
-                } catch (SQLException e) {
-                    throw new RuntimeException("set statement_timeout to 8h failed because", e);
+                // configuration. (for example, less than the checkpoint time)
+                executeSql(
+                        pgConn,
+                        String.format(
+                                "set statement_timeout = %s", param.getStatementTimeoutSeconds()));
+                if (param.isEnableServerlessComputing()) {
+                    executeSql(pgConn, "set hg_computing_resource = 'serverless';");
+                    executeSql(
+                            pgConn,
+                            String.format(
+                                    "set hg_experimental_serverless_computing_query_priority = '%d';",
+                                    param.getServerlessComputingQueryPriority()));
                 }
-                try (Statement stat = pgConn.createStatement()) {
-                    stat.execute(
-                            "set hg_experimental_enable_fixed_dispatcher_affected_rows = off;");
-                } catch (SQLException ignored) {
-                    // 不抛出异常: copy不需要返回影响行数所以默认关闭,但此guc仅部分版本支持,而且设置失败不影响程序运行
-                    LOG.warn(
-                            "set hg_experimental_enable_fixed_dispatcher_affected_rows failed because ",
-                            ignored);
-                }
-                if (param.isEnableTargetShards()) {
+                // 不抛出异常: copy不需要返回影响行数所以默认关闭,但此guc仅部分版本支持,而且设置失败不影响程序运行
+                executeSql(
+                        pgConn,
+                        "set hg_experimental_enable_fixed_dispatcher_affected_rows = off;",
+                        false);
+                if (param.isEnableReshuffleByHolo()) {
                     String result =
                             getTargetShardList().stream()
                                     .map(String::valueOf)
@@ -269,14 +341,9 @@ public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
                             numTasks,
                             taskNumber,
                             result);
-                    try (Statement stat = pgConn.createStatement()) {
-                        stat.execute(
-                                String.format(
-                                        "set hg_experimental_target_shard_list = '%s'", result));
-                    } catch (SQLException e) {
-                        throw new RuntimeException(
-                                "set hg_experimental_target_shard_list failed because ", e);
-                    }
+                    executeSql(
+                            pgConn,
+                            String.format("set hg_experimental_target_shard_list = '%s'", result));
                 }
                 manager = new CopyManager(pgConn);
                 LOG.info("init new manager success");
@@ -292,6 +359,7 @@ public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
                 manager = null;
                 throw new RuntimeException(e);
             }
+            return this;
         }
 
         public void close() {
@@ -312,12 +380,76 @@ public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
         return (taskNumber + frontendOffset) % numFrontends + 1;
     }
 
+    /**
+     * compute target shard list for re-shuffle.
+     *
+     * <p>If the holo table has Distribution Keys, data will only be written to the first shardCount
+     * tasks after reshuffle. In other words, if the number of tasks is greater than shardCount,
+     * there will be no data flow into the additional tasks. If the holo table does not have
+     * Distribution Keys set, reshuffle will be random, and all tasks will have traffic and only
+     * write to a single shard.
+     *
+     * <p>for example, hava distribution key, numTasks = 2, shardCount = 4: Task 0: [0, 2], Task 1:
+     * [1, 3]
+     *
+     * <p>for example, hava distribution key, numTasks = 8, shardCount = 4: Task 0: [0], Task 1:
+     * [1], Task 2: [2], Task 3: [3], Task 4-7: none
+     *
+     * <p>for example, no distribution key, numTasks = 8, shardCount = 4: Task 0: [0], Task 1: [1],
+     * Task 2: [2], Task 3: [3], Task 4-7: random single shard
+     *
+     * @return target shard list
+     */
     private List<Integer> getTargetShardList() {
         List<Integer> targetShardList = new ArrayList<>();
-        for (int i = 0; i * numTasks + taskNumber <= shardCount; i++) {
+        for (int i = 0; i * numTasks + taskNumber < shardCount; i++) {
             int p = i * numTasks + taskNumber;
             targetShardList.add(p);
         }
+        if (targetShardList.isEmpty()) {
+            targetShardList.add(new Random().nextInt(shardCount));
+        }
         return targetShardList;
+    }
+
+    private com.alibaba.hologres.client.model.TableSchema checkChildTableExists(
+            com.alibaba.hologres.client.model.TableSchema schema, String partitionValue) {
+        boolean isStr =
+                Types.VARCHAR == schema.getColumn(schema.getPartitionIndex()).getType()
+                        || Types.DATE == schema.getColumn(schema.getPartitionIndex()).getType();
+        try {
+            Partition partition =
+                    clientProvider
+                            .getClient()
+                            .sql(
+                                    conn -> {
+                                        Partition p =
+                                                ConnectionUtil.getPartition(
+                                                        conn,
+                                                        schema.getSchemaName(),
+                                                        schema.getTableName(),
+                                                        partitionValue,
+                                                        isStr);
+                                        if (p == null) {
+                                            throw new RuntimeException(
+                                                    String.format(
+                                                            "child table for partition value %s does not exist",
+                                                            partitionValue));
+                                        }
+                                        return p;
+                                    })
+                            .get();
+
+            return clientProvider
+                    .getClient()
+                    .getTableSchema(
+                            TableName.valueOf(
+                                    IdentifierUtil.quoteIdentifier(partition.getSchemaName(), true),
+                                    IdentifierUtil.quoteIdentifier(partition.getTableName(), true)),
+                            false);
+
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 }
