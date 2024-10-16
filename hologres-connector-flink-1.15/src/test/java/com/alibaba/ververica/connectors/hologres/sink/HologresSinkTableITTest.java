@@ -226,6 +226,7 @@ public class HologresSinkTableITTest extends HologresTestBase {
                                 + "'fixedConnectionMode'='%s',"
                                 + "%s"
                                 + "'mutateType'='insertorignore',"
+                                + "'aggressive.enabled'='true',"
                                 + "'endpoint'='%s',"
                                 + "'dbName'='%s',"
                                 + "'tableName'='%s',"
@@ -241,6 +242,81 @@ public class HologresSinkTableITTest extends HologresTestBase {
                         password));
 
         tEnv.executeSql(String.format(insertStatement, "sinkTable")).await();
+
+        checkResultWithTimeout(
+                expectedRowsToString(EXPECTED),
+                "select * from " + sinkTable,
+                FIELD_NAMES,
+                JDBCUtils.getDbUrl(endpoint, database),
+                username,
+                password,
+                10000);
+    }
+
+    @Test
+    public void testSinkTableUpdate() throws Exception {
+        if (copyMode == CopyMode.BULK_LOAD) {
+            copyMode = CopyMode.BULK_LOAD_ON_CONFLICT;
+        }
+        Object[][] prepare =
+                new Object[][] {
+                    new Object[] {0, "old_1"},
+                    new Object[] {2, "old_2"},
+                    new Object[] {11, "old_3"}
+                };
+        insertValues(sinkTable, prepare);
+        tEnv.executeSql(
+                String.format(
+                        "CREATE TABLE sinkTable ("
+                                + "a INT NOT NULL,"
+                                + "b STRING NOT NULL,"
+                                + "c DOUBLE,"
+                                + "d BOOLEAN,"
+                                + "e BIGINT,"
+                                + "f DATE,"
+                                + "g VARCHAR,"
+                                + "h TIMESTAMP,"
+                                + "i FLOAT,"
+                                + "j ARRAY<INT> NOT NULL,"
+                                + "k ARRAY<BIGINT> NOT NULL,"
+                                + "l ARRAY<FLOAT>,"
+                                + "m ARRAY<DOUBLE>,"
+                                + "n ARRAY<BOOLEAN>,"
+                                + "o ARRAY<STRING>,"
+                                + "p BOOLEAN,"
+                                + "q NUMERIC(6,2),"
+                                + "r TIMESTAMP,"
+                                + "s SMALLINT,"
+                                + "t VARCHAR,"
+                                + "u VARCHAR"
+                                + ") WITH ("
+                                + "'connector'='hologres',"
+                                + "'fixedConnectionMode'='%s',"
+                                + "%s"
+                                + "'mutateType'='insertOrUpdate',"
+                                + "'endpoint'='%s',"
+                                + "'dbName'='%s',"
+                                + "'tableName'='%s',"
+                                + "'userName'='%s',"
+                                + "'password'='%s'"
+                                + ")",
+                        fixedMode,
+                        (copyMode == null ? "" : "'jdbcCopyWriteMode'='" + copyMode + "',"),
+                        endpoint,
+                        database,
+                        sinkTable,
+                        username,
+                        password));
+
+        String insertAnotherRow =
+                ",("
+                        + "11,'dim',cast(20.2007 as double),false,652482,cast('2020-07-08' as date),'source_test',cast('2020-07-10 16:28:07.737' as timestamp),"
+                        + "cast(8.58965 as float),cast(ARRAY [464,98661,32489] as array<int>),cast(ARRAY [8589934592,8589934593,8589934594] as array<bigint>),"
+                        + "ARRAY[cast(8.58967 as float),cast(96.4667 as float),cast(9345.16 as float)], ARRAY [cast(587897.4646746 as double),cast(792343.646446 as double),cast(76.46464 as double)],"
+                        + "cast(ARRAY [true,true,false,true] as array<boolean>),cast(ARRAY ['monday','saturday','sunday'] as array<STRING>),true,cast(8119.21 as numeric(6,2)), "
+                        + "cast('2020-07-10 16:28:07.737' as timestamp), cast(2 as smallint), cast('{\"a\":\"bbbb\", \"c\":\"dddd\"}' as varchar), cast('{\"a\":\"bbbb\", \"c\":\"dddd\"}' as varchar)"
+                        + ")";
+        tEnv.executeSql(String.format(insertStatement + insertAnotherRow, "sinkTable")).await();
 
         checkResultWithTimeout(
                 expectedRowsToString(EXPECTED),

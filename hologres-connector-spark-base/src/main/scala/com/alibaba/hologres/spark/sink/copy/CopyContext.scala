@@ -103,6 +103,19 @@ class CopyContext {
             throw new RuntimeException(e)
         }
       }
+      if (hologresConfigs.copyMode == CopyMode.BULK_LOAD_ON_CONFLICT) {
+        try {
+          {val stmt = conn.createStatement()
+          stmt.execute("set hg_experimental_copy_enable_on_conflict = on;")
+          stmt.close()}
+          {val stmt = conn.createStatement()
+          stmt.execute("set hg_experimental_affect_row_multiple_times_keep_last = on;")
+          stmt.close()}
+        } catch {
+          case e: SQLException =>
+            logger.warn("set hg_experimental_copy_enable_on_conflict failed.", e)
+        }
+      }
       pgConn = conn.unwrap(classOf[PgConnection])
       logger.info("init unwrap conn success")
       manager = new CopyManager(pgConn)

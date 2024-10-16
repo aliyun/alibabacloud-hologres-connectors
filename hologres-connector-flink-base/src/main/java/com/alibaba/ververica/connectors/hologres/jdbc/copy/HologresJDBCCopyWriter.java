@@ -185,11 +185,12 @@ public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
                                 copyMode);
                 LOG.info("copy sql :{}", sql);
                 CopyIn in = copyContext.manager.copyIn(sql);
+                copyContext.ios = new CopyInOutputStream(in);
                 // holo bulk load copy just support text, not support binary
                 if (copyMode != CopyMode.STREAM) {
                     copyContext.os =
                             new RecordTextOutputStream(
-                                    new CopyInOutputStream(in),
+                                    copyContext.ios,
                                     schema,
                                     copyContext.pgConn.unwrap(BaseConnection.class),
                                     1024 * 1024 * 10);
@@ -197,18 +198,21 @@ public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
                     copyContext.os =
                             binary
                                     ? new RecordBinaryOutputStream(
-                                            new CopyInOutputStream(in),
+                                            copyContext.ios,
                                             schema,
                                             copyContext.pgConn.unwrap(BaseConnection.class),
                                             1024 * 1024 * 10)
                                     : new RecordTextOutputStream(
-                                            new CopyInOutputStream(in),
+                                            copyContext.ios,
                                             schema,
                                             copyContext.pgConn.unwrap(BaseConnection.class),
                                             1024 * 1024 * 10);
                 }
             }
             copyContext.os.putRecord(jdbcRecord);
+            if (param.isEnableAggressive() && copyMode == CopyMode.STREAM) {
+                copyContext.ios.flush();
+            }
         } catch (SQLException e) {
             LOG.error("close copyContext", e);
             copyContext.close();
@@ -276,6 +280,7 @@ public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
     class CopyContext {
         PgConnection pgConn;
         CopyManager manager;
+        CopyInOutputStream ios = null;
         RecordOutputStream os = null;
         com.alibaba.hologres.client.model.TableSchema schema;
         boolean active;
@@ -344,6 +349,13 @@ public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
                     executeSql(
                             pgConn,
                             String.format("set hg_experimental_target_shard_list = '%s'", result));
+                }
+                if (copyMode.equals(CopyMode.BULK_LOAD_ON_CONFLICT)) {
+                    executeSql(pgConn, "set hg_experimental_copy_enable_on_conflict = on;", true);
+                    executeSql(
+                            pgConn,
+                            "set hg_experimental_affect_row_multiple_times_keep_last = on;",
+                            true);
                 }
                 manager = new CopyManager(pgConn);
                 LOG.info("init new manager success");
