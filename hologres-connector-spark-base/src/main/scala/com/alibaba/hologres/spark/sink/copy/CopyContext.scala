@@ -1,6 +1,7 @@
 package com.alibaba.hologres.spark.sink.copy
 
 import com.alibaba.hologres.client.copy.RecordOutputStream
+import com.alibaba.hologres.client.copy.CopyMode
 import com.alibaba.hologres.client.model.TableSchema
 import com.alibaba.hologres.org.postgresql.PGProperty
 import com.alibaba.hologres.org.postgresql.copy.CopyManager
@@ -103,7 +104,7 @@ class CopyContext {
             throw new RuntimeException(e)
         }
       }
-      if (hologresConfigs.copyMode == CopyMode.BULK_LOAD_ON_CONFLICT) {
+      if (configs.copyMode == CopyMode.BULK_LOAD_ON_CONFLICT) {
         try {
           {val stmt = conn.createStatement()
           stmt.execute("set hg_experimental_copy_enable_on_conflict = on;")
