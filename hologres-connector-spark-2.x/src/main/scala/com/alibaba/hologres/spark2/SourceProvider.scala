@@ -4,7 +4,7 @@ import com.alibaba.hologres.spark.BaseSourceProvider
 import com.alibaba.hologres.spark.config.HologresConfigs
 import com.alibaba.hologres.spark.utils.SparkHoloUtil
 import com.alibaba.hologres.spark2.sink.HoloWriter
-import com.alibaba.hologres.spark2.source.HoloReader
+import com.alibaba.hologres.spark2.source.{HoloQueryReader, HoloTableReader}
 import org.apache.spark.sql.SaveMode
 import org.apache.spark.sql.sources.DataSourceRegister
 import org.apache.spark.sql.sources.v2.reader.DataSourceReader
@@ -46,21 +46,31 @@ class SourceProvider extends DataSourceRegister with WriteSupport with StreamWri
     new HoloWriter(opts, schema, SaveMode.Append)
   }
 
-  override def createReader(schema: StructType, options: DataSourceOptions): DataSourceReader = {
+  override def createReader(sparkSchema: StructType, options: DataSourceOptions): DataSourceReader = {
     val opts = options.asMap().asScala.toMap
     val hologresConfigs = new HologresConfigs(opts)
-    SparkHoloUtil.checkSparkTableSchema(hologresConfigs, schema)
-
-    new HoloReader(opts, schema)
+    if (hologresConfigs.isTableSource) {
+      SparkHoloUtil.checkSparkTableSchema(hologresConfigs, sparkSchema)
+      new HoloTableReader(hologresConfigs, sparkSchema)
+    } else {
+      val mockHoloSchemaForQuery = SparkHoloUtil.mockHoloSchemaForQuery(hologresConfigs)
+      SparkHoloUtil.checkSparkTableSchema(hologresConfigs, sparkSchema, mockHoloSchemaForQuery)
+      new HoloQueryReader(hologresConfigs, sparkSchema, mockHoloSchemaForQuery)
+    }
   }
 
   /** 用户读取时不指定schema，则根据holo的schema生成，即读取全部字段。 */
   override def createReader(options: DataSourceOptions): DataSourceReader = {
     val opts = options.asMap().asScala.toMap
     val hologresConfigs = new HologresConfigs(opts)
-    val schema = SparkHoloUtil.getSparkTableSchema(hologresConfigs)
-
-    new HoloReader(opts, schema)
+    if (hologresConfigs.isTableSource) {
+      val sparkSchema = SparkHoloUtil.inferSparkTableSchema(hologresConfigs)
+      new HoloTableReader(hologresConfigs, sparkSchema)
+    } else {
+      val mockHoloSchemaForQuery = SparkHoloUtil.mockHoloSchemaForQuery(hologresConfigs)
+      val sparkSchema = SparkHoloUtil.inferSparkTableSchema(hologresConfigs, mockHoloSchemaForQuery)
+      new HoloQueryReader(hologresConfigs, sparkSchema, mockHoloSchemaForQuery)
+    }
   }
 }
 

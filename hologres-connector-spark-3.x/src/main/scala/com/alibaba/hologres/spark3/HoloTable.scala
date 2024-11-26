@@ -1,5 +1,7 @@
 package com.alibaba.hologres.spark3
 
+import com.alibaba.hologres.client.model.TableSchema
+import com.alibaba.hologres.spark.config.HologresConfigs
 import com.alibaba.hologres.spark3.sink.HoloWriterBuilder
 import com.alibaba.hologres.spark3.source.HoloScanBuilder
 import org.apache.spark.sql.connector.catalog.{SupportsRead, SupportsWrite, TableCapability}
@@ -10,11 +12,24 @@ import org.apache.spark.sql.util.CaseInsensitiveStringMap
 
 import scala.collection.JavaConverters._
 
-/** HoloTable with SupportsWrite . */
+/** HoloTable with SupportsWrite, SupportsRead. */
 class HoloTable(
                  sparkSchema: StructType,
-                 sourceOptions: Map[String, String]) extends SupportsWrite with SupportsRead {
+                 hologresConfigs: HologresConfigs,
+                 mockHoloSchemaForQuery: TableSchema = null) extends SupportsWrite with SupportsRead {
   override def name(): String = this.getClass.toString
+
+  object HoloTableType extends Enumeration {
+    val TABLE, QUERY = Value
+  }
+
+  def tableType(): HoloTableType.Value = {
+    if (mockHoloSchemaForQuery != null) {
+      HoloTableType.QUERY
+    } else {
+      HoloTableType.TABLE
+    }
+  }
 
   override def schema(): StructType = sparkSchema
 
@@ -27,10 +42,14 @@ class HoloTable(
   ).asJava
 
   override def newWriteBuilder(info: LogicalWriteInfo): HoloWriterBuilder = {
-    new HoloWriterBuilder(sourceOptions, sparkSchema)
+    new HoloWriterBuilder(hologresConfigs, sparkSchema)
   }
 
   override def newScanBuilder(caseInsensitiveStringMap: CaseInsensitiveStringMap): ScanBuilder = {
-    new HoloScanBuilder(sourceOptions, sparkSchema)
+    if (tableType() == HoloTableType.TABLE) {
+      new HoloScanBuilder(hologresConfigs, sparkSchema)
+    } else {
+      new HoloScanBuilder(hologresConfigs, sparkSchema, mockHoloSchemaForQuery)
+    }
   }
 }

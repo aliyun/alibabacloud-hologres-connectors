@@ -3,11 +3,12 @@ package com.alibaba.hologres.spark.utils
 import com.alibaba.hologres.client.function.FunctionWithSQLException
 import com.alibaba.hologres.client.impl.util.ConnectionUtil
 import com.alibaba.hologres.client.model.{HoloVersion, TableName}
+import com.alibaba.hologres.client.utils.IdentifierUtil
 import com.alibaba.hologres.org.postgresql.PGProperty
 import com.alibaba.hologres.spark.config.HologresConfigs
 import org.apache.commons.lang3.exception.ExceptionUtils
 import org.slf4j.LoggerFactory
-import com.alibaba.hologres.client.utils.IdentifierUtil
+
 import java.sql.{Connection, DriverManager, ResultSet, SQLException}
 import java.util.{Objects, Properties}
 
@@ -37,6 +38,16 @@ object JDBCUtil {
       url = "jdbc:hologres:" + oldUrl.substring("jdbc:postgresql:".length)
     }
     url
+  }
+
+  def replaceUrlDatabase(jdbcUrl: String, newDatabase: String): String = {
+    val pattern = "(.*://[^/]+/)([^?]+)(.*)".r
+
+    jdbcUrl match {
+      case pattern(prefix, _, suffix) => s"${prefix}${newDatabase}${suffix}"
+      case _ =>
+        throw new IllegalArgumentException("Invalid JDBC URL format, " + jdbcUrl)
+    }
   }
 
   def couldDirectConnect(configs: HologresConfigs): Boolean = {
@@ -100,29 +111,153 @@ object JDBCUtil {
     }
   }
 
-  def getSimpleSelectFromStatement(table: String, selectFields: Array[String]): String = {
+  def getSimpleSelectFromTable(table: String, selectFields: Array[String]): String = {
     val selectExpressions: String = selectFields.mkString(", ")
-    "SELECT " + selectExpressions + " FROM " + table
+    s"select $selectExpressions from $table"
   }
 
-  def createConnection(hologresConfigs: HologresConfigs): Connection = {
+  def getSimpleSelectFromQuery(query: String, selectFields: Array[String]): String = {
+    val selectExpressions: String = selectFields.mkString(", ")
+    s"select $selectExpressions from ($query) t"
+  }
+
+  def createConnection(hologresConfigs: HologresConfigs, database: String = null): Connection = {
     try Class.forName("com.alibaba.hologres.org.postgresql.Driver")
     catch {
       case e: ClassNotFoundException =>
         throw new RuntimeException(e)
     }
+    var url = hologresConfigs.jdbcUrl
     try {
       val info: Properties = new Properties
       PGProperty.USER.set(info, hologresConfigs.username)
       PGProperty.PASSWORD.set(info, hologresConfigs.password)
       PGProperty.APPLICATION_NAME.set(info, "spark_connector_util")
-      val conn = DriverManager.getConnection(hologresConfigs.jdbcUrl, info)
-      logger.info("create connection to holo with url {}", hologresConfigs.jdbcUrl)
+      if (database != null) {
+        url = replaceUrlDatabase(hologresConfigs.jdbcUrl, database)
+      }
+      val conn = DriverManager.getConnection(url, info)
+      logger.info("create connection to holo with url {}", url)
       conn
     } catch {
       case e: SQLException =>
-        throw new RuntimeException(String.format("Failed getting connection to %s because %s", hologresConfigs.jdbcUrl, ExceptionUtils.getStackTrace(e)))
+        throw new RuntimeException(String.format("Failed getting connection to %s because %s", url, ExceptionUtils.getStackTrace(e)))
     }
+  }
+
+  def executeSql(conn: Connection, sql: String): Unit = {
+    executeSql(conn, sql, ignoreException = false)
+  }
+
+  def executeSql(conn: Connection, sql: String, ignoreException: Boolean): Unit = {
+    try {
+      val stmt = conn.createStatement()
+      stmt.execute(sql)
+      stmt.close()
+      logger.info("execute sql success: " + sql)
+    } catch {
+      case e: SQLException =>
+        logger.error("execute sql failed: " + sql, e)
+        if (!ignoreException) {
+          throw new RuntimeException(e)
+        }
+    }
+  }
+
+  def listDatabases(hologresConfigs: HologresConfigs): Array[String] = {
+    var databases = Array.empty[String]
+    val sql =
+      s"""
+    SELECT
+    b.datname AS "dbname",
+    has_database_privilege(b.datname, 'CONNECT') AS "connect"
+    FROM (
+      SELECT *
+        FROM pg_db_role_setting a
+        WHERE a.setrole = 0
+        UNION ALL
+        SELECT b.oid, 0, ARRAY['']
+        FROM pg_database b
+        WHERE b.oid NOT IN (
+      SELECT setdatabase
+        FROM pg_db_role_setting
+    )
+    ) a
+    JOIN pg_database b
+    ON (a.setdatabase = b.oid)
+    WHERE b.datname NOT IN ('postgres', 'template0', 'template1', 'holo_sys_admin', 'pgconn_history');
+    """
+    val conn = createConnection(hologresConfigs)
+    try {
+      val stmt = conn.createStatement()
+      val resultSet = stmt.executeQuery(sql)
+      while (resultSet.next) {
+        if (resultSet.getString(2).equals("t")) {
+          databases :+= resultSet.getString(1)
+        }
+      }
+    } catch {
+      case e: Exception =>
+        throw new RuntimeException(String.format("Fail to list databases"), e)
+    } finally {
+      if (conn != null) {
+        conn.close()
+      }
+    }
+    databases
+  }
+
+  def listTables(hologresConfigs: HologresConfigs, database: String = null): Array[String] = {
+    var tables = Array.empty[String]
+    val conn = createConnection(hologresConfigs, database)
+    try {
+      // get all schemas
+      var schemas = Array.empty[String]
+      val listSchemasSql =
+        s"""
+        SELECT
+          schema_name
+        FROM
+          information_schema.schemata
+        WHERE
+          schema_name NOT IN ('pg_toast', 'pg_temp_1', 'pg_toast_temp_1', 'pg_catalog', 'information_schema',
+           'hologres', 'hologres_statistic', 'hologres_sample', 'hologres_streaming_mv');
+        """
+      val stmt = conn.createStatement()
+      val resultSet = stmt.executeQuery(listSchemasSql)
+      while (resultSet.next) {
+        schemas :+= resultSet.getString(1)
+      }
+      // get all tables
+      val listTablesSql =
+        s"""
+        SELECT
+            table_name
+        FROM
+            information_schema.tables
+        WHERE
+            table_type = 'BASE TABLE'
+            AND table_schema = '%s'
+        ORDER BY
+            table_type,
+            table_name;
+        """
+      for (schema <- schemas) {
+        val stmt = conn.createStatement()
+        val resultSet = stmt.executeQuery(listTablesSql.format(schema))
+        while (resultSet.next) {
+          tables :+= s"$schema.${resultSet.getString(1)}"
+        }
+      }
+    } catch {
+      case e: Exception =>
+        throw new RuntimeException(String.format("Fail to list schemas in the database %s.", database), e)
+    } finally {
+      if (conn != null) {
+        conn.close()
+      }
+    }
+    tables
   }
 
   def generateTempTableNameForOverwrite(hologresConfigs: HologresConfigs): String = {

@@ -95,7 +95,7 @@ class HoloWriter(
         hologresConfigs.copyMode = null
       } else {
         // 尝试直连，无法直连则各个tasks内的copy writer不需要进行尝试
-        hologresConfigs.copy_write_direct_connect = JDBCUtil.couldDirectConnect(hologresConfigs)
+        hologresConfigs.direct_connect = JDBCUtil.couldDirectConnect(hologresConfigs)
       }
       HoloWriterFactory(hologresConfigs, sparkSchema, holoSchema)
     } finally {

@@ -53,9 +53,13 @@ class BooleanFieldWriter extends FieldWriter {
   }
 }
 
-class StringFieldWriter extends FieldWriter {
+class StringFieldWriter(removeU0000: Boolean) extends FieldWriter {
   override def writeValue(row: InternalRow, idx: Int): String = {
-    row.getString(idx)
+    if (removeU0000) {
+      row.getString(idx).replaceAll("\u0000", "")
+    } else {
+      row.getString(idx)
+    }
   }
 }
 
@@ -121,7 +125,7 @@ class StringArrayFieldWriter extends FieldWriter {
 }
 
 object FieldWriterUtils {
-  def createFieldWriter(holoColumn: Column): FieldWriter = {
+  def createFieldWriter(holoColumn: Column, removeU0000: Boolean = false): FieldWriter = {
     holoColumn.getType match {
       case Types.TINYINT | Types.SMALLINT =>
         new ShortFieldWriter
@@ -138,13 +142,13 @@ object FieldWriterUtils {
       case Types.BOOLEAN | Types.BIT =>
         new BooleanFieldWriter
       case Types.CHAR | Types.VARCHAR | Types.LONGVARCHAR =>
-        new StringFieldWriter
+        new StringFieldWriter(removeU0000)
       case Types.DATE => new DateFieldWriter
       case Types.TIMESTAMP => new TimestampFieldWriter
       case Types.BINARY | Types.VARBINARY => new BinaryFieldWriter
       case Types.OTHER =>
         holoColumn.getTypeName match {
-          case "json" | "jsonb" => new StringFieldWriter
+          case "json" | "jsonb" => new StringFieldWriter(removeU0000)
           case "roaringbitmap" => new BinaryFieldWriter
         }
       case Types.ARRAY =>

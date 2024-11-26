@@ -13,7 +13,7 @@ import org.slf4j.LoggerFactory
 import java.sql.{PreparedStatement, ResultSet, SQLException}
 
 class BaseHoloPartitionReader(hologresConfigs: HologresConfigs,
-                              shardIdRange: (Int, Int),
+                              query: String,
                               holoSchema: TableSchema,
                               sparkSchema: StructType) {
   private val logger = LoggerFactory.getLogger(getClass)
@@ -33,42 +33,16 @@ class BaseHoloPartitionReader(hologresConfigs: HologresConfigs,
   init()
 
   def init(): Unit = {
-    val queryTemplate: String = JDBCUtil.getSimpleSelectFromStatement(holoSchema.getTableNameObj.getFullName, sparkSchema.fields.map(_.name))
-    val query: String = queryTemplate + " WHERE hg_shard_id >= " + shardIdRange._1 + " and hg_shard_id < " + shardIdRange._2
     logger.info("the bulk read query: {}", query)
     logger.info("the sparkSchema: {}", sparkSchema)
 
     conn = JDBCUtil.createConnection(hologresConfigs).unwrap(classOf[PgConnection])
     conn.setAutoCommit(false)
-    try {
-      val stmt = conn.createStatement()
-      stmt.execute(s"set statement_timeout = ${hologresConfigs.statementTimeout}")
-      stmt.close()
-    } catch {
-      case e: SQLException =>
-        logger.error(s"set statement_timeout to ${hologresConfigs.statementTimeout} failed.")
-        throw new RuntimeException(e)
-    }
+    JDBCUtil.executeSql(conn, s"set statement_timeout = ${hologresConfigs.statementTimeout}")
     // server less computing
     if (hologresConfigs.enableServerlessComputing) {
-      try {
-        val stmt = conn.createStatement()
-        stmt.execute("set hg_computing_resource = 'serverless'")
-        stmt.close()
-      } catch {
-        case e: SQLException =>
-          logger.error("set hg_computing_resource to serverless failed.")
-          throw new RuntimeException(e)
-      }
-      try {
-        val stmt = conn.createStatement()
-        stmt.execute(s"SET hg_experimental_serverless_computing_query_priority = ${hologresConfigs.serverlessComputingQueryPriority}")
-        stmt.close()
-      } catch {
-        case e: SQLException =>
-          logger.error(s"set hg_experimental_serverless_computing_query_priority to ${hologresConfigs.serverlessComputingQueryPriority} failed.")
-          throw new RuntimeException(e)
-      }
+      JDBCUtil.executeSql(conn, "set hg_computing_resource = 'serverless'")
+      JDBCUtil.executeSql(conn, s"SET hg_experimental_serverless_computing_query_priority = ${hologresConfigs.serverlessComputingQueryPriority}")
     }
 
     statement = conn.prepareStatement(query, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)

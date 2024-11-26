@@ -11,17 +11,21 @@ import org.slf4j.LoggerFactory
 
 import java.util
 
-class HoloReader(
-                  sourceOptions: Map[String, String],
-                  sparkSchema: StructType) extends DataSourceReader {
+class HoloTableReader(
+                       hologresConfigs: HologresConfigs,
+                       sparkSchema: StructType) extends DataSourceReader {
   private val logger = LoggerFactory.getLogger(getClass)
 
-  val hologresConfigs: HologresConfigs = new HologresConfigs(sourceOptions)
   @transient val holoClient = new HoloClient(hologresConfigs.holoConfig)
   val holoSchema: TableSchema = holoClient.getTableSchema(hologresConfigs.table)
-  lazy val inputPartitions: util.List[InputPartition[InternalRow]] = {
-    val shardCount = getShardCount(holoClient, holoSchema)
-    val numSplits = math.min(hologresConfigs.scan_parallelism, shardCount)
+  private lazy val inputPartitions: util.List[InputPartition[InternalRow]] = {
+    var shardCount: Int = -1
+    try {
+      shardCount = getShardCount(holoClient, holoSchema)
+    } finally {
+      holoClient.close()
+    }
+    val numSplits = math.min(hologresConfigs.max_partition_count, shardCount)
     logger.info("split reading hologres table {} to {} partition", hologresConfigs.table, numSplits)
 
     val size = shardCount / numSplits
@@ -39,6 +43,24 @@ class HoloReader(
       inputPartitions.add(i, new HoloInputPartition(hologresConfigs, holoSchema, sparkSchema, start, end))
       start = end
     }
+    inputPartitions
+  }
+
+  override def readSchema(): StructType = sparkSchema
+
+  override def planInputPartitions(): util.List[InputPartition[InternalRow]] = inputPartitions
+}
+
+class HoloQueryReader(
+                       hologresConfigs: HologresConfigs,
+                       sparkSchema: StructType,
+                       mockHoloSchemaForQuery: TableSchema) extends DataSourceReader {
+  private val logger = LoggerFactory.getLogger(getClass)
+
+  lazy val inputPartitions: util.List[InputPartition[InternalRow]] = {
+    val inputPartitions = new util.ArrayList[InputPartition[InternalRow]](1)
+    inputPartitions.add(0, new HoloInputPartition(hologresConfigs, mockHoloSchemaForQuery, sparkSchema, -1, -1))
+    logger.info("split reading hologres only one partition because it's a query source")
     inputPartitions
   }
 

@@ -1,7 +1,21 @@
-package com.alibaba.hologres.spark.sink.copy
+/*
+ *  Copyright (c) 2021, Alibaba Group;
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ */
 
-import com.alibaba.hologres.client.copy.CopyMode
-import com.alibaba.hologres.client.copy.in.RecordOutputStream
+package com.alibaba.hologres.spark.source.copy
+
+import com.alibaba.hologres.client.copy.out.arrow.ArrowReader
 import com.alibaba.hologres.client.model.TableSchema
 import com.alibaba.hologres.org.postgresql.PGProperty
 import com.alibaba.hologres.org.postgresql.copy.CopyManager
@@ -18,10 +32,10 @@ class CopyContext {
 
   var pgConn: PgConnection = _
   var manager: CopyManager = _
-  var os: RecordOutputStream = _
+  var arrowReader: ArrowReader = _
   var schema: TableSchema = _
 
-  def init(configs: HologresConfigs, targetShards: String = ""): Unit = {
+  def init(configs: HologresConfigs): Unit = {
     try Class.forName("com.alibaba.hologres.org.postgresql.Driver")
     catch {
       case e: ClassNotFoundException =>
@@ -53,21 +67,13 @@ class CopyContext {
         conn = DriverManager.getConnection(url, info)
       }
 
-      // 不抛出异常: copy不需要返回影响行数所以默认关闭,但此guc仅部分版本支持,而且设置失败不影响程序运行
-      JDBCUtil.executeSql(conn, "SET hg_experimental_enable_fixed_dispatcher_affected_rows = off", ignoreException = true)
       JDBCUtil.executeSql(conn, s"set statement_timeout = ${configs.statementTimeout}")
       // server less computing
       if (configs.enableServerlessComputing) {
         JDBCUtil.executeSql(conn, "set hg_computing_resource = 'serverless'")
         JDBCUtil.executeSql(conn, s"SET hg_experimental_serverless_computing_query_priority = ${configs.serverlessComputingQueryPriority}")
       }
-      if (configs.reshuffleByHoloDistributionKey && targetShards != "") {
-        JDBCUtil.executeSql(conn, s"set hg_experimental_target_shard_list = '$targetShards'")
-      }
-      if (configs.copyMode == CopyMode.BULK_LOAD_ON_CONFLICT) {
-        JDBCUtil.executeSql(conn, "set hg_experimental_copy_enable_on_conflict = on;", ignoreException = true)
-        JDBCUtil.executeSql(conn, "set hg_experimental_affect_row_multiple_times_keep_last = on;")
-      }
+
       pgConn = conn.unwrap(classOf[PgConnection])
       logger.info("init unwrap conn success")
       manager = new CopyManager(pgConn)

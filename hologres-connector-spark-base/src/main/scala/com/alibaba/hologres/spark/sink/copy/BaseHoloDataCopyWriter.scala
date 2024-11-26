@@ -2,6 +2,7 @@ package com.alibaba.hologres.spark.sink.copy
 
 import com.alibaba.hologres.client.Put
 import com.alibaba.hologres.client.copy._
+import com.alibaba.hologres.client.copy.in._
 import com.alibaba.hologres.client.exception.{HoloClientException, HoloClientWithDetailsException}
 import com.alibaba.hologres.client.model.WriteMode.{INSERT_OR_IGNORE, INSERT_OR_UPDATE}
 import com.alibaba.hologres.client.model.{Record, TableSchema}
@@ -36,7 +37,7 @@ abstract class BaseHoloDataCopyWriter(
     for (i <- 0 until recordLength) {
       val holoColumnIndex = holoSchema.getColumnIndex(sparkSchema.fields.apply(i).name)
       columnIdToHoloId(i) = holoColumnIndex
-      fieldWriters.update(i, FieldWriterUtils.createFieldWriter(holoSchema.getColumn(holoColumnIndex)))
+      fieldWriters.update(i, FieldWriterUtils.createFieldWriter(holoSchema.getColumn(holoColumnIndex), hologresConfigs.removeU0000))
     }
     fieldWriters
   }

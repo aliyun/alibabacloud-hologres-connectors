@@ -19,7 +19,7 @@ import java.time.LocalDateTime
 import scala.collection.mutable.ListBuffer
 
 /** HoloWriterBuilder. */
-class HoloWriterBuilder(sourceOptions: Map[String, String],
+class HoloWriterBuilder(hologresConfigs: HologresConfigs,
                         schema: StructType) extends WriteBuilder with SupportsOverwrite {
   var is_overwrite: Boolean = false
 
@@ -30,18 +30,17 @@ class HoloWriterBuilder(sourceOptions: Map[String, String],
 
   override def build(): Write = new Write() {
     override def toBatch: BatchWrite = {
-      new HoloBatchWriter(sourceOptions, schema, is_overwrite)
+      new HoloBatchWriter(hologresConfigs, schema, is_overwrite)
     }
   }
 }
 
 /** HoloBatchWriter: To create HoloWriterFactory. */
 class HoloBatchWriter(
-                       sourceOptions: Map[String, String],
+                       hologresConfigs: HologresConfigs,
                        sparkSchema: StructType,
                        is_overwrite: Boolean) extends BatchWrite {
   private val logger = LoggerFactory.getLogger(getClass)
-  val hologresConfigs: HologresConfigs = new HologresConfigs(sourceOptions)
   private var partitionInfo: (String, String) = _
   logger.info("HoloBatchWriter begin: " + LocalDateTime.now())
 
@@ -105,7 +104,7 @@ class HoloBatchWriter(
         hologresConfigs.copyMode = null
       } else {
         // 尝试直连，无法直连则各个tasks内的copy writer不需要进行尝试
-        hologresConfigs.copy_write_direct_connect = JDBCUtil.couldDirectConnect(hologresConfigs)
+        hologresConfigs.direct_connect = JDBCUtil.couldDirectConnect(hologresConfigs)
       }
       HoloWriterFactory(hologresConfigs, sparkSchema, holoSchema, numPartitions, shardCount)
     } finally {

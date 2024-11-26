@@ -22,10 +22,26 @@ class HologresConfigs(sourceOptions: Map[String, String]) extends Serializable {
     throw new IllegalArgumentException("If jdbcUrl is not provided, please provide parameter 'database'."))
   lazy val endpoint: String = sourceOptions.getOrElse("endpoint",
     throw new IllegalArgumentException("If jdbcUrl is not provided, please provide parameter 'endpoint'."))
-  val jdbcUrl: String = JDBCUtil.formatUrlWithHologres(sourceOptions.getOrElse("jdbcurl", getDbUrl(endpoint, database)))
+  var jdbcUrl: String = JDBCUtil.formatUrlWithHologres(sourceOptions.getOrElse("jdbcurl", getDbUrl(endpoint, database)))
   holoConfig.setJdbcUrl(jdbcUrl)
-  val table: String = sourceOptions.getOrElse("table",
-    throw new IllegalArgumentException("Missing necessary parameter 'table'."))
+
+  def resetJdbcUrl(url: String): Unit = {
+    jdbcUrl = url
+    holoConfig.setJdbcUrl(jdbcUrl)
+  }
+
+  // when read from holo, could choose set query or table
+  val query: String = sourceOptions.getOrElse("query", "")
+  var table: String = sourceOptions.getOrElse("table", "")
+  lazy val isTableSource: Boolean = {
+    if ((query == null || query.isEmpty) && (table == null || table.isEmpty)) {
+      throw new IllegalArgumentException("Missing necessary parameter 'table'. If table is not provided, please provide parameter 'query' for read.")
+    }
+    if ((query != null && query.nonEmpty) && (table != null && table.nonEmpty)) {
+      throw new IllegalArgumentException("If query is provided, please do not provide parameter 'table'.")
+    }
+    table != null && table.nonEmpty
+  }
 
   private val writeModeStr: String = sourceOptions.getOrElse("write_mode", "insertOrIgnore").toLowerCase
   val writeMode: WriteMode = writeModeStr match {
@@ -59,12 +75,16 @@ class HologresConfigs(sourceOptions: Map[String, String]) extends Serializable {
   sourceOptions.get("retry_sleep_step_ms").map(v => holoConfig.setRetrySleepStepMs(v.toLong))
   sourceOptions.get("connection_max_idle_ms").map(v => holoConfig.setConnectionMaxIdleMs(v.toLong))
   sourceOptions.get("fixed_connection_mode").map(v => holoConfig.setUseFixedFe(v.toBoolean))
+  val removeU0000: Boolean = sourceOptions.getOrElse("remove_u0000", "true").toBoolean
+  holoConfig.setRemoveU0000InTextColumnValue(removeU0000)
   val scan_batch_size: Int = sourceOptions.getOrElse("scan_batch_size", "256").toInt
-  val scan_timeout_seconds: Int = sourceOptions.getOrElse("scan_timeout_seconds", "60").toInt
-  val scan_parallelism: Int = sourceOptions.getOrElse("scan_parallelism", "10").toInt
+  val scan_timeout_seconds: Int = sourceOptions.getOrElse("scan_timeout_seconds", "28800").toInt
+  val max_partition_count: Int = sourceOptions.getOrElse("max_partition_count", "80").toInt
+  val pushDownPredicate: Boolean = sourceOptions.getOrElse("push_down_predicate", "true").toBoolean
+  val pushDownLimit: Boolean = sourceOptions.getOrElse("push_down_limit", "true").toBoolean
 
   // 调整之前两个boolean类型的参数copy_write_mode和bulk_load为新的enum参数
-  private val copyModeStr: String = sourceOptions.getOrElse("copy_mode", "stream").toLowerCase
+  private val copyModeStr: String = sourceOptions.getOrElse("copy_write_mode", "stream").toLowerCase
   var copyMode: CopyMode = copyModeStr match {
     case "stream" => CopyMode.STREAM
     case "bulk_load" => CopyMode.BULK_LOAD
@@ -75,10 +95,11 @@ class HologresConfigs(sourceOptions: Map[String, String]) extends Serializable {
   }
   val copy_write_format: String = sourceOptions.getOrElse("copy_write_format", "binary")
   val copy_write_dirty_data_check: Boolean = sourceOptions.getOrElse("copy_write_dirty_data_check", "false").toBoolean
-  var copy_write_direct_connect: Boolean = sourceOptions.getOrElse("copy_write_direct_connect", "true").toBoolean
+  var direct_connect: Boolean = sourceOptions.getOrElse("direct_connect", "true").toBoolean
   val max_cell_buffer_size: Int = sourceOptions.getOrElse("max_cell_buffer_size", "20971520").toInt
   val reshuffleByHoloDistributionKey: Boolean = sourceOptions.getOrElse("reshuffle_by_holo_distribution_key", "false").toBoolean
 
+  val bulkRead: Boolean = sourceOptions.getOrElse("bulk_read", "true").toBoolean
   // overwrite来自于用户对SaveMode参数的设置，写入开始会创建临时表并写入，写入成功时会清理原表的数据。
   var tempTableForOverwrite: String = _
 
@@ -88,4 +109,6 @@ class HologresConfigs(sourceOptions: Map[String, String]) extends Serializable {
     sparkAppName = "default"
   }
   holoConfig.setAppName("hologres-connector-spark-" + sparkAppName)
+
+  override def clone(): HologresConfigs = new HologresConfigs(sourceOptions)
 }
