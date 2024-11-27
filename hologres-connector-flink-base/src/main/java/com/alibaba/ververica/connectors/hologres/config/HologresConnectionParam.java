@@ -145,7 +145,7 @@ public class HologresConnectionParam implements Serializable {
                 properties.get(HologresJDBCConfigs.OPTIONAL_ENABLE_DEDUPLICATION);
         this.enableAggressive = properties.get(HologresJDBCConfigs.OPTIONAL_ENABLE_AGGRESSIVE);
         this.insertIfNotExists = properties.get(HologresJDBCConfigs.INSERT_IF_NOT_EXISTS);
-        this.copyMode = properties.get(HologresJDBCConfigs.COPY_MODE);
+        this.copyMode = properties.get(HologresJDBCConfigs.COPY_WRITE_MODE);
         this.copyWriteFormat = properties.get(HologresJDBCConfigs.COPY_WRITE_FORMAT);
         this.directConnect = properties.get(HologresJDBCConfigs.DIRECT_CONNECT);
         this.checkAndPutCondition = HologresUtils.getCheckAndPutCondition(properties);

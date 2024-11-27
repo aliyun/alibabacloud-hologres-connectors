@@ -91,7 +91,7 @@ public class HologresJDBCConfigs {
             ConfigOptions.key("insertIfNotExists".toLowerCase()).booleanType().defaultValue(false);
 
     // Copy options
-    public static final ConfigOption<CopyMode> COPY_MODE =
+    public static final ConfigOption<CopyMode> COPY_WRITE_MODE =
             key("jdbcCopyWriteMode".toLowerCase()).enumType(CopyMode.class).noDefaultValue();
     public static final ConfigOption<String> COPY_WRITE_FORMAT =
             key("jdbcCopyWriteFormat".toLowerCase())

@@ -4,11 +4,11 @@ import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.types.logical.LogicalType;
 
 import com.alibaba.hologres.client.Put;
-import com.alibaba.hologres.client.copy.CopyInOutputStream;
 import com.alibaba.hologres.client.copy.CopyMode;
-import com.alibaba.hologres.client.copy.RecordBinaryOutputStream;
-import com.alibaba.hologres.client.copy.RecordOutputStream;
-import com.alibaba.hologres.client.copy.RecordTextOutputStream;
+import com.alibaba.hologres.client.copy.in.CopyInOutputStream;
+import com.alibaba.hologres.client.copy.in.RecordBinaryOutputStream;
+import com.alibaba.hologres.client.copy.in.RecordOutputStream;
+import com.alibaba.hologres.client.copy.in.RecordTextOutputStream;
 import com.alibaba.hologres.client.exception.HoloClientException;
 import com.alibaba.hologres.client.impl.util.ConnectionUtil;
 import com.alibaba.hologres.client.model.Partition;

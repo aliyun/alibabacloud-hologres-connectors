@@ -2,7 +2,9 @@ package io.hologres.flink.ordergen;
 
 import java.io.Serializable;
 
-/** City. */
+/**
+ * City.
+ */
 public class City implements Serializable {
     private String nameZh;
     private String name;

@@ -38,7 +38,7 @@ public class HologresDynamicTableSink implements DynamicTableSink {
         this.fieldNames = schema.getFieldNames();
         this.fieldTypes = SchemaUtil.getLogicalTypes(tableSchema);
         this.config = checkNotNull(config);
-        this.copyMode = config.get(HologresJDBCConfigs.COPY_MODE);
+        this.copyMode = config.get(HologresJDBCConfigs.COPY_WRITE_MODE);
     }
 
     @Override

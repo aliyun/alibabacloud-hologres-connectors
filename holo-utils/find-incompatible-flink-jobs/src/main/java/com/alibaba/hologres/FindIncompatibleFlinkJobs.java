@@ -27,7 +27,11 @@ public class FindIncompatibleFlinkJobs {
     static List<IncompatibleResult> incompatibleResults = new ArrayList<>();
 
     public static void main(String[] args) throws Exception {
-
+        if (args.length != 5) {
+            System.out.println("Need 5 params. Please usage: java -cp find-incompatible-flink-jobs-1.0.jar " +
+                    "com.alibaba.hologres.FindIncompatibleFlinkJobs <region> <workspace_url> <access_key_id> <access_key_secret> <binlog/rpc>");
+            return;
+        }
         String endpoint = REGION.get(args[0]);
         if (endpoint == null) {
             System.out.println("Invalid region");
@@ -61,6 +65,12 @@ public class FindIncompatibleFlinkJobs {
             ListDeploymentsResponse listDeploymentsResponse =
                     client.listDeploymentsWithOptions(namespace, listDeploymentsRequest, listDeploymentsHeaders, new RuntimeOptions());
 
+            if (listDeploymentsResponse.getBody() == null) {
+                System.out.println("No deployments");
+            } else if (listDeploymentsResponse.getBody().getData() == null && listDeploymentsResponse.getBody().getErrorMessage() != null) {
+                System.out.println(listDeploymentsResponse.getBody().getErrorMessage());
+                break;
+            }
             for (Deployment deployment : listDeploymentsResponse.getBody().getData()) {
                 String deploymentName = deployment.getName();
                 String deploymentVersion = deployment.getEngineVersion();

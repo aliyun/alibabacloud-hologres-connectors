@@ -13,7 +13,9 @@ import org.apache.commons.cli.Options;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** A Flink data stream demo sink data to hologres and do custom partition. */
+/**
+ * A Flink data stream demo sink data to hologres and do custom partition.
+ */
 public class FlinkSQLToHoloRePartitionExample {
     private static final transient Logger LOG =
             LoggerFactory.getLogger(FlinkSQLToHoloRePartitionExample.class);
@@ -35,7 +37,7 @@ public class FlinkSQLToHoloRePartitionExample {
         String tableName = commandLine.getOptionValue("tablename");
 
         Configuration conf = new Configuration();
-        conf.setString(RestOptions.BIND_PORT,"8081");
+        conf.setString(RestOptions.BIND_PORT, "8081");
 
         EnvironmentSettings.Builder streamBuilder =
                 EnvironmentSettings.newInstance().inStreamingMode();

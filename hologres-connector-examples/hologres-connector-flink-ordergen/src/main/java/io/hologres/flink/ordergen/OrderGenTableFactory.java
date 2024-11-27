@@ -9,7 +9,9 @@ import org.apache.flink.table.factories.DynamicTableSourceFactory;
 import java.util.Collections;
 import java.util.Set;
 
-/** OrderTableFactory. */
+/**
+ * OrderTableFactory.
+ */
 public class OrderGenTableFactory implements DynamicTableSourceFactory {
     @Override
     public DynamicTableSource createDynamicTableSource(Context context) {

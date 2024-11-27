@@ -17,7 +17,9 @@ import java.math.BigDecimal;
 import java.util.Locale;
 import java.util.Random;
 
-/** OrdersSourceFunction. */
+/**
+ * OrdersSourceFunction.
+ */
 public class OrderGenSourceFunction extends RichParallelSourceFunction<RowData> {
     private final int arity = 11;
     private transient Faker faker;

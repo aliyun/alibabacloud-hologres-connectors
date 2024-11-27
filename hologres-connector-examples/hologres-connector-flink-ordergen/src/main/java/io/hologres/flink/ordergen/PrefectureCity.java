@@ -3,7 +3,9 @@ package io.hologres.flink.ordergen;
 import java.io.Serializable;
 import java.util.List;
 
-/** PrefectureCity. */
+/**
+ * PrefectureCity.
+ */
 public class PrefectureCity implements Serializable {
     private String prefectureNameZh;
     private String prefectureName;

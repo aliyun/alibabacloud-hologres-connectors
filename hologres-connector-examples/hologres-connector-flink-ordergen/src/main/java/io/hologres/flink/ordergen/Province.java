@@ -3,7 +3,9 @@ package io.hologres.flink.ordergen;
 import java.io.Serializable;
 import java.util.List;
 
-/** Province. */
+/**
+ * Province.
+ */
 public class Province implements Serializable {
     private String provinceNameZh;
     private String provinceName;

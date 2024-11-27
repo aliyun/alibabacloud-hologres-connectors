@@ -56,7 +56,7 @@ mvn clean install -N
 
 #### build base jar 并 install 到本地maven仓库
 
-- -P指定相关版本参数，本项目使用scala2.12以及spark3.3.0，详情请查看hologres-connector-spark-base子项目README
+- -P指定相关版本参数，本项目使用scala2.12以及spark3.3.1，详情请查看hologres-connector-spark-base子项目README
 
 
   ```
@@ -78,7 +78,7 @@ mvn clean install -N
 通过Spark读写Hologres数据，具体限制如下：
 
 + 实例版本需为V1.3 及以上版本。请在Hologres管控台的实例详情页查看当前实例版本，如实例是V1.3 以下版本，请您使用[自助升级](https://help.aliyun.com/document_detail/359846.htm#section-32k-sdy-wpv)申请升级实例。
-+ 需要安装对应版本的Spark环境，能够运行spark-sql、spark-shell或pyspark命令，建议使用 Spark 3.3.0 及以上版本避免出现依赖问题。
++ 需要安装对应版本的Spark环境，能够运行spark-sql、spark-shell或pyspark命令，建议使用 Spark 3.3.1 及以上版本避免出现依赖问题。
 
 
 ## 连接数计算

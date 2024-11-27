@@ -16,7 +16,7 @@
 <dependency>
     <groupId>com.alibaba.hologres</groupId>
     <artifactId>hologres-connector-flink-1.17</artifactId>
-    <version>1.4.3</version>
+    <version>1.5.0</version>
     <classifier>jar-with-dependencies</classifier>
 </dependency>
 ```

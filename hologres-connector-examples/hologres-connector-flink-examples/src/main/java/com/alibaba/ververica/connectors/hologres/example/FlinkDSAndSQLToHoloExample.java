@@ -16,7 +16,9 @@ import java.sql.Timestamp;
 
 import static org.apache.flink.table.api.Expressions.$;
 
-/** A Flink data stream example and SQL sinking data to Hologres. */
+/**
+ * A Flink data stream example and SQL sinking data to Hologres.
+ */
 public class FlinkDSAndSQLToHoloExample {
 
     /**
@@ -55,13 +57,13 @@ public class FlinkDSAndSQLToHoloExample {
                                 "Adam",
                                 new BigDecimal("123.11"),
                                 new Timestamp(System.currentTimeMillis())
-                            ),
+                        ),
                         new SourceItem(
                                 234,
                                 "Bob",
                                 new BigDecimal("000.11"),
                                 new Timestamp(System.currentTimeMillis())
-                    ));
+                        ));
 
         Table table = tEnv.fromDataStream(source);
         table.printSchema();

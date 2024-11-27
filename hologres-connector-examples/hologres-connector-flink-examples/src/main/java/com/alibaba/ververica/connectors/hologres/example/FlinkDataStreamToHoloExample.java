@@ -24,7 +24,9 @@ import org.apache.flink.table.api.TableSchema;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 
-/** A Flink data streak example sinking data to Hologres. */
+/**
+ * A Flink data streak example sinking data to Hologres.
+ */
 public class FlinkDataStreamToHoloExample {
     /**
      * Hologres DDL. create table sink_table(user_id bigint, user_name text, price decimal(38,
@@ -93,7 +95,9 @@ public class FlinkDataStreamToHoloExample {
         env.execute("Insert");
     }
 
-    /** 将用户POJO数据转换至Hologres Record的实现. */
+    /**
+     * 将用户POJO数据转换至Hologres Record的实现.
+     */
     public static class RecordConverter implements HologresRecordConverter<SourceItem, Record> {
         private HologresConnectionParam hologresConnectionParam;
         private HologresTableSchema tableSchema;
@@ -114,9 +118,9 @@ public class FlinkDataStreamToHoloExample {
             result.setObject(2, record.price);
             result.setObject(3, record.saleTimestamp);
             /* 在DataStream作业中，用户需要使用自定义的OutputFormatSinkFunction以及RecordConverter，如果要支持消息的回撤，需要在此处对convert结果设置MutationType。 需要hologres-connector 1.3.2及以上版本 */
-             if (record.eventType == EventType.DELETE) {
-                 result.setType(MutationType.DELETE);
-             }
+            if (record.eventType == EventType.DELETE) {
+                result.setType(MutationType.DELETE);
+            }
             return result;
         }
 

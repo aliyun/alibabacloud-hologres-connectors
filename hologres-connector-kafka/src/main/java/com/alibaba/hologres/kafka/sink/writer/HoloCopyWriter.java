@@ -1,11 +1,11 @@
 package com.alibaba.hologres.kafka.sink.writer;
 
 import com.alibaba.hologres.client.Put;
-import com.alibaba.hologres.client.copy.CopyInOutputStream;
 import com.alibaba.hologres.client.copy.CopyUtil;
-import com.alibaba.hologres.client.copy.RecordBinaryOutputStream;
-import com.alibaba.hologres.client.copy.RecordOutputStream;
-import com.alibaba.hologres.client.copy.RecordTextOutputStream;
+import com.alibaba.hologres.client.copy.in.CopyInOutputStream;
+import com.alibaba.hologres.client.copy.in.RecordBinaryOutputStream;
+import com.alibaba.hologres.client.copy.in.RecordOutputStream;
+import com.alibaba.hologres.client.copy.in.RecordTextOutputStream;
 import com.alibaba.hologres.client.exception.HoloClientException;
 import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.utils.RecordChecker;

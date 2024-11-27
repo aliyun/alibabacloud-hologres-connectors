@@ -19,7 +19,9 @@ import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
 
-/** A Flink sql example sinking data to Hologres. */
+/**
+ * A Flink sql example sinking data to Hologres.
+ */
 public class FlinkSQLToHoloExample {
 
     /**

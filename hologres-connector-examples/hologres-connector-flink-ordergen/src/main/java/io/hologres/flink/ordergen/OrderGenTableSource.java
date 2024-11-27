@@ -9,7 +9,9 @@ import org.apache.flink.table.connector.source.SourceFunctionProvider;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.types.RowKind;
 
-/** OrderTableSource. */
+/**
+ * OrderTableSource.
+ */
 public class OrderGenTableSource implements ScanTableSource {
     private final TableSchema schema;
 
