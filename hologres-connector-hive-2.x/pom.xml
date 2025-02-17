@@ -14,7 +14,7 @@
     <artifactId>hologres-connector-hive-2.x</artifactId>
 
     <properties>
-        <hive.version>2.3.8</hive.version>
+        <hive.version>4.0.1</hive.version>
         <hadoop.version>2.7.7</hadoop.version>
     </properties>
 
