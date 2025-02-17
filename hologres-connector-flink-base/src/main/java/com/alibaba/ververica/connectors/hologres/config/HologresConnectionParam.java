@@ -21,7 +21,7 @@ package com.alibaba.ververica.connectors.hologres.config;
 import org.apache.flink.configuration.ReadableConfig;
 
 import com.alibaba.hologres.client.copy.CopyMode;
-import com.alibaba.hologres.client.model.WriteMode;
+import com.alibaba.hologres.client.model.OnConflictAction;
 import com.alibaba.hologres.client.model.checkandput.CheckAndPutCondition;
 import com.alibaba.ververica.connectors.hologres.jdbc.HologresJDBCConfigs;
 import com.alibaba.ververica.connectors.hologres.utils.HologresUtils;
@@ -63,7 +63,7 @@ public class HologresConnectionParam implements Serializable {
     private final int jdbcScanFetchSize;
     private final int jdbcScanTimeoutSeconds;
     // JDBC sink
-    private final WriteMode writeMode;
+    private final OnConflictAction writeMode;
     private final int jdbcWriteBatchSize;
     private final long jdbcWriteBatchByteSize;
     private final long jdbcWriteBatchTotalByteSize;
@@ -151,22 +151,22 @@ public class HologresConnectionParam implements Serializable {
         this.checkAndPutCondition = HologresUtils.getCheckAndPutCondition(properties);
     }
 
-    public static WriteMode getJDBCWriteMode(ReadableConfig tableProperties) {
-        WriteMode writeMode = WriteMode.INSERT_OR_IGNORE;
+    public static OnConflictAction getJDBCWriteMode(ReadableConfig tableProperties) {
+        OnConflictAction writeMode = OnConflictAction.INSERT_OR_IGNORE;
         if (tableProperties.get(HologresConfigs.INSERT_OR_UPDATE)) {
-            writeMode = WriteMode.INSERT_OR_UPDATE;
+            writeMode = OnConflictAction.INSERT_OR_UPDATE;
         }
         if (tableProperties.getOptional(HologresConfigs.MUTATE_TYPE).isPresent()) {
             String mutateType = tableProperties.get(HologresConfigs.MUTATE_TYPE).toLowerCase();
             switch (mutateType) {
                 case "insertorignore":
-                    writeMode = WriteMode.INSERT_OR_IGNORE;
+                    writeMode = OnConflictAction.INSERT_OR_IGNORE;
                     break;
                 case "insertorreplace":
-                    writeMode = WriteMode.INSERT_OR_REPLACE;
+                    writeMode = OnConflictAction.INSERT_OR_REPLACE;
                     break;
                 case "insertorupdate":
-                    writeMode = WriteMode.INSERT_OR_UPDATE;
+                    writeMode = OnConflictAction.INSERT_OR_UPDATE;
                     break;
                 default:
                     throw new RuntimeException("Could not recognize mutate type " + mutateType);
@@ -307,7 +307,7 @@ public class HologresConnectionParam implements Serializable {
         return connectionPoolName;
     }
 
-    public WriteMode getJDBCWriteMode() {
+    public OnConflictAction getJDBCWriteMode() {
         return this.writeMode;
     }
 

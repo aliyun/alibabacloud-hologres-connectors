@@ -22,6 +22,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /** An IO reader implementation for JDBC. */
 public class HologresJDBCReader<T> extends HologresReader<T> {
@@ -29,6 +31,7 @@ public class HologresJDBCReader<T> extends HologresReader<T> {
     private final HologresRecordConverter<T, Record> recordConverter;
     private transient HologresJDBCClientProvider clientProvider;
     protected final boolean insertIfNotExists;
+    protected ExecutorService callbackPool;
 
     public HologresJDBCReader(
             String[] primaryKeys,
@@ -71,6 +74,7 @@ public class HologresJDBCReader<T> extends HologresReader<T> {
         if (insertIfNotExists) {
             LOG.info("Hologres dim table will insert new record if primary key does not exist.");
         }
+        this.callbackPool = Executors.newFixedThreadPool(1);
         this.clientProvider = new HologresJDBCClientProvider(param);
         LOG.info(
                 "Successfully initiated connection to database [{}] / table[{}]",
@@ -121,7 +125,8 @@ public class HologresJDBCReader<T> extends HologresReader<T> {
                                     result.completeExceptionally(e);
                                 }
                                 return null;
-                            });
+                            },
+                            callbackPool);
         } catch (HoloClientException e) {
             result.completeExceptionally(e);
         }
@@ -154,22 +159,28 @@ public class HologresJDBCReader<T> extends HologresReader<T> {
                     .asyncScan(scanBuilder.build())
                     .handleAsync(
                             (scanner, throwable) -> {
-                                List<T> result = new ArrayList<>();
-                                while (true) {
-                                    try {
-                                        if (!scanner.next()) {
+                                // caught an error
+                                if (throwable != null) {
+                                    scanResult.completeExceptionally(throwable);
+                                } else {
+                                    List<T> result = new ArrayList<>();
+                                    while (true) {
+                                        try {
+                                            if (!scanner.next()) {
+                                                break;
+                                            }
+                                            Record resultRecord = scanner.getRecord();
+                                            result.add(recordConverter.convertTo(resultRecord));
+                                        } catch (HoloClientException e) {
+                                            scanResult.completeExceptionally(e);
                                             break;
                                         }
-                                        Record resultRecord = scanner.getRecord();
-                                        result.add(recordConverter.convertTo(resultRecord));
-                                    } catch (HoloClientException e) {
-                                        scanResult.completeExceptionally(e);
-                                        break;
                                     }
+                                    scanResult.complete(result);
                                 }
-                                scanResult.complete(result);
                                 return null;
-                            });
+                            },
+                            callbackPool);
         } catch (HoloClientException e) {
             throw new IOException(e);
         }

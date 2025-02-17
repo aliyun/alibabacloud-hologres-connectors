@@ -45,8 +45,8 @@ import java.util.Random;
 import java.util.stream.Collectors;
 
 import static com.alibaba.hologres.client.copy.CopyUtil.buildCopyInSql;
-import static com.alibaba.hologres.client.model.WriteMode.INSERT_OR_IGNORE;
-import static com.alibaba.hologres.client.model.WriteMode.INSERT_OR_UPDATE;
+import static com.alibaba.hologres.client.model.OnConflictAction.INSERT_OR_IGNORE;
+import static com.alibaba.hologres.client.model.OnConflictAction.INSERT_OR_UPDATE;
 import static com.alibaba.ververica.connectors.hologres.utils.JDBCUtils.executeSql;
 
 /** An IO writer implementation for JDBC. */

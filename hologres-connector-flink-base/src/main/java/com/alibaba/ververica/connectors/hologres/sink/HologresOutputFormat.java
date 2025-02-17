@@ -107,6 +107,15 @@ public class HologresOutputFormat<T> extends RichOutputFormat<T>
             hologresIOClient.flush();
             LOG.info("end to wait request to finish");
         } catch (IOException e) {
+            // When checkpointing, this sync will be called(see OutputFormatSinkFunction
+            // snapshotState).
+            // If this sync(flush) throws an exception due to dirty data or other reasons, the
+            // checkpoint will fail. However, checkpoint has a failure-ignoring configuration
+            // "execution.checkpointing.tolerable-failed-checkpoints".
+            // If this failure is ignored, this batch of data may be lost. so if checkpoint
+            // failed because write
+            // error, we throw exception later, make sure the job will fail over successfully.
+            exception = e;
             throw new IOException(e);
         }
     }

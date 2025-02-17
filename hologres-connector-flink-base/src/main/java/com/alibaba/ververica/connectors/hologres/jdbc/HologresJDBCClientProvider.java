@@ -90,7 +90,7 @@ public class HologresJDBCClientProvider {
         holoConfig.setWriteMaxIntervalMs(param.getJdbcWriteFlushInterval());
         holoConfig.setUseLegacyPutHandler(param.isJdbcUseLegacyPutHandler());
         holoConfig.setEnableDefaultForNotNullColumn(param.getJdbcEnableDefaultForNotNullColumn());
-        holoConfig.setWriteMode(param.getJDBCWriteMode());
+        holoConfig.setOnConflictAction(param.getJDBCWriteMode());
         holoConfig.setEnableDeduplication(param.isEnableDeduplication());
         holoConfig.setRemoveU0000InTextColumnValue(param.isJdbcEnableRemoveU0000InText());
         holoConfig.setEnableAggressive(param.isEnableAggressive());
