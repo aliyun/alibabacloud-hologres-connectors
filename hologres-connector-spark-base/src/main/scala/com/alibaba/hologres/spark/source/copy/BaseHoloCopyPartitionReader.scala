@@ -41,12 +41,13 @@ class BaseHoloCopyPartitionReader(hologresConfigs: HologresConfigs,
   private val copyContext: CopyContext = new CopyContext
   copyContext.init(hologresConfigs)
 
-  val copySql: String = CopyUtil.buildCopyOutSql(query, true)
+  val isCompressed: Boolean = hologresConfigs.readMode == "bulk_read_compressed"
+  val copySql: String = CopyUtil.buildCopyOutSql(query, /*arrow*/true, /*lz4*/isCompressed)
   logger.info("the bulk read copy query: {}", copySql)
   logger.info("the sparkSchema: {}", sparkSchema)
   copyContext.schema = holoSchema
-  val coins: CopyOutInputStream = new CopyOutInputStream(copyContext.manager.copyOut(copySql))
-  copyContext.arrowReader = new ArrowReader(coins)
+  val coins: CopyOutInputStream = new CopyOutInputStream(copyContext.manager.copyOut(copySql), hologresConfigs.readCopyMaxBufferSize)
+  copyContext.arrowReader = new ArrowReader(coins, isCompressed)
 
   var resultItor: Iterator[InternalRow] = _
 

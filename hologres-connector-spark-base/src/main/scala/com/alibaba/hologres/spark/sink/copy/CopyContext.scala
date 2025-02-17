@@ -37,7 +37,7 @@ class CopyContext {
 
     try {
       // copy write mode 的瓶颈往往是vip endpoint的网络吞吐，因此我们在可以直连holo fe的场景默认使用直连
-      if (configs.direct_connect) {
+      if (configs.directConnect) {
         val directUrl = JDBCUtil.getJdbcDirectConnectionUrl(configs)
         try {
           logger.info("try connect directly to holo with url {}", directUrl)
@@ -55,16 +55,21 @@ class CopyContext {
 
       // 不抛出异常: copy不需要返回影响行数所以默认关闭,但此guc仅部分版本支持,而且设置失败不影响程序运行
       JDBCUtil.executeSql(conn, "SET hg_experimental_enable_fixed_dispatcher_affected_rows = off", ignoreException = true)
-      JDBCUtil.executeSql(conn, s"set statement_timeout = ${configs.statementTimeout}")
+      JDBCUtil.executeSql(conn, s"set statement_timeout = '${configs.statementTimeout}s'")
       // server less computing
       if (configs.enableServerlessComputing) {
+        if (configs.writeMode == CopyMode.STREAM) {
+          // stream mode 不支持serverless
+          throw new RuntimeException("STREAM copyMode is not supported use serverless computing now.")
+        }
         JDBCUtil.executeSql(conn, "set hg_computing_resource = 'serverless'")
         JDBCUtil.executeSql(conn, s"SET hg_experimental_serverless_computing_query_priority = ${configs.serverlessComputingQueryPriority}")
+        JDBCUtil.executeSql(conn, s"SET hg_experimental_serverless_computing_required_cores = 5")
       }
       if (configs.reshuffleByHoloDistributionKey && targetShards != "") {
         JDBCUtil.executeSql(conn, s"set hg_experimental_target_shard_list = '$targetShards'")
       }
-      if (configs.copyMode == CopyMode.BULK_LOAD_ON_CONFLICT) {
+      if (configs.writeMode == CopyMode.BULK_LOAD_ON_CONFLICT) {
         JDBCUtil.executeSql(conn, "set hg_experimental_copy_enable_on_conflict = on;", ignoreException = true)
         JDBCUtil.executeSql(conn, "set hg_experimental_affect_row_multiple_times_keep_last = on;")
       }

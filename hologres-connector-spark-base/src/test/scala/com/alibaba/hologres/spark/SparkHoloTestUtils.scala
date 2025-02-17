@@ -105,6 +105,7 @@ class SparkHoloTestUtils {
     } catch {
       case ex: SQLException => {
         println("Can't create table " + tableName + " because " + ex.getMessage)
+        throw ex
       }
     }
   }
@@ -123,6 +124,7 @@ class SparkHoloTestUtils {
     } catch {
       case ex: SQLException => {
         println("Can't create schema " + schemaName + " because " + ex.getMessage)
+        throw ex
       }
     }
   }
@@ -146,6 +148,7 @@ class SparkHoloTestUtils {
     } catch {
       case ex: SQLException => {
         println("Can't create table " + tableName + " because " + ex.getMessage)
+        throw ex
       }
     }
   }
@@ -163,6 +166,7 @@ class SparkHoloTestUtils {
     } catch {
       case ex: SQLException => {
         println("Can't drop table " + tableName + ex)
+        throw ex
       }
     }
   }

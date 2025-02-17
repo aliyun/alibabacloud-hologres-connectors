@@ -2,13 +2,15 @@ package com.alibaba.hologres.spark3
 
 import com.alibaba.hologres.client.model.TableSchema
 import com.alibaba.hologres.spark.config.HologresConfigs
-import com.alibaba.hologres.spark3.sink.HoloWriterBuilder
+import com.alibaba.hologres.spark.utils.SparkHoloUtil
+import com.alibaba.hologres.spark3.sink.{HoloWriterBuilder, HoloWriterBuilderV1}
 import com.alibaba.hologres.spark3.source.HoloScanBuilder
 import org.apache.spark.sql.connector.catalog.{SupportsRead, SupportsWrite, TableCapability}
 import org.apache.spark.sql.connector.read.ScanBuilder
-import org.apache.spark.sql.connector.write.LogicalWriteInfo
+import org.apache.spark.sql.connector.write.{LogicalWriteInfo, WriteBuilder}
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
+import org.slf4j.LoggerFactory
 
 import scala.collection.JavaConverters._
 
@@ -17,17 +19,36 @@ class HoloTable(
                  sparkSchema: StructType,
                  hologresConfigs: HologresConfigs,
                  mockHoloSchemaForQuery: TableSchema = null) extends SupportsWrite with SupportsRead {
-  override def name(): String = this.getClass.toString
+  private val logger = LoggerFactory.getLogger(getClass)
+  private var optimizeConfigs: HologresConfigs = hologresConfigs
+
+  logger.info("Initial {}", name())
+
+  override def name(): String = {
+    if (tableType() == HoloTableType.QUERY) {
+      "HoloTableQuery(" + optimizeConfigs.jdbcUrl + ", " + optimizeConfigs.query + ")"
+    } else if (tableType() == HoloTableType.TABLE_V1) {
+      "HoloTableV1(" + optimizeConfigs.jdbcUrl + ", " + optimizeConfigs.table + ")"
+    } else {
+      "HoloTableV2(" + optimizeConfigs.jdbcUrl + ", " + optimizeConfigs.table + ")"
+    }
+  }
+
 
   object HoloTableType extends Enumeration {
-    val TABLE, QUERY = Value
+    val TABLE_V1, TABLE_V2, QUERY = Value
   }
 
   def tableType(): HoloTableType.Value = {
     if (mockHoloSchemaForQuery != null) {
       HoloTableType.QUERY
     } else {
-      HoloTableType.TABLE
+      optimizeConfigs = SparkHoloUtil.chooseBestMode(sparkSchema, hologresConfigs)
+      if (optimizeConfigs.needReshuffle) {
+        HoloTableType.TABLE_V1
+      } else {
+        HoloTableType.TABLE_V2
+      }
     }
   }
 
@@ -35,21 +56,25 @@ class HoloTable(
 
   override def capabilities(): java.util.Set[TableCapability] = Set(
     TableCapability.BATCH_READ,
-    TableCapability.BATCH_WRITE,
+    if (tableType().equals(HoloTableType.TABLE_V1)) TableCapability.V1_BATCH_WRITE else TableCapability.BATCH_WRITE,
     TableCapability.ACCEPT_ANY_SCHEMA,
     TableCapability.OVERWRITE_BY_FILTER,
     TableCapability.OVERWRITE_DYNAMIC
   ).asJava
 
-  override def newWriteBuilder(info: LogicalWriteInfo): HoloWriterBuilder = {
-    new HoloWriterBuilder(hologresConfigs, sparkSchema)
+  override def newWriteBuilder(info: LogicalWriteInfo): WriteBuilder = {
+    if (tableType() == HoloTableType.TABLE_V1) {
+      new HoloWriterBuilderV1(optimizeConfigs, sparkSchema)
+    } else {
+      new HoloWriterBuilder(optimizeConfigs, sparkSchema)
+    }
   }
 
   override def newScanBuilder(caseInsensitiveStringMap: CaseInsensitiveStringMap): ScanBuilder = {
-    if (tableType() == HoloTableType.TABLE) {
-      new HoloScanBuilder(hologresConfigs, sparkSchema)
+    if (tableType() != HoloTableType.QUERY) {
+      new HoloScanBuilder(optimizeConfigs, sparkSchema)
     } else {
-      new HoloScanBuilder(hologresConfigs, sparkSchema, mockHoloSchemaForQuery)
+      new HoloScanBuilder(optimizeConfigs, sparkSchema, mockHoloSchemaForQuery)
     }
   }
 }

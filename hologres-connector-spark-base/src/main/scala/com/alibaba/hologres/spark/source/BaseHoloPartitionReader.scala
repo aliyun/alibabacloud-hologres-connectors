@@ -38,7 +38,7 @@ class BaseHoloPartitionReader(hologresConfigs: HologresConfigs,
 
     conn = JDBCUtil.createConnection(hologresConfigs).unwrap(classOf[PgConnection])
     conn.setAutoCommit(false)
-    JDBCUtil.executeSql(conn, s"set statement_timeout = ${hologresConfigs.statementTimeout}")
+    JDBCUtil.executeSql(conn, s"set statement_timeout = '${hologresConfigs.statementTimeout}s'")
     // server less computing
     if (hologresConfigs.enableServerlessComputing) {
       JDBCUtil.executeSql(conn, "set hg_computing_resource = 'serverless'")
@@ -46,8 +46,8 @@ class BaseHoloPartitionReader(hologresConfigs: HologresConfigs,
     }
 
     statement = conn.prepareStatement(query, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)
-    statement.setFetchSize(hologresConfigs.scan_batch_size)
-    statement.setQueryTimeout(hologresConfigs.scan_timeout_seconds)
+    statement.setFetchSize(hologresConfigs.readSelectBatchSize)
+    statement.setQueryTimeout(hologresConfigs.readSelectTimeoutSeconds)
     resultSet = statement.executeQuery
   }
 

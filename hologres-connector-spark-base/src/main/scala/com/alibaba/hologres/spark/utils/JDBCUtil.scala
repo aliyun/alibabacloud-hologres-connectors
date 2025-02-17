@@ -112,12 +112,12 @@ object JDBCUtil {
   }
 
   def getSimpleSelectFromTable(table: String, selectFields: Array[String]): String = {
-    val selectExpressions: String = selectFields.mkString(", ")
+    val selectExpressions: String = selectFields.map(field => "\"" + field + "\"").mkString(", ")
     s"select $selectExpressions from $table"
   }
 
   def getSimpleSelectFromQuery(query: String, selectFields: Array[String]): String = {
-    val selectExpressions: String = selectFields.mkString(", ")
+    val selectExpressions: String = selectFields.map(field => "\"" + field + "\"").mkString(", ")
     s"select $selectExpressions from ($query) t"
   }
 
@@ -207,12 +207,10 @@ object JDBCUtil {
     databases
   }
 
-  def listTables(hologresConfigs: HologresConfigs, database: String = null): Array[String] = {
-    var tables = Array.empty[String]
+  def listSchemas(hologresConfigs: HologresConfigs, database: String = null): Array[String] = {
+    var schemas = Array.empty[String]
     val conn = createConnection(hologresConfigs, database)
     try {
-      // get all schemas
-      var schemas = Array.empty[String]
       val listSchemasSql =
         s"""
         SELECT
@@ -221,12 +219,32 @@ object JDBCUtil {
           information_schema.schemata
         WHERE
           schema_name NOT IN ('pg_toast', 'pg_temp_1', 'pg_toast_temp_1', 'pg_catalog', 'information_schema',
-           'hologres', 'hologres_statistic', 'hologres_sample', 'hologres_streaming_mv');
+           'hologres', 'hologres_statistic', 'hologres_sample', 'hologres_streaming_mv', 'hg_recyclebin');
         """
       val stmt = conn.createStatement()
       val resultSet = stmt.executeQuery(listSchemasSql)
       while (resultSet.next) {
         schemas :+= resultSet.getString(1)
+      }
+    } catch {
+      case e: Exception =>
+        throw new RuntimeException(String.format("Fail to list schemas in the database %s.", database), e)
+    } finally {
+      if (conn != null) {
+        conn.close()
+      }
+    }
+    schemas
+  }
+
+  def listTables(hologresConfigs: HologresConfigs, schema: String, database: String = null): Array[String] = {
+    var tables = Array.empty[String]
+    val conn = createConnection(hologresConfigs, database)
+    try {
+      // get all schemas
+      val schemas = listSchemas(hologresConfigs, database)
+      if (schema != null && !schemas.contains(schema)) {
+        throw new IllegalArgumentException(s"The schema $schema is not exist.")
       }
       // get all tables
       val listTablesSql =
@@ -242,11 +260,19 @@ object JDBCUtil {
             table_type,
             table_name;
         """
-      for (schema <- schemas) {
+      if (schema != null) {
         val stmt = conn.createStatement()
         val resultSet = stmt.executeQuery(listTablesSql.format(schema))
         while (resultSet.next) {
-          tables :+= s"$schema.${resultSet.getString(1)}"
+          tables :+= s"${resultSet.getString(1)}"
+        }
+      } else {
+        for (schema <- schemas) {
+          val stmt = conn.createStatement()
+          val resultSet = stmt.executeQuery(listTablesSql.format(schema))
+          while (resultSet.next) {
+            tables :+= s"$schema.${resultSet.getString(1)}"
+          }
         }
       }
     } catch {

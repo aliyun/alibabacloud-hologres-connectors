@@ -3,7 +3,9 @@ package com.alibaba.hologres.spark3
 import com.alibaba.hologres.client.model.TableSchema
 import com.alibaba.hologres.spark.BaseSourceProvider
 import com.alibaba.hologres.spark.config.HologresConfigs
-import com.alibaba.hologres.spark.utils.SparkHoloUtil
+import com.alibaba.hologres.spark.utils.{RepartitionUtil, SparkHoloUtil}
+import com.alibaba.hologres.spark3.sink.HologresRelation
+import org.apache.spark.sql.{DataFrame, SQLContext, SaveMode}
 import org.apache.spark.sql.connector.catalog.{Table, TableProvider}
 import org.apache.spark.sql.connector.expressions.Transform
 import org.apache.spark.sql.sources._
@@ -15,7 +17,7 @@ import scala.collection.JavaConverters.mapAsScalaMapConverter
 
 /** SourceProvider Register. */
 class SourceProvider extends DataSourceRegister
-  with TableProvider {
+  with TableProvider with CreatableRelationProvider {
 
   private var sparkSchema: StructType = _
   private var inferredSchema: Boolean = false
@@ -55,6 +57,14 @@ class SourceProvider extends DataSourceRegister
   }
 
   override def supportsExternalMetadata = true
+
+  override def createRelation(sqlContext: SQLContext, mode: SaveMode, parameters: Map[String, String], data: DataFrame): BaseRelation = {
+    val hologresConfigs = new HologresConfigs(parameters)
+    RepartitionUtil.reShuffleThenWrite(data, hologresConfigs.username, hologresConfigs.password, hologresConfigs.jdbcUrl,
+      hologresConfigs.table, writeMode = hologresConfigs.writeMode.toString, onConflictAction = hologresConfigs.onConflictAction.name(),
+      hologresConfigs.writeCopyMaxBufferSize, saveMode = mode)
+    new HologresRelation(hologresConfigs, data.schema, mode == SaveMode.Overwrite)(sqlContext.sparkSession)
+  }
 }
 
 object SourceProvider extends BaseSourceProvider {

@@ -27,7 +27,8 @@ import java.util.concurrent.{ConcurrentSkipListMap, ThreadLocalRandom}
 
 object RepartitionUtil {
   def reShuffleThenWrite(inputDf: DataFrame, username: String, password: String, url: String, tableName: String,
-                         copyWriteMode: String = "bulk_load", writeMode: String = "insertOrReplace", saveMode: SaveMode = SaveMode.Append): Unit = {
+                         writeMode: String = "bulk_load", onConflictAction: String = "insertOrReplace",
+                         maxBufferSize: Int = 50 * 1024 * 1024,saveMode: SaveMode = SaveMode.Append): Unit = {
     val reShuffledDf = reShuffleByHoloDistributionKey(inputDf, username, password, url, tableName)
     // 将shuffle之后的DataFrame写入到Hologres中
     reShuffledDf.write
@@ -36,9 +37,10 @@ object RepartitionUtil {
       .option("password", password)
       .option("jdbcurl", url)
       .option("table", tableName)
-      .option("copy_write_mode", copyWriteMode)
-      .option("write_mode", writeMode)
-      .option("reshuffle_by_holo_distribution_key", "true")
+      .option("write.mode", writeMode)
+      .option("write.on_conflict_action", onConflictAction)
+      .option("write.copy.max_buffer_size", maxBufferSize)
+      .option("write.reshuffle_by_holo_distribution_key", "true")
       .mode(saveMode)
       .save()
   }
@@ -46,7 +48,7 @@ object RepartitionUtil {
   /**
    * 传入holo的配置,从而自行计算表的shardCount和分布键信息
    */
-  private def reShuffleByHoloDistributionKey(inputDf: DataFrame, username: String, password: String, url: String, tableName: String): DataFrame = {
+  def reShuffleByHoloDistributionKey(inputDf: DataFrame, username: String, password: String, url: String, tableName: String): DataFrame = {
     val holoConf = new HoloConfig
     holoConf.setUsername(username)
     holoConf.setPassword(password)
@@ -57,7 +59,7 @@ object RepartitionUtil {
     val sparkSession = inputDf.sparkSession
     val inputSchema = inputDf.schema
 
-    val keySelector = new HoloKeySelector(shardCount, inputSchema,  holoSchema.getDistributionKeys)
+    val keySelector = new HoloKeySelector(shardCount, inputSchema, holoSchema.getDistributionKeys)
     val partitioner = new CustomerPartition(shardCount)
     val rdd = {
       // keySelector 根据 distribution key字段的值计算shard

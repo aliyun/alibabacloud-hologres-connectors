@@ -51,7 +51,7 @@ class CopyContext {
 
     try {
       // copy write mode 的瓶颈往往是vip endpoint的网络吞吐，因此我们在可以直连holo fe的场景默认使用直连
-      if (configs.direct_connect) {
+      if (configs.directConnect) {
         val directUrl = JDBCUtil.getJdbcDirectConnectionUrl(configs)
         try {
           logger.info("try connect directly to holo with url {}", directUrl)
@@ -67,11 +67,12 @@ class CopyContext {
         conn = DriverManager.getConnection(url, info)
       }
 
-      JDBCUtil.executeSql(conn, s"set statement_timeout = ${configs.statementTimeout}")
+      JDBCUtil.executeSql(conn, s"set statement_timeout = '${configs.statementTimeout}s'")
       // server less computing
       if (configs.enableServerlessComputing) {
         JDBCUtil.executeSql(conn, "set hg_computing_resource = 'serverless'")
         JDBCUtil.executeSql(conn, s"SET hg_experimental_serverless_computing_query_priority = ${configs.serverlessComputingQueryPriority}")
+        JDBCUtil.executeSql(conn, s"SET hg_experimental_serverless_computing_required_cores = 5")
       }
 
       pgConn = conn.unwrap(classOf[PgConnection])

@@ -38,7 +38,7 @@ abstract class SparkHoloSuiteBase extends QueryTest with SharedSparkSession {
     StructField("st", ShortType),
     StructField("id", LongType),
     StructField("count", IntegerType),
-    StructField("name", StringType),
+    StructField("NAME", StringType),
     StructField("price", DecimalType(38, 12)),
     StructField("out_of_stock", BooleanType),
     StructField("weight", DoubleType),
@@ -63,7 +63,7 @@ abstract class SparkHoloSuiteBase extends QueryTest with SharedSparkSession {
     "    st smallint," +
     "    id bigint," +
     "    count int," +
-    "    name text," +
+    "    \"NAME\" text," +
     "    price numeric(38, 12)," +
     "    out_of_stock bool," +
     "    weight double precision," +
@@ -88,7 +88,7 @@ abstract class SparkHoloSuiteBase extends QueryTest with SharedSparkSession {
       "    st smallint," +
       "    id bigint," +
       "    count int," +
-      "    name text," +
+      "    \"NAME\" text," +
       "    price numeric(38, 12)," +
       "    out_of_stock bool," +
       "    weight double precision," +
@@ -127,11 +127,14 @@ abstract class SparkHoloSuiteBase extends QueryTest with SharedSparkSession {
 
     val data = Seq(
       Row(0L, 1.shortValue(), -7L, 100, "phone1", BigDecimal(1234.567891234), false, 199.35, 6.7F, Timestamp.valueOf("2021-01-01 00:00:00.123"),
-        Timestamp.valueOf("2021-01-01 00:00:00.456"), Date.valueOf("2021-01-01"), byteArray, intArray, longArray, floatArray, doubleArray, booleanArray, stringArray, json, jsonb, roaringBitmap),
+        Timestamp.valueOf("2021-01-01 00:00:00.456"), Date.valueOf("2021-01-01"), byteArray, intArray,
+        longArray, floatArray, doubleArray, booleanArray, stringArray, json, jsonb, roaringBitmap),
       Row(1L, 2.shortValue(), 6L, -10, "phone2", BigDecimal(1234.56), true, 188.45, 7.8F, Timestamp.valueOf("2021-01-01 12:00:00.123"),
-        Timestamp.valueOf("2021-01-01 00:00:00.456"), Date.valueOf("1971-01-01"), byteArray, intArray, longArray, floatArray, doubleArray, booleanArray, stringArray, json, jsonb, roaringBitmap),
+        Timestamp.valueOf("2021-01-01 00:00:00.456"), Date.valueOf("1971-01-01"), byteArray, intArray,
+        longArray, floatArray, doubleArray, booleanArray, stringArray, json, jsonb, roaringBitmap),
       Row(2L, 3.shortValue(), 1L, 10, "phone3\"", BigDecimal(1234.56), true, 111.45, 8.9F, Timestamp.valueOf("2020-02-29 16:12:33.123"),
-        Timestamp.valueOf("2021-01-01 00:00:00.456"), Date.valueOf("2020-07-23"), byteArray, intArray, longArray, floatArray, doubleArray, booleanArray, stringArray, json, jsonb, roaringBitmap),
+        Timestamp.valueOf("2021-01-01 00:00:00.456"), Date.valueOf("2020-07-23"), byteArray, intArray,
+        longArray, floatArray, doubleArray, booleanArray, stringArray, json, jsonb, roaringBitmap),
       Row(3L, null, null, null, null, null, null, null, null, null, null, null,
         null, null, null, null, null, null, null, null, null, null, null, null)
     )
@@ -147,8 +150,8 @@ abstract class SparkHoloSuiteBase extends QueryTest with SharedSparkSession {
       .option(SourceProvider.PASSWORD, testUtils.password)
       .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
       .option(SourceProvider.TABLE, table)
-      .option(SourceProvider.WRITE_MODE, "insertOrIgnore")
-      .option(SourceProvider.COPY_WRITE_DIRTY_DATA_CHECK, "true")
+      .option(SourceProvider.WRITE_ON_CONFLICT_ACTION, "insertOrIgnore")
+      .option(SourceProvider.WRITE_COPY_DIRTY_DATA_CHECK, "true")
       .mode(SaveMode.Append)
       .save()
     df

@@ -53,13 +53,13 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
       .option(SourceProvider.PASSWORD, testUtils.password)
       .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
       .option(SourceProvider.TABLE, table)
-      .option(SourceProvider.WRITE_MODE, "insertOrIgnore")
-      .option(SourceProvider.COPY_WRITE_MODE, writeType.toString)
-      .option(SourceProvider.COPY_WRITE_DIRTY_DATA_CHECK, "true")
+      .option(SourceProvider.WRITE_ON_CONFLICT_ACTION, "insertOrIgnore")
+      .option(SourceProvider.WRITE_MODE, writeType.toString)
+      .option(SourceProvider.WRITE_COPY_DIRTY_DATA_CHECK, "true")
       .mode(SaveMode.Append)
       .save()
 
-    val sourceKey: String = if (querySource) SourceProvider.QUERY else SourceProvider.TABLE
+    val sourceKey: String = if (querySource) SourceProvider.READ_QUERY else SourceProvider.TABLE
     val sourceValue: String = if (querySource) "select * from " + table else table
     // Read the data just written
     val readDf = spark.read
@@ -68,8 +68,8 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
       .option(SourceProvider.PASSWORD, testUtils.password)
       .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
       .option(sourceKey, sourceValue)
-      .option(SourceProvider.BULK_READ, if (readType == ReadType.SELECT) "false" else "true")
-      .option(SourceProvider.MAX_PARTITION_COUNT, 4)
+      .option(SourceProvider.READ_MODE, readType.toString)
+      .option(SourceProvider.READ_MAX_TASK_COUNT, 4)
       .load().orderBy("pk").cache()
 
     // compare read and write
@@ -83,7 +83,7 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
 
   test("data type test.") {
     log.info("insert then select.")
-    dataTypeTest(ReadType.SELECT, WriteType.DISABLE)
+    dataTypeTest(ReadType.SELECT, WriteType.INSERT)
 
     log.info("fixed_copy then select.")
     dataTypeTest(ReadType.SELECT, WriteType.STREAM)
@@ -95,10 +95,13 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
     dataTypeTest(ReadType.SELECT, WriteType.STREAM, querySource = true)
 
     log.info("fixed_copy then copy out with arrow format, not support jsonb now.")
-    dataTypeTest(ReadType.ARROW, WriteType.STREAM, skipJsonb = true)
+    dataTypeTest(ReadType.BULK_READ, WriteType.STREAM, skipJsonb = true)
 
     log.info("fixed_copy then copy out with arrow format, use a query source, not support jsonb now.")
-    dataTypeTest(ReadType.ARROW, WriteType.STREAM, querySource = true, skipJsonb = true)
+    dataTypeTest(ReadType.BULK_READ, WriteType.STREAM, querySource = true, skipJsonb = true)
+
+    log.info("auto write then auto read, not support jsonb now.")
+    dataTypeTest(ReadType.AUTO, WriteType.AUTO, skipJsonb = true)
   }
 
   def partialInsertTest(copyMode: String): Unit = {
@@ -119,7 +122,7 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
       StructField("pk", LongType),
       StructField("id", LongType),
       StructField("count", IntegerType),
-      StructField("name", StringType),
+      StructField("NAME", StringType),
       StructField("thick", FloatType),
       StructField("ts1", TimestampType),
       StructField("by", BinaryType),
@@ -138,9 +141,9 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
       .option(SourceProvider.PASSWORD, testUtils.password)
       .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
       .option(SourceProvider.TABLE, table)
-      .option(SourceProvider.WRITE_MODE, "insertOrUpdate")
-      .option(SourceProvider.COPY_WRITE_MODE, copyMode)
-      .option(SourceProvider.COPY_WRITE_DIRTY_DATA_CHECK, "true")
+      .option(SourceProvider.WRITE_ON_CONFLICT_ACTION, "insertOrUpdate")
+      .option(SourceProvider.WRITE_MODE, copyMode)
+      .option(SourceProvider.WRITE_COPY_DIRTY_DATA_CHECK, "true")
       .mode(SaveMode.Append)
       .save()
 
@@ -151,7 +154,7 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
       .option(SourceProvider.PASSWORD, testUtils.password)
       .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
       .option(SourceProvider.TABLE, table)
-      .option(SourceProvider.MAX_PARTITION_COUNT, 4)
+      .option(SourceProvider.READ_MAX_TASK_COUNT, 4)
       .load().filter("pk = 0 or pk = 1").orderBy("pk").cache()
 
     // compare read and write
@@ -168,7 +171,7 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
   }
 
   test("update part fields and read test insert.") {
-    partialInsertTest("disable")
+    partialInsertTest("insert")
   }
 
   test("update part fields and read test bulk load.") {
@@ -200,7 +203,7 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
       StructField("pk", LongType),
       StructField("id", LongType),
       StructField("count", IntegerType),
-      StructField("name", StringType),
+      StructField("NAME", StringType),
       StructField("thick", FloatType),
       StructField("ts1", TimestampType),
       StructField("by", BinaryType),
@@ -219,9 +222,9 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
       .option(SourceProvider.PASSWORD, testUtils.password)
       .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
       .option(SourceProvider.TABLE, table)
-      .option(SourceProvider.WRITE_MODE, "insertOrUpdate")
-      .option(SourceProvider.COPY_WRITE_MODE, "bulk_load")
-      .option(SourceProvider.COPY_WRITE_DIRTY_DATA_CHECK, "true")
+      .option(SourceProvider.WRITE_ON_CONFLICT_ACTION, "insertOrUpdate")
+      .option(SourceProvider.WRITE_MODE, "bulk_load")
+      .option(SourceProvider.WRITE_COPY_DIRTY_DATA_CHECK, "true")
       .mode(SaveMode.Overwrite)
       .save()
 
@@ -236,9 +239,9 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
       .option(SourceProvider.PASSWORD, testUtils.password)
       .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
       .option(SourceProvider.TABLE, table)
-      .option(SourceProvider.WRITE_MODE, "insertOrUpdate")
-      .option(SourceProvider.COPY_WRITE_MODE, "bulk_load")
-      .option(SourceProvider.COPY_WRITE_DIRTY_DATA_CHECK, "true")
+      .option(SourceProvider.WRITE_ON_CONFLICT_ACTION, "insertOrUpdate")
+      .option(SourceProvider.WRITE_MODE, "bulk_load")
+      .option(SourceProvider.WRITE_COPY_DIRTY_DATA_CHECK, "true")
       .mode(SaveMode.Overwrite)
       .save()
 
@@ -249,7 +252,7 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
       .option(SourceProvider.PASSWORD, testUtils.password)
       .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
       .option(SourceProvider.TABLE, table)
-      .option(SourceProvider.MAX_PARTITION_COUNT, 4)
+      .option(SourceProvider.READ_MAX_TASK_COUNT, 4)
       .load().orderBy("pk").cache()
 
     assert(df.count() == 4)
@@ -292,7 +295,7 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
       StructField("pk", LongType),
       StructField("id", LongType),
       StructField("count", IntegerType),
-      StructField("name", StringType),
+      StructField("NAME", StringType),
       StructField("thick", FloatType),
       StructField("ts1", TimestampType),
       StructField("by", BinaryType),
@@ -322,7 +325,7 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
       .option(SourceProvider.PASSWORD, testUtils.password)
       .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
       .option(SourceProvider.TABLE, table)
-      .option(SourceProvider.MAX_PARTITION_COUNT, 4)
+      .option(SourceProvider.READ_MAX_TASK_COUNT, 4)
       .load().orderBy("pk").cache()
 
     assert(df.count() == 4)
@@ -338,10 +341,10 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
   test("record have u0000.") {
     testU0000(WriteType.STREAM)
     testU0000(WriteType.BULK_LOAD)
-    testU0000(WriteType.DISABLE)
+    testU0000(WriteType.INSERT)
   }
 
-  def testU0000(writeType: WriteType.Value) {
+  def testU0000(writeType: WriteType.Value): Unit = {
     val table = "table_for_holo_test_" + randomSuffix
     testUtils.dropTable(table)
     testUtils.createTable(defaultCreateHoloTableDDL, table, hasPk = false)
@@ -361,7 +364,7 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
 
     val newSchema = StructType(Array(
       StructField("pk", LongType),
-      StructField("name", StringType),
+      StructField("NAME", StringType),
       StructField("json_column", StringType),
       StructField("jsonb_column", StringType),
     ))
@@ -382,9 +385,9 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
       .option(SourceProvider.PASSWORD, testUtils.password)
       .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
       .option(SourceProvider.TABLE, table)
-      .option(SourceProvider.WRITE_MODE, "insertOrUpdate")
-      .option(SourceProvider.COPY_WRITE_MODE, writeType.toString)
-      .option(SourceProvider.COPY_WRITE_DIRTY_DATA_CHECK, "true")
+      .option(SourceProvider.WRITE_ON_CONFLICT_ACTION, "insertOrUpdate")
+      .option(SourceProvider.WRITE_MODE, writeType.toString)
+      .option(SourceProvider.WRITE_COPY_DIRTY_DATA_CHECK, "true")
       .mode(SaveMode.Overwrite)
       .save()
 
@@ -395,8 +398,8 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
       .option(SourceProvider.PASSWORD, testUtils.password)
       .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
       .option(SourceProvider.TABLE, table)
-      .option(SourceProvider.MAX_PARTITION_COUNT, 4)
-      .option(SourceProvider.BULK_READ, value = false)
+      .option(SourceProvider.READ_MAX_TASK_COUNT, 4)
+      .option(SourceProvider.READ_MODE, "select")
       .load().orderBy("pk").cache()
 
     assert(df.count() == 2)
@@ -435,7 +438,7 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
       StructField("pk", LongType),
       StructField("id", LongType),
       StructField("count", IntegerType),
-      StructField("name", StringType),
+      StructField("NAME", StringType),
       StructField("thick", FloatType),
       StructField("ts1", TimestampType),
       StructField("by", BinaryType),
@@ -454,9 +457,9 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
       .option(SourceProvider.PASSWORD, testUtils.password)
       .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
       .option(SourceProvider.TABLE, table1)
-      .option(SourceProvider.WRITE_MODE, "insertOrUpdate")
-      .option(SourceProvider.COPY_WRITE_MODE, "stream")
-      .option(SourceProvider.COPY_WRITE_DIRTY_DATA_CHECK, "true")
+      .option(SourceProvider.WRITE_ON_CONFLICT_ACTION, "insertOrUpdate")
+      .option(SourceProvider.WRITE_MODE, "stream")
+      .option(SourceProvider.WRITE_COPY_DIRTY_DATA_CHECK, "true")
       .mode(SaveMode.Overwrite)
       .save()
 
@@ -471,9 +474,9 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
       .option(SourceProvider.PASSWORD, testUtils.password)
       .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
       .option(SourceProvider.TABLE, table2)
-      .option(SourceProvider.WRITE_MODE, "insertOrUpdate")
-      .option(SourceProvider.COPY_WRITE_MODE, "stream")
-      .option(SourceProvider.COPY_WRITE_DIRTY_DATA_CHECK, "true")
+      .option(SourceProvider.WRITE_ON_CONFLICT_ACTION, "insertOrUpdate")
+      .option(SourceProvider.WRITE_MODE, "stream")
+      .option(SourceProvider.WRITE_COPY_DIRTY_DATA_CHECK, "true")
       .mode(SaveMode.Overwrite)
       .save()
 
@@ -481,7 +484,7 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
       df1("pk").alias("pk"),
       df1("id").alias("id"),
       df2("count").alias("count"),
-      df1("name").alias("name"),
+      df1("NAME").alias("NAME"),
       df2("thick").alias("thick"),
       df1("ts1").alias("ts1"),
       df2("by").alias("by"),
@@ -495,7 +498,7 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
       .option(SourceProvider.USERNAME, testUtils.username)
       .option(SourceProvider.PASSWORD, testUtils.password)
       .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
-      .option(SourceProvider.QUERY, String.format("select t1.pk, t1.id, t2.count, t1.name, t2.thick, t1.ts1, " +
+      .option(SourceProvider.READ_QUERY, String.format("select t1.pk, t1.id, t2.count, t1.\"NAME\", t2.thick, t1.ts1, " +
         "t2.by, t2.inta, t2.doublea from %s t1 join %s t2 on t1.pk = t2.pk", table1, table2))
       .load().orderBy("pk").cache()
 
@@ -512,7 +515,7 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
       df1("pk").alias("pk"),
       df1("id").alias("id"),
       df2("count").alias("count"),
-      df1("name").alias("name"),
+      df1("NAME").alias("NAME"),
       df2("thick").alias("thick"),
       df1("ts1").alias("ts1")
     )
@@ -528,7 +531,7 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
       .option(SourceProvider.USERNAME, testUtils.username)
       .option(SourceProvider.PASSWORD, testUtils.password)
       .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
-      .option(SourceProvider.QUERY, String.format("select t1.pk, t1.id, t2.count, t1.name, t2.thick, t1.ts1, " +
+      .option(SourceProvider.READ_QUERY, String.format("select t1.pk, t1.id, t2.count, t1.\"NAME\", t2.thick, t1.ts1, " +
         "t2.by, t2.inta, t2.doublea from %s t1 join %s t2 on t1.pk = t2.pk", table1, table2))
       .load().orderBy("pk").cache()
 
@@ -554,11 +557,11 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
       .option(SourceProvider.PASSWORD, testUtils.password)
       .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
       .option(SourceProvider.TABLE, table)
-      .option(SourceProvider.BULK_READ, value = false)
-      .option(SourceProvider.MAX_PARTITION_COUNT, 4)
-      .option(SourceProvider.PUSH_DOWN_PREDICATE, value = true)
-      .option(SourceProvider.PUSH_DOWN_LIMIT, value = true)
-      .load().filter("pk < 2 and cast(st as int) > cast(0 as int) and id is not null and name = 'phone1' " +
+      .option(SourceProvider.READ_MODE, "select")
+      .option(SourceProvider.READ_MAX_TASK_COUNT, 4)
+      .option(SourceProvider.READ_PUSH_DOWN_PREDICATE, value = true)
+      .option(SourceProvider.READ_PUSH_DOWN_LIMIT, value = true)
+      .load().filter("pk < 2 and cast(st as int) > cast(0 as int) and id is not null and NAME = 'phone1' " +
         "and price between cast(1234.0 as decimal(38,12)) AND cast(1234.8 as decimal(38,12)) " +
         "and out_of_stock is false and weight <> 100 and ts1 >= '2021-01-01 00:00:00' and dt < now()" +
         "and array_contains(inta, 3)").limit(5).orderBy("pk").cache()
@@ -597,8 +600,8 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
         .option(SourceProvider.PASSWORD, testUtils.password)
         .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
         .option(SourceProvider.TABLE, table)
-        .option(SourceProvider.WRITE_MODE, "insertOrUpdate")
-        .option(SourceProvider.COPY_WRITE_DIRTY_DATA_CHECK, "true")
+        .option(SourceProvider.WRITE_ON_CONFLICT_ACTION, "insertOrUpdate")
+        .option(SourceProvider.WRITE_COPY_DIRTY_DATA_CHECK, "true")
         .mode(SaveMode.Append)
         .save()
     } catch {
@@ -616,7 +619,7 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
         .option(SourceProvider.PASSWORD, testUtils.password)
         .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
         .option(SourceProvider.TABLE, table)
-        .option(SourceProvider.MAX_PARTITION_COUNT, 4)
+        .option(SourceProvider.READ_MAX_TASK_COUNT, 4)
         .load().filter("pk = 0 or pk = 1").orderBy("pk").cache()
     } catch {
       case e: Exception =>
@@ -652,8 +655,8 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
         .option(SourceProvider.PASSWORD, testUtils.password)
         .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
         .option(SourceProvider.TABLE, table)
-        .option(SourceProvider.WRITE_MODE, "insertOrUpdate")
-        .option(SourceProvider.COPY_WRITE_DIRTY_DATA_CHECK, "true")
+        .option(SourceProvider.WRITE_ON_CONFLICT_ACTION, "insertOrUpdate")
+        .option(SourceProvider.WRITE_COPY_DIRTY_DATA_CHECK, "true")
         .save()
     } catch {
       case e: Exception =>
@@ -670,7 +673,7 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
         .option(SourceProvider.PASSWORD, testUtils.password)
         .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
         .option(SourceProvider.TABLE, table)
-        .option(SourceProvider.MAX_PARTITION_COUNT, 4)
+        .option(SourceProvider.READ_MAX_TASK_COUNT, 4)
         .load().filter("pk = 0 or pk = 1").orderBy("pk").cache()
     } catch {
       case e: Exception =>
@@ -705,7 +708,7 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
         .option(SourceProvider.PASSWORD, testUtils.password)
         .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
         .option(SourceProvider.TABLE, table)
-        .option(SourceProvider.QUERY, "select * from " + table)
+        .option(SourceProvider.READ_QUERY, "select * from " + table)
         .load().filter("pk = 0 or pk = 1").orderBy("pk").cache()
     } catch {
       case e: Exception =>

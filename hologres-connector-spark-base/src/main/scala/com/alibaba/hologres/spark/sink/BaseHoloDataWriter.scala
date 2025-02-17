@@ -27,7 +27,7 @@ abstract class BaseHoloDataWriter(
     for (i <- 0 until recordLength) {
       val holoColumnIndex = holoSchema.getColumnIndex(sparkSchema.fields.apply(i).name)
       columnIdToHoloId(i) = holoColumnIndex
-      fieldWriters.update(i, FieldWriterUtils.createFieldWriter(holoSchema.getColumn(holoColumnIndex), hologresConfigs.removeU0000))
+      fieldWriters.update(i, FieldWriterUtils.createFieldWriter(holoSchema.getColumn(holoColumnIndex), hologresConfigs.writeRemoveU0000))
     }
     fieldWriters
   }

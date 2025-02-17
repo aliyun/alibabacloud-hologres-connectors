@@ -2,13 +2,20 @@ package com.alibaba.hologres.spark.config
 
 import com.alibaba.hologres.client.HoloConfig
 import com.alibaba.hologres.client.copy.CopyMode
-import com.alibaba.hologres.client.model.{WriteFailStrategy, WriteMode}
+import com.alibaba.hologres.client.model.OnConflictAction
 import com.alibaba.hologres.spark.utils.JDBCUtil
 import com.alibaba.hologres.spark.utils.JDBCUtil._
 import org.apache.spark.SparkContext
+import com.alibaba.hologres.spark.ConfigUtils
 
 /** Hologres config parameters process. */
 class HologresConfigs(sourceOptions: Map[String, String]) extends Serializable {
+  private val allConfigNames = ConfigUtils.getAllConfigNames
+  sourceOptions.foreach(key => {
+    if (!allConfigNames.contains(key._1)) {
+      throw new IllegalArgumentException("Could not recognize parameter " + key._1)
+    }
+  })
   val holoConfig = new HoloConfig
 
   val username: String = sourceOptions.getOrElse("username",
@@ -31,7 +38,7 @@ class HologresConfigs(sourceOptions: Map[String, String]) extends Serializable {
   }
 
   // when read from holo, could choose set query or table
-  val query: String = sourceOptions.getOrElse("query", "")
+  val query: String = sourceOptions.getOrElse("read.query", "")
   var table: String = sourceOptions.getOrElse("table", "")
   lazy val isTableSource: Boolean = {
     if ((query == null || query.isEmpty) && (table == null || table.isEmpty)) {
@@ -42,66 +49,65 @@ class HologresConfigs(sourceOptions: Map[String, String]) extends Serializable {
     }
     table != null && table.nonEmpty
   }
-
-  private val writeModeStr: String = sourceOptions.getOrElse("write_mode", "insertOrIgnore").toLowerCase
-  val writeMode: WriteMode = writeModeStr match {
-    case "insertorignore" | "insert_or_ignore" => WriteMode.INSERT_OR_IGNORE
-    case "insertorreplace" | "insert_or_replace" => WriteMode.INSERT_OR_REPLACE
-    case "insertorupdate" | "insert_or_update" => WriteMode.INSERT_OR_UPDATE
-    case _ =>
-      throw new IllegalArgumentException("Could not recognize writeMode " + writeModeStr)
-  }
-  holoConfig.setWriteMode(writeMode)
-
-  val writeFailStrategy: String = sourceOptions.getOrElse("write_fail_strategy", "tryOneByOne").toLowerCase
-  val wFailStrategy: WriteFailStrategy = writeFailStrategy match {
-    case "tryonebyone" | "try_one_by_one" => WriteFailStrategy.TRY_ONE_BY_ONE
-    case "none" => WriteFailStrategy.NONE
-    case _ => throw new IllegalArgumentException("Could not recognize WriteFailStrategy " + writeFailStrategy)
-  }
-  holoConfig.setWriteFailStrategy(wFailStrategy)
-
   val enableServerlessComputing: Boolean = sourceOptions.getOrElse("enable_serverless_computing", "false").toBoolean
   val serverlessComputingQueryPriority: Int = sourceOptions.getOrElse("serverless_computing_query_priority", "3").toInt
-  val statementTimeout: Int = sourceOptions.getOrElse("statement_timeout", "28800000").toInt
-  sourceOptions.get("dynamic_partition").map(v => holoConfig.setDynamicPartition(v.toBoolean))
-  sourceOptions.get("write_batch_size").map(v => holoConfig.setWriteBatchSize(v.toInt))
-  sourceOptions.get("write_batch_byte_size").map(v => holoConfig.setWriteBatchByteSize(v.toLong))
-  sourceOptions.get("write_max_interval_ms").map(v => holoConfig.setWriteMaxIntervalMs(v.toLong))
-  sourceOptions.get("write_thread_size").map(v => holoConfig.setWriteThreadSize(v.toInt))
-  sourceOptions.get("use_legacy_put_handler").map(v => holoConfig.setUseLegacyPutHandler(v.toBoolean))
+  val statementTimeout: Int = sourceOptions.getOrElse("statement_timeout_seconds", "28800").toInt
   sourceOptions.get("retry_count").map(v => holoConfig.setRetryCount(v.toInt))
   sourceOptions.get("retry_sleep_init_ms").map(v => holoConfig.setRetrySleepInitMs(v.toLong))
   sourceOptions.get("retry_sleep_step_ms").map(v => holoConfig.setRetrySleepStepMs(v.toLong))
   sourceOptions.get("connection_max_idle_ms").map(v => holoConfig.setConnectionMaxIdleMs(v.toLong))
   sourceOptions.get("fixed_connection_mode").map(v => holoConfig.setUseFixedFe(v.toBoolean))
-  val removeU0000: Boolean = sourceOptions.getOrElse("remove_u0000", "true").toBoolean
-  holoConfig.setRemoveU0000InTextColumnValue(removeU0000)
-  val scan_batch_size: Int = sourceOptions.getOrElse("scan_batch_size", "256").toInt
-  val scan_timeout_seconds: Int = sourceOptions.getOrElse("scan_timeout_seconds", "28800").toInt
-  val max_partition_count: Int = sourceOptions.getOrElse("max_partition_count", "80").toInt
-  val pushDownPredicate: Boolean = sourceOptions.getOrElse("push_down_predicate", "true").toBoolean
-  val pushDownLimit: Boolean = sourceOptions.getOrElse("push_down_limit", "true").toBoolean
+  var directConnect: Boolean = sourceOptions.getOrElse("direct_connect", "true").toBoolean
+  holoConfig.setEnableDirectConnection(directConnect)
 
-  // 调整之前两个boolean类型的参数copy_write_mode和bulk_load为新的enum参数
-  private val copyModeStr: String = sourceOptions.getOrElse("copy_write_mode", "stream").toLowerCase
-  var copyMode: CopyMode = copyModeStr match {
+  // -------------------------------------write----------------------------------------
+  private val writeModeStr: String = sourceOptions.getOrElse("write.mode", "auto").toLowerCase
+  var writeMode: Any = writeModeStr match {
+    case "auto" => "auto"
     case "stream" => CopyMode.STREAM
     case "bulk_load" => CopyMode.BULK_LOAD
     case "bulk_load_on_conflict" => CopyMode.BULK_LOAD_ON_CONFLICT
-    case "disable" => null
+    case "insert" => "insert"
     case _ =>
-      throw new IllegalArgumentException("Could not recognize copy_write_mode " + copyModeStr)
+      throw new IllegalArgumentException("Could not recognize write.mode " + writeModeStr)
   }
-  val copy_write_format: String = sourceOptions.getOrElse("copy_write_format", "binary")
-  val copy_write_dirty_data_check: Boolean = sourceOptions.getOrElse("copy_write_dirty_data_check", "false").toBoolean
-  var direct_connect: Boolean = sourceOptions.getOrElse("direct_connect", "true").toBoolean
-  val max_cell_buffer_size: Int = sourceOptions.getOrElse("max_cell_buffer_size", "20971520").toInt
-  val reshuffleByHoloDistributionKey: Boolean = sourceOptions.getOrElse("reshuffle_by_holo_distribution_key", "false").toBoolean
+  private val onConflictActionStr: String = sourceOptions.getOrElse("write.on_conflict_action", "insertorreplace").toLowerCase
+  val onConflictAction: OnConflictAction = onConflictActionStr match {
+    case "insertorignore" | "insert_or_ignore" => OnConflictAction.INSERT_OR_IGNORE
+    case "insertorreplace" | "insert_or_replace" => OnConflictAction.INSERT_OR_REPLACE
+    case "insertorupdate" | "insert_or_update" => OnConflictAction.INSERT_OR_UPDATE
+    case _ =>
+      throw new IllegalArgumentException("Could not recognize write.on_conflict_action " + onConflictActionStr)
+  }
+  holoConfig.setOnConflictAction(onConflictAction)
+  sourceOptions.get("write.insert.dynamic_partition").map(v => holoConfig.setDynamicPartition(v.toBoolean))
+  sourceOptions.get("write.insert.batch_size").map(v => holoConfig.setWriteBatchSize(v.toInt))
+  sourceOptions.get("write.insert.batch_byte_size").map(v => holoConfig.setWriteBatchByteSize(v.toLong))
+  sourceOptions.get("write.insert.max_interval_ms").map(v => holoConfig.setWriteMaxIntervalMs(v.toLong))
+  sourceOptions.get("write.insert.thread_size").map(v => holoConfig.setWriteThreadSize(v.toInt))
+  sourceOptions.get("write.insert.use_legacy_put_handler").map(v => holoConfig.setUseLegacyPutHandler(v.toBoolean))
+  val writeRemoveU0000: Boolean = sourceOptions.getOrElse("remove_u0000", "true").toBoolean
+  holoConfig.setRemoveU0000InTextColumnValue(writeRemoveU0000)
+  val writeCopyFormat: String = sourceOptions.getOrElse("write.copy.format", "binary")
+  val writeCopyDirtyDataCheck: Boolean = sourceOptions.getOrElse("write.copy.dirty_data_check", "false").toBoolean
+  val writeCopyMaxBufferSize: Int = sourceOptions.getOrElse("write.copy.max_buffer_size", "52428800").toInt
 
-  val bulkRead: Boolean = sourceOptions.getOrElse("bulk_read", "true").toBoolean
-  // overwrite来自于用户对SaveMode参数的设置，写入开始会创建临时表并写入，写入成功时会清理原表的数据。
-  var tempTableForOverwrite: String = _
+  // -------------------------------------read----------------------------------------
+  private val readModeStr: String = sourceOptions.getOrElse("read.mode", "auto").toLowerCase
+  var readMode: String = readModeStr match {
+    case "auto" => "auto"
+    case "bulk_read" => "bulk_read"
+    case "bulk_read_compressed" => "bulk_read_compressed"
+    case "select" => "select"
+    case _ =>
+      throw new IllegalArgumentException("Could not recognize read.mode " + readModeStr)
+  }
+  val readMaxTaskCount: Int = sourceOptions.getOrElse("read.max_task_count", "80").toInt
+  val readPushDownPredicate: Boolean = sourceOptions.getOrElse("read.push_down_predicate", "true").toBoolean
+  val readPushDownLimit: Boolean = sourceOptions.getOrElse("read.push_down_limit", "true").toBoolean
+  val readSelectBatchSize: Int = sourceOptions.getOrElse("read.select.batch_size", "256").toInt
+  val readSelectTimeoutSeconds: Int = sourceOptions.getOrElse("read.select.timeout_seconds", "28800").toInt
+  val readCopyMaxBufferSize: Int = sourceOptions.getOrElse("read.copy.max_buffer_size", "52428800").toInt
 
   holoConfig.setInputNumberAsEpochMsForDatetimeColumn(true)
   var sparkAppName: String = SparkContext.getOrCreate().appName
@@ -109,6 +115,15 @@ class HologresConfigs(sourceOptions: Map[String, String]) extends Serializable {
     sparkAppName = "default"
   }
   holoConfig.setAppName("hologres-connector-spark-" + sparkAppName)
+
+  // -------------------------------------内部参数----------------------------------------
+  // overwrite来自于用户对SaveMode参数的设置，写入开始会创建临时表并写入，写入成功时会清理原表的数据。
+  var tempTableForOverwrite: String = _
+  // 表示上游的数据已经根据holo的分布键进行了repartition
+  val reshuffleByHoloDistributionKey: Boolean = sourceOptions.getOrElse("write.reshuffle_by_holo_distribution_key", "false").toBoolean
+  // 与reshuffle_by_holo_distribution_key参数配合使用, 表示是否已经进行了repartition. 是则使用WRITE_V2直接写入, 否则使用WRITE_V1对DataFrame进行repartition之后再调用WRITE_V2写入
+  // 内部参数, 不建议用户设置
+  var needReshuffle: Boolean = sourceOptions.getOrElse("needReshuffle", "false").toBoolean
 
   override def clone(): HologresConfigs = new HologresConfigs(sourceOptions)
 }

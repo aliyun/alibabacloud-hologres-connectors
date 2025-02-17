@@ -4,7 +4,7 @@ import com.alibaba.hologres.client.Put
 import com.alibaba.hologres.client.copy._
 import com.alibaba.hologres.client.copy.in._
 import com.alibaba.hologres.client.exception.{HoloClientException, HoloClientWithDetailsException}
-import com.alibaba.hologres.client.model.WriteMode.{INSERT_OR_IGNORE, INSERT_OR_UPDATE}
+import com.alibaba.hologres.client.model.OnConflictAction.{INSERT_OR_IGNORE, INSERT_OR_UPDATE}
 import com.alibaba.hologres.client.model.{Record, TableSchema}
 import com.alibaba.hologres.client.utils.RecordChecker
 import com.alibaba.hologres.org.postgresql.core.BaseConnection
@@ -28,7 +28,7 @@ abstract class BaseHoloDataCopyWriter(
 
   private val copyContext: CopyContext = new CopyContext
   copyContext.init(hologresConfigs, targetShardList)
-  private val binary: Boolean = hologresConfigs.copy_write_format == "binary"
+  private val binary: Boolean = hologresConfigs.writeCopyFormat == "binary"
 
   private val recordLength: Int = sparkSchema.fields.length
   private val columnIdToHoloId: Array[Int] = new Array[Int](recordLength)
@@ -37,7 +37,7 @@ abstract class BaseHoloDataCopyWriter(
     for (i <- 0 until recordLength) {
       val holoColumnIndex = holoSchema.getColumnIndex(sparkSchema.fields.apply(i).name)
       columnIdToHoloId(i) = holoColumnIndex
-      fieldWriters.update(i, FieldWriterUtils.createFieldWriter(holoSchema.getColumn(holoColumnIndex), hologresConfigs.removeU0000))
+      fieldWriters.update(i, FieldWriterUtils.createFieldWriter(holoSchema.getColumn(holoColumnIndex), hologresConfigs.writeRemoveU0000))
     }
     fieldWriters
   }
@@ -60,7 +60,7 @@ abstract class BaseHoloDataCopyWriter(
       val record: Record = put.getRecord
 
       // record dirty data check
-      if (hologresConfigs.copy_write_dirty_data_check) {
+      if (hologresConfigs.writeCopyDirtyDataCheck) {
         try {
           RecordChecker.check(record)
         }
@@ -74,16 +74,20 @@ abstract class BaseHoloDataCopyWriter(
       if (copyContext.os == null) {
         val schema = record.getSchema
         copyContext.schema = schema
-        val sql = CopyUtil.buildCopyInSql(record, binary, if (hologresConfigs.writeMode eq INSERT_OR_IGNORE) INSERT_OR_IGNORE else INSERT_OR_UPDATE,
-          hologresConfigs.copyMode)
-        logger.info(s"copyMode ${hologresConfigs.copyMode.name()}, copy sql :$sql")
+        val copyMode: CopyMode = hologresConfigs.writeMode match {
+          case mode: CopyMode => mode
+          case _ => CopyMode.STREAM
+        }
+        val sql = CopyUtil.buildCopyInSql(record, binary, if (hologresConfigs.onConflictAction eq INSERT_OR_IGNORE) INSERT_OR_IGNORE else INSERT_OR_UPDATE,
+          copyMode)
+        logger.info(s"copyMode ${copyMode.name()}, copy sql :$sql")
         val in = copyContext.manager.copyIn(sql)
-        copyContext.os = if (hologresConfigs.copyMode == CopyMode.STREAM && binary) {
+        copyContext.os = if (copyMode == CopyMode.STREAM && binary) {
           new RecordBinaryOutputStream(new CopyInOutputStream(in), schema, copyContext.pgConn.unwrap(classOf[BaseConnection]),
-            hologresConfigs.max_cell_buffer_size)
+            hologresConfigs.writeCopyMaxBufferSize)
         } else {
           new RecordTextOutputStream(new CopyInOutputStream(in), schema, copyContext.pgConn.unwrap(classOf[BaseConnection]),
-            hologresConfigs.max_cell_buffer_size)
+            hologresConfigs.writeCopyMaxBufferSize)
         }
       }
 
