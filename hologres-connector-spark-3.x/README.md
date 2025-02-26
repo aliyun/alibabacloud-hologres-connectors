@@ -512,7 +512,7 @@ readDf.select("c_custkey", "c_name", "c_phone").show(10)
 ### 读取参数
 | 参数名 | 参数曾用名<br/>（1.5.0 及之前版本） | 默认值 | 是否必填 | 说明 |
 | :---: | :---: | :---: | :---: | --- |
-| read.mode | bulk_read | auto | 否 | 写入的模式，取值如下：<br/>1. auto（默认值），connector会根据版本和目标表的元信息自动选择最佳的模式，选择逻辑如下：<br/>    &nbsp;&nbsp;&nbsp;&nbsp;a. 如果读取的字段中包含 jsonb 类型，选择 select 模式<br/>    &nbsp;&nbsp;&nbsp;&nbsp;b. 如果实例版本高于 3.0.24，选择bulk_read_compressed 模式<br/>    &nbsp;&nbsp;&nbsp;&nbsp;c. 其他情况，选择 bulk_read 模式<br/>2. bulk_read，使用 copy out 的方式以 arrow 格式读取数据，性能是 select 方式的 10 倍以上。暂不支持读取 hologres 中的 jsonb 类型。<br/>3. bulk_read_compressed, 使用 copy out 的方式读取压缩过的 arrow 格式数据，相比压缩前可以节省 45%左右的带宽。<br/>4. select，使用普通的 select 方式读取 |
+| read.mode | bulk_read | auto | 否 | 写入的模式，取值如下：<br/>1. auto（默认值），connector会根据版本和目标表的元信息自动选择最佳的模式，选择逻辑如下：<br/>    &nbsp;&nbsp;&nbsp;&nbsp;a. 如果读取的字段中包含 jsonb 类型，选择 select 模式<br/>    &nbsp;&nbsp;&nbsp;&nbsp;b. 如果实例版本高于 3.0.24，选择bulk_read_compressed 模式<br/>    &nbsp;&nbsp;&nbsp;&nbsp;c. 其他情况，选择 bulk_read 模式<br/>2. bulk_read，使用 copy out 的方式以 arrow 格式读取数据，性能是 select 方式的 3-4 倍。暂不支持读取 hologres 中的 jsonb 类型。<br/>3. bulk_read_compressed, 使用 copy out 的方式读取压缩过的 arrow 格式数据，相比压缩前可以节省 45%左右的带宽。<br/>4. select，使用普通的 select 方式读取 |
 | read.max_task_count | max_partition_count | 80 | 否 | 将读取的Hologres表分为多个分区，每个分区对应一个spark task。如果holo表的shardcount小于此参数,分区数量最多为shardcount。 |
 | read.copy.max_buffer_size |  | 52428800（50MB） | 否 | 使用copy模式 读取 时，本地 buffer 的最大长度，在字段较大出现异常时调大。 |
 | read.push_down_predicate | push_down_predicate | true | 否 | 是否进行谓词下推，例如查询时的一些过滤条件。<br/>&nbsp;&nbsp;&nbsp;&nbsp; 目前支持常见filter过滤条件的下推，以及列裁剪：<br/> |
