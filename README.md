@@ -15,7 +15,9 @@ Connectors for Hologres
 * [holo-llm](./holo-llm/)
 
     使用Hologres向量引擎和PAI-LLM服务搭建聊天机器人<br/><br/>
+* [holo-llm-deepseek](./holo-llm-deepseek/)
 
+  Hologres+PAI+DeepSeek搭建企业专属问答知识库<br/><br/>
 * [holo-client](./holo-client)
 
     holo-client源码以及使用holo-client读写Hologres的文档

@@ -1,0 +1,7 @@
+title,content
+"什么是 Hologres", "Hologres 是阿里云自研一体化实时湖仓平台，通过统一数据平台实现湖仓存储一体、多模式计算一体、分析服务一体、Data+AI一体，无缝对接主流BI工具，支持OLAP查询、即席分析、在线服务、向量计算多个场景，分析性能打破TPC-H世界记录，与MaxCompute、Flink、DataWorks深度融合，提供离在线一体化全栈数仓解决方案。"
+"什么是 Proxima", "Proxima是一款来自于阿里达摩院的实现向量近邻搜索的高性能软件库，相比于Faiss等开源的同类产品，Proxima在稳定性、性能等方面都更为出色，能够提供业内性能和效果卓越的基础方法模块，支持图像、视频、人脸等各种应用场景。"
+"什么是 Hologres External Database", "Hologres External Database功能支持在无需进行数据迁移的情况下，将外部数据源的元数据加载至Hologres。这一功能便于在一个系统中同时管理内部与外部数据，实现湖仓一体架构下的统一元数据管理。同时，通过实时分析与查询外部数据，实现数据的无缝对接。"
+"什么是 Hologres Serverless Computing", "Hologres支持Serverless Computing，您可以指定大SQL作业（例如CPU或内存开销大的SQL作业）在全托管的Serverless Computing资源池进行，无需预留固定规格的计算资源，且各作业还可使用独立的Serverless Computing资源，确保作业之间资源隔离，避免了资源竞争与相互干扰的情况。"
+"Hologres Serverless Computing 适用场景有哪些", "Serverless Computing功能的适用场景如下: 1. 适用于大SQL作业频繁出现OOM（Out of Memory，内存溢出）报错，期望提升作业成功率和实例稳定性的场景。2. 适用于当前实例在流量低峰期资源闲置较多，期望提升资源利用率、降低成本的场景。3. 适用于当前实例在流量高峰期资源紧张，且通过分时弹性增加一倍资源仍难以缓解资源压力，期望进一步提升资源量、解决流量峰值问题的场景。"
+"Hologres Serverless Computing 能加速 Fixed Plan 吗", "Serverless Computing计算资源由当前可用区所有用户共享，用户之间公平调度，查询请求可能会受当前Serverless Computing Pool的资源水位影响而增加排队时长；独享计算资源为当前实例预留，实例或计算组在running状态时不会回收，不会受其他用户实例影响。因此，在查询延时敏感的场景下，更适合使用独享计算资源。Serverless Computing无法支持在线服务场景，包括Flink实时写入、DataWorks数据集成实时写入、Holo Client实时写入、通过Fixed Plan的在线点查等, 如果您有通过Fixed Plan优化的各类场景需求，该部分场景需要通过独享计算资源运行。"
