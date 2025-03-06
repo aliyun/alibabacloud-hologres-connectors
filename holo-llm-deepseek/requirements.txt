@@ -21,7 +21,7 @@ httpx==0.28.1
 httpx-sse==0.4.0
 huggingface-hub==0.28.1
 idna==3.10
-Jinja2==3.1.5
+Jinja2==3.1.6
 joblib==1.4.2
 jsonpatch==1.33
 jsonpointer==3.0.0
