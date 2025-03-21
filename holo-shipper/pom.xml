@@ -6,7 +6,7 @@
 
     <groupId>com.alibaba.hologres</groupId>
     <artifactId>holo-shipper</artifactId>
-    <version>1.2.3</version>
+    <version>1.2.4</version>
 
 
     <dependencies>
@@ -31,9 +31,9 @@
             <version>1.7.10</version>
         </dependency>
         <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-simple</artifactId>
-            <version>1.7.10</version>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <version>1.2.9</version>
         </dependency>
         <dependency>
             <groupId>commons-cli</groupId>
@@ -43,7 +43,7 @@
         <dependency>
             <groupId>com.alibaba</groupId>
             <artifactId>fastjson</artifactId>
-            <version>1.2.83</version>
+            <version>1.2.73</version>
         </dependency>
         <dependency>
             <groupId>junit</groupId>

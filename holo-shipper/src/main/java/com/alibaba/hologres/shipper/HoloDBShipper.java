@@ -3,6 +3,8 @@ package com.alibaba.hologres.shipper;
 import com.alibaba.hologres.shipper.generic.AbstractDB;
 import com.alibaba.hologres.shipper.generic.AbstractTable;
 import com.alibaba.hologres.shipper.holo.HoloUtils;
+import com.alibaba.hologres.shipper.utils.CustomPipedInputStream;
+import com.alibaba.hologres.shipper.utils.ProcessBar;
 import com.alibaba.hologres.shipper.utils.TableInfo;
 import com.alibaba.hologres.shipper.utils.TablesMeta;
 import org.slf4j.Logger;
@@ -33,10 +35,11 @@ public class HoloDBShipper {
     Map<String, String> parentMapping;
     boolean allowSinkTableExists = false;
     boolean disableShardCopy = false;
+    ProcessBar processBar;
 
     private static final int RETRY_TIME = 3;
     private static final long RETRY_SLEEP_TIME = 1000;
-    public HoloDBShipper(String dbName, String sinkDbName) {
+    public HoloDBShipper(String dbName, String sinkDbName, ProcessBar processBar) {
         this.dbName = dbName;
         this.sinkDbName = sinkDbName;
         parentTableList = new ArrayList<>();
@@ -44,6 +47,7 @@ public class HoloDBShipper {
         foreignTableList = new ArrayList<>();
         viewList = new ArrayList<>();
         parentMapping = new HashMap<>();
+        this.processBar = processBar;
     }
 
 
@@ -98,11 +102,14 @@ public class HoloDBShipper {
                 public void run() {
                     try {
                         String sinkTableName = getSinkTableName(table);
+                        processBar.generateProcess(sinkDbName, sinkTableName);
+                        ProcessBar.Meter meter = processBar.getTableMeter(sinkDbName, sinkTableName);
                         boolean tableExists = false;
                         if (sinkDB.checkTableExistence(sinkTableName)) {
                             tableExists = true;
                             if (!allowSinkTableExists) {
                                 LOGGER.warn(String.format("Table %s already exists in %s, skipping", sinkTableName, dbName));
+                                processBar.markSuccess(sinkDbName, sinkTableName);
                                 return;
                             }
                             LOGGER.info(String.format("Table %s already exists in %s, not skipping", sinkTableName, dbName));
@@ -122,8 +129,10 @@ public class HoloDBShipper {
                                     }
                                 }
                                 if(shipData) {
-                                    shipTableData(sourceTable, sinkTable, threadPoolForShard, table);
+                                    meter.restart();
+                                    shipTableData(sourceTable, sinkTable, threadPoolForShard, table, meter);
                                 }
+                                processBar.markSuccess(sinkDbName, sinkTableName);
                                 return;
                             } catch(Exception e) {
                                 if(i < RETRY_TIME - 1) {
@@ -131,8 +140,10 @@ public class HoloDBShipper {
                                     LOGGER.warn(String.format("Failed shipping table %s, try again", table), e);
                                     Thread.sleep(RETRY_SLEEP_TIME);
                                 }
-                                else
+                                else {
+                                    processBar.markFailed(sinkDbName, sinkTableName);
                                     throw e;
+                                }
                             }
                         }
                     } catch (Exception e) {
@@ -153,7 +164,7 @@ public class HoloDBShipper {
         return failedTablesList;
     }
 
-    public void shipTableData(AbstractTable sourceTable, AbstractTable sinkTable, ExecutorService threadPoolForShard, String tableName) {
+    public void shipTableData(AbstractTable sourceTable, AbstractTable sinkTable, ExecutorService threadPoolForShard, String tableName, ProcessBar.Meter tableMeter) {
         Map<Integer, Integer> batches = sourceTable.getBatches(NUM_BATCH, sinkTable.getShardCount(), disableShardCopy);
         final CountDownLatch latch = new CountDownLatch(batches.size());
         for(int startShard : batches.keySet()) {
@@ -161,8 +172,9 @@ public class HoloDBShipper {
             threadPoolForShard.execute(new Runnable() {
                 public void run() {
                     try {
+
                         PipedOutputStream os = new PipedOutputStream();
-                        PipedInputStream is = new PipedInputStream();
+                        PipedInputStream is = new CustomPipedInputStream(tableMeter);
                         is.connect(os);
                         Thread exportThread = new Thread(new Runnable() {
                             public void run() {
@@ -174,6 +186,7 @@ public class HoloDBShipper {
                                 sinkTable.writeTableData(is, startShard, endShard);
                             }
                         });
+                        tableMeter.incrementParallelNum();
                         exportThread.start();
                         importThread.start();
                         exportThread.join();
@@ -182,6 +195,7 @@ public class HoloDBShipper {
                         LOGGER.error(String.format("Failed shipping table for table %s from shard %d to %d", tableName, startShard, endShard), e);
                     } finally {
                         latch.countDown();
+                        tableMeter.decrementParallelNum();
                     }
                 }
             });
@@ -229,7 +243,7 @@ public class HoloDBShipper {
             }
             else if (line.startsWith("CALL") && line.contains("'orientation'") && line.contains("''"))
                 rectifiedDDL = rectifiedDDL + "-- " + line + "\n";
-            else if (line.startsWith("CALL") && line.contains("'table_group'")) { //不对table group进行设置
+            else if ((line.startsWith("CALL") && line.contains("'table_group'")) || (line.startsWith("table_group ="))) { //不对table group进行设置
                 int endIndex = line.lastIndexOf("'");
                 int startIndex = line.lastIndexOf("'", endIndex-1) + 1;
                 String srcTG = line.substring(startIndex, endIndex);
@@ -238,12 +252,25 @@ public class HoloDBShipper {
                     rectifiedDDL = rectifiedDDL + line.replaceAll(srcTG, dstTG) + "\n";
                 else
                     rectifiedDDL = rectifiedDDL + "-- " + line + "\n";
+            } else if (line.startsWith("CREATE TABLE") && line.contains("PARTITION OF")){
+                int startIndex = line.lastIndexOf("PARTITION OF ") + 13;
+                String parentTableName = line.substring(startIndex);
+                if(parentMapping.containsKey(tableName)) {
+                    String parentName = parentMapping.get(tableName);
+                    String sinkParentName = HoloUtils.getTableNameWithQuotes(getSinkTableName(parentName));
+                    String pureParentTableName = parentName.split("\\.", 2)[1];
+                    if (!parentTableName.contains(".") && parentTableName.equalsIgnoreCase(pureParentTableName)) {
+                        line = line.replace("PARTITION OF " + pureParentTableName, "PARTITION OF " + sinkParentName);
+                    }
+                }
+                rectifiedDDL = rectifiedDDL+line+"\n";
             }
             else if (line.startsWith("CALL") && line.contains("'colocate_with'")) //0.8时期colocate_with用法会引起引擎不兼容等问题
                 rectifiedDDL = rectifiedDDL + "-- " + line + "\n";
             else
                 rectifiedDDL = rectifiedDDL+line+"\n";
         }
+        LOGGER.info("rectifiedDDL {}",rectifiedDDL);
         return rectifiedDDL;
     }
 

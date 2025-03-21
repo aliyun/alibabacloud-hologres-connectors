@@ -8,6 +8,7 @@ import com.alibaba.hologres.shipper.generic.AbstractInstance;
 import com.alibaba.hologres.shipper.holo.HoloInstance;
 import com.alibaba.hologres.shipper.localstorage.LocalStorageInstance;
 import com.alibaba.hologres.shipper.oss.OSSInstance;
+import com.alibaba.hologres.shipper.utils.ProcessBar;
 import com.alibaba.hologres.shipper.utils.TablesMeta;
 import org.apache.commons.cli.*;
 import org.slf4j.Logger;
@@ -20,6 +21,7 @@ import java.util.*;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 public class HoloShipper {
     public static final String VERSION = "1.2.3";
@@ -48,6 +50,7 @@ public class HoloShipper {
     Map<String, Map<String, String>> schemaMappings;
     Map<String, Map<String, String>> tgMappings;
     Map<String, String> sinkDbNames;
+    int shipTableCount = 0;
 
 
     public HoloShipper() {
@@ -207,6 +210,7 @@ public class HoloShipper {
                     roleSet.addAll(slpmUsers);
             }
             dbsMeta.put(dbName, tableListMeta);
+            shipTableCount+= tableListMeta.tableInfoList.size();
             JSONObject schemaMappingJson = dbShipList.getJSONObject("schemaMapping");
             Map<String, String> schemaMapping = new HashMap<>();
             if(schemaMappingJson != null) {
@@ -256,6 +260,7 @@ public class HoloShipper {
         ExecutorService threadPoolForDB =  Executors.newFixedThreadPool(MAX_NUM_THREAD_DB);
         ExecutorService threadPoolForTable =  Executors.newFixedThreadPool(MAX_NUM_THREAD_TABLE);
         ExecutorService threadPoolForShard =  Executors.newFixedThreadPool(MAX_NUM_THREAD_SHARD);
+        ProcessBar processBar = new ProcessBar(shipTableCount);
         for(String db:dbsToShip) {
             String sinkDBName = sinkDbNames.get(db);
             threadPoolForDB.execute(new Runnable() {
@@ -264,7 +269,7 @@ public class HoloShipper {
                         sink.createDB(sinkDBName);
                         AbstractDB sourceDB = source.getDB(db);
                         AbstractDB sinkDB = sink.getDB(sinkDBName);
-                        HoloDBShipper dbShipper = new HoloDBShipper(db, sinkDBName);
+                        HoloDBShipper dbShipper = new HoloDBShipper(db, sinkDBName, processBar);
                         dbShipper.setSource(sourceDB);
                         dbShipper.setSink(sinkDB);
                         dbShipper.setTableListMeta(dbsMeta.get(db), schemaMappings.get(db), tgMappings.get(db));
@@ -282,7 +287,9 @@ public class HoloShipper {
         }
 
         try {
-            latch.await();
+            while (!latch.await(5, TimeUnit.SECONDS)) {
+                processBar.print();
+            }
         } catch (InterruptedException e) {
             LOGGER.error("Shipping failed", e);
         } finally {
@@ -294,6 +301,7 @@ public class HoloShipper {
         }
 
         LOGGER.info("Finished shipping");
+        processBar.print();
         informFailedTables(failedTables);
     }
 
