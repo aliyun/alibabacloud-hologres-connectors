@@ -1,15 +1,15 @@
 package com.alibaba.hologres.client.impl.binlog;
 
-import com.alibaba.blink.dataformat.BinaryArray;
-import com.alibaba.blink.dataformat.BinaryRow;
-import com.alibaba.blink.memory.MemorySegment;
-import com.alibaba.blink.memory.MemorySegmentFactory;
 import com.alibaba.hologres.client.exception.ExceptionCode;
 import com.alibaba.hologres.client.exception.HoloClientException;
 import com.alibaba.hologres.client.model.Column;
 import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.model.binlog.BinlogRecord;
+import org.apache.flink.core.memory.MemorySegment;
+import org.apache.flink.core.memory.MemorySegmentFactory;
+import org.apache.flink.table.data.ArrayData;
+import org.apache.flink.table.data.binary.BinaryRowData;
 import org.postgresql.jdbc.ArrayUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -95,7 +95,7 @@ public class HoloBinlogDecoder {
 		return schema;
 	}
 
-	private List<BinaryRow> deserialize(int shardId, byte[] headerBytes, byte[] dataBytes) throws HoloClientException {
+	private List<BinaryRowData> deserialize(int shardId, byte[] headerBytes, byte[] dataBytes) throws HoloClientException {
 		LongBuffer longBuffer = ByteBuffer.wrap(headerBytes).order(ByteOrder.BIG_ENDIAN).asLongBuffer();
 		long binlogProtocolVersion = longBuffer.get(0);
 		long currentTableVersion = longBuffer.get(1);
@@ -126,7 +126,7 @@ public class HoloBinlogDecoder {
 		IntBuffer buffer = ByteBuffer.wrap(dataBytes).order(ByteOrder.LITTLE_ENDIAN).asIntBuffer();
 		int rowCount = buffer.get(1);
 		MemorySegment segment = MemorySegmentFactory.wrap(dataBytes);
-		List<BinaryRow> rows = new ArrayList();
+		List<BinaryRowData> rows = new ArrayList();
 		for (int i = 0; i < rowCount; ++i) {
 			int offset = buffer.get(2 + i);
 			int offsetNext = i == rowCount - 1 ? dataBytes.length : buffer.get(3 + i);
@@ -135,14 +135,14 @@ public class HoloBinlogDecoder {
 						"invalid offset in pos " + i + ", offset=" + offset + ", offsetNext=" + offsetNext);
 			}
 
-			BinaryRow row = new BinaryRow(this.columnCount + 3);
+			BinaryRowData row = new BinaryRowData(this.columnCount + 3);
 			row.pointTo(segment, offset, offsetNext - offset);
 			rows.add(row);
 		}
 		return rows;
 	}
 
-	private void convertBinaryRowToRecord(Column column, BinaryRow currentRow, Record currentRecord, int index)
+	private void convertBinaryRowToRecord(Column column, BinaryRowData currentRow, Record currentRecord, int index)
 			throws HoloClientException {
 		int offsetIndex = index + 3;
 		if (currentRow.isNullAt(offsetIndex)) {
@@ -158,7 +158,7 @@ public class HoloBinlogDecoder {
 				break;
 			case Types.OTHER:
 				if ("roaringbitmap".equals(column.getTypeName())) {
-					currentRecord.setObject(index, currentRow.getByteArray(offsetIndex));
+					currentRecord.setObject(index, currentRow.getBinary(offsetIndex));
 				} else {
 					currentRecord.setObject(index, currentRow.getString(offsetIndex));
 				}
@@ -169,8 +169,8 @@ public class HoloBinlogDecoder {
 			case Types.TIME:
 			case Types.TIME_WITH_TIMEZONE:
 				if ("timetz".equals(column.getTypeName())) {
-					long time = ByteBuffer.wrap(currentRow.getByteArray(offsetIndex)).order(ByteOrder.LITTLE_ENDIAN).asLongBuffer().get(0);
-					int zoneOffset = ByteBuffer.wrap(currentRow.getByteArray(offsetIndex)).order(ByteOrder.LITTLE_ENDIAN).asIntBuffer().get(2);
+					long time = ByteBuffer.wrap(currentRow.getBinary(offsetIndex)).order(ByteOrder.LITTLE_ENDIAN).asLongBuffer().get(0);
+					int zoneOffset = ByteBuffer.wrap(currentRow.getBinary(offsetIndex)).order(ByteOrder.LITTLE_ENDIAN).asIntBuffer().get(2);
 					currentRecord.setObject(index, new Time(time / 1000L + zoneOffset * 1000L));
 				} else {
 					currentRecord.setObject(index, new Time(currentRow.getLong(offsetIndex) / 1000L - TIMEZONE_OFFSET));
@@ -199,7 +199,7 @@ public class HoloBinlogDecoder {
 			case Types.NUMERIC:
 			case Types.DECIMAL:
 				int scale = column.getScale();
-				byte[] value = currentRow.getByteArray(offsetIndex);
+				byte[] value = currentRow.getBinary(offsetIndex);
 				ArrayUtil.reverse(value);
 				BigInteger bigInteger = new BigInteger(value);
 				BigDecimal bigDecimal = new BigDecimal(bigInteger);
@@ -216,7 +216,7 @@ public class HoloBinlogDecoder {
 				break;
 			case Types.BINARY:
 			case Types.VARBINARY:
-				currentRecord.setObject(index, currentRow.getByteArray(offsetIndex));
+				currentRecord.setObject(index, currentRow.getBinary(offsetIndex));
 				break;
 			case Types.ARRAY:
 				switch (column.getTypeName()) {
@@ -237,10 +237,10 @@ public class HoloBinlogDecoder {
 						break;
 					case "_text":
 					case "_varchar":
-						BinaryArray binaryArray = currentRow.getArray(offsetIndex);
-						String[] stringArrays = new String[binaryArray.numElements()];
-						for (int i = 0; i < binaryArray.numElements(); i++) {
-							stringArrays[i] = binaryArray.getString(i);
+						ArrayData binaryArray = currentRow.getArray(offsetIndex);
+						String[] stringArrays = new String[binaryArray.size()];
+						for (int i = 0; i < binaryArray.size(); i++) {
+							stringArrays[i] = binaryArray.getString(i).toString();
 						}
 						currentRecord.setObject(index, stringArrays);
 						break;
@@ -290,10 +290,10 @@ public class HoloBinlogDecoder {
 		byte[] dataBytes = new byte[byteBuffer.limit() - 16];
 		System.arraycopy(byteBuffer.array(), byteBuffer.arrayOffset(), headerBytes, 0, 16);
 		System.arraycopy(byteBuffer.array(), byteBuffer.arrayOffset() + 16, dataBytes, 0, byteBuffer.limit() - 16);
-		List<BinaryRow> list = deserialize(shardId, headerBytes, dataBytes);
+		List<BinaryRowData> list = deserialize(shardId, headerBytes, dataBytes);
 
 		List<BinlogRecord> records = new ArrayList<>();
-		for (BinaryRow currentRow : list) {
+		for (BinaryRowData currentRow : list) {
 			long lsn = currentRow.getLong(0);
 			long eventType = currentRow.getLong(1);
 			long timestamp = currentRow.getLong(2);
