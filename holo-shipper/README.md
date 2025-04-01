@@ -146,6 +146,13 @@ holo-shipper/target/holo-shipper-1.2.3.jar 即为生成的可执行jar包
 
 ## holo-shipper release notes
 
+### v1.2.4 release note
+   - v1.2.4下载地址:
+     https://github.com/aliyun/alibabacloud-hologres-connectors/releases/download/release-1.5.2/holo-shipper-1.2.4.jar
+#### 更新说明
+   - 日志将会输出到运行目录的holo-shipper.log
+   - 修复获取到的源表ddl为with语法时，table group没有替换的问题
+
 ### v1.2.3 release note
    - v1.2.3下载地址：
     https://github.com/aliyun/alibabacloud-hologres-connectors/releases/download/release-1.4.0/holo-shipper-1.2.3.jar
