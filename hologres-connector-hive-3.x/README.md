@@ -10,7 +10,7 @@
 <dependency>
     <groupId>com.alibaba.hologres</groupId>
     <artifactId>hologres-connector-hive-3.x</artifactId>
-    <version>1.5.0</version>
+    <version>1.5.6</version>
     <classifier>jar-with-dependencies</classifier>
 </dependency>
 ```
@@ -40,9 +40,9 @@ mvn clean install -N
 #### 加载jar包
 
 * 永久：
-    * 将hologres-connector-hive-3.x-1.5.0-SNAPSHOT-jar-with-dependencies.jar放在HiveServer3所在节点的$HIVE_HOME/auxlib目录下（目录不存在就新建）
+    * 将hologres-connector-hive-3.x-1.5.6-SNAPSHOT-jar-with-dependencies.jar放在HiveServer3所在节点的$HIVE_HOME/auxlib目录下（目录不存在就新建）
 * session级
-    1. 将hologres-connector-hive-3.x-1.5.0-SNAPSHOT-jar-with-dependencies.jar上传至hdfs
+    1. 将hologres-connector-hive-3.x-1.5.6-SNAPSHOT-jar-with-dependencies.jar上传至hdfs
     2. 在hive session中，使用add jar引入jar包。add jar hdfs:....
 
 ## 注意事项
@@ -260,6 +260,9 @@ insert into test_copy_to_holo select 1, 'aaaaabbbbb';
 | enable_serverless_computing| false | 否| 是否使用serverless资源, 仅对读取和bulk_load写入有效,详见[serverless computing](https://help.aliyun.com/zh/hologres/user-guide/serverless-computing) | 
 | serverless_computing_query_priority|   3   | 否| serverless computing执行优先级  | 
 | statement_timeout|  28800000   | 否| query执行的超时时间  | 
+| akv4_enabled|  false   | 否| 默认值为false, 表示不启用akv4认证  | 
+| akv4_region|  无   | 否| 无默认值, 在启用akv4认证时,需要根据实例所在的region设置,例如cn-beijing  |
+
 写参数
 
 |            参数名             |               默认值               | 是否必填 |                                                                                               说明                                                                                               |

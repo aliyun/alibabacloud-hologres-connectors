@@ -1,12 +1,12 @@
 package com.alibaba.hologres.hive.conf;
 
 import com.alibaba.hologres.client.HoloConfig;
+import com.alibaba.hologres.client.auth.AKv4AuthenticationPlugin;
 import com.alibaba.hologres.client.model.WriteFailStrategy;
 import com.alibaba.hologres.client.model.WriteMode;
 import com.alibaba.hologres.hive.utils.JDBCUtils;
 import org.apache.hadoop.conf.Configuration;
 
-import java.util.Map;
 import java.util.Properties;
 
 /** generate HoloClientParam from user config or default value. */
@@ -16,6 +16,8 @@ public class HoloClientParam {
     private String url;
     private String username;
     private String password;
+    private boolean enableAkv4;
+    private String akv4Region;
     private final boolean enableServerlessComputing;
     private final int serverlessComputingQueryPriority;
     private final int statementTimeout;
@@ -64,16 +66,13 @@ public class HoloClientParam {
         tableName = props.getProperty(HoloStorageConfig.TABLE.getPropertyName());
         username = props.getProperty(HoloStorageConfig.USERNAME.getPropertyName());
         password = props.getProperty(HoloStorageConfig.PASSWORD.getPropertyName());
-    }
-
-    public HoloClientParam(Configuration conf, Map<String, String> parameters) {
-        this(conf);
-        url = parameters.get(HoloStorageConfig.JDBC_URL.getPropertyName());
-        // the copyWriter just supports jdbc:hologres
-        if (url.startsWith("jdbc:postgresql:")) {
-            url = "jdbc:hologres:" + url.substring("jdbc:postgresql:".length());
+        enableAkv4 =
+                props.getProperty(HoloStorageConfig.ENABLE_AKV4.getPropertyName(), "false")
+                        .equalsIgnoreCase("true");
+        if (enableAkv4 && !username.startsWith("BASIC$")) {
+            username = AKv4AuthenticationPlugin.AKV4_PREFIX + username;
         }
-        tableName = parameters.get(HoloStorageConfig.TABLE.getPropertyName());
+        akv4Region = props.getProperty(HoloStorageConfig.AKV4_REGION.getPropertyName());
     }
 
     public HoloClientParam(Configuration conf) {
@@ -83,6 +82,11 @@ public class HoloClientParam {
                         conf.get(HoloStorageConfig.JDBC_URL.getPropertyName()));
         this.username = conf.get(HoloStorageConfig.USERNAME.getPropertyName());
         this.password = conf.get(HoloStorageConfig.PASSWORD.getPropertyName());
+        enableAkv4 = conf.getBoolean(HoloStorageConfig.ENABLE_AKV4.getPropertyName(), false);
+        if (enableAkv4 && !username.startsWith("BASIC$")) {
+            username = AKv4AuthenticationPlugin.AKV4_PREFIX + username;
+        }
+        akv4Region = conf.get(HoloStorageConfig.AKV4_REGION.getPropertyName());
 
         // serverless computing options
         this.enableServerlessComputing =
@@ -202,6 +206,11 @@ public class HoloClientParam {
         holoConfig.setJdbcUrl(url);
         holoConfig.setUsername(username);
         holoConfig.setPassword(password);
+        holoConfig.setUseAKv4(enableAkv4);
+        if (enableAkv4) {
+            holoConfig.setRegion(akv4Region);
+        }
+
         holoConfig.setWriteMode(writeMode);
         holoConfig.setWriteFailStrategy(writeFailStrategy);
         holoConfig.setWriteBatchSize(writeBatchSize);
@@ -318,5 +327,13 @@ public class HoloClientParam {
 
     public int getScanTimeoutSeconds() {
         return scanTimeoutSeconds;
+    }
+
+    public boolean isEnableAkv4() {
+        return enableAkv4;
+    }
+
+    public String getAkv4Region() {
+        return akv4Region;
     }
 }

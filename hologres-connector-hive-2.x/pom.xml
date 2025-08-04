@@ -8,13 +8,14 @@
     <parent>
         <groupId>com.alibaba.hologres</groupId>
         <artifactId>hologres-connector-parent</artifactId>
-        <version>1.5.0-SNAPSHOT</version>
+        <version>1.5.6-SNAPSHOT</version>
     </parent>
 
     <artifactId>hologres-connector-hive-2.x</artifactId>
+    <name>hologres-connector-hive-2.x</name>
 
     <properties>
-        <hive.version>2.3.8</hive.version>
+        <hive.version>2.3.9</hive.version>
         <hadoop.version>2.7.7</hadoop.version>
     </properties>
 
@@ -41,6 +42,10 @@
             <groupId>org.apache.hive</groupId>
             <artifactId>hive-jdbc</artifactId>
             <version>${hive.version}</version>
+            <exclusions><exclusion>
+                <groupId>jdk.tools</groupId>
+                <artifactId>jdk.tools</artifactId>
+            </exclusion></exclusions>
             <scope>test</scope>
         </dependency>
         <dependency>

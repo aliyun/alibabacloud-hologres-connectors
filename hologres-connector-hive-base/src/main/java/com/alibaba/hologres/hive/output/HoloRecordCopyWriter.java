@@ -1,12 +1,15 @@
 package com.alibaba.hologres.hive.output;
 
 import com.alibaba.hologres.client.Put;
+import com.alibaba.hologres.client.copy.CopyFormat;
 import com.alibaba.hologres.client.copy.CopyUtil;
 import com.alibaba.hologres.client.copy.in.CopyInOutputStream;
 import com.alibaba.hologres.client.copy.in.RecordBinaryOutputStream;
 import com.alibaba.hologres.client.copy.in.RecordOutputStream;
 import com.alibaba.hologres.client.copy.in.RecordTextOutputStream;
 import com.alibaba.hologres.client.exception.HoloClientException;
+import com.alibaba.hologres.client.impl.util.ConnectionUtil;
+import com.alibaba.hologres.client.model.OnConflictAction;
 import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.utils.RecordChecker;
@@ -40,7 +43,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.alibaba.hologres.client.model.WriteMode.INSERT_OR_IGNORE;
-import static com.alibaba.hologres.client.model.WriteMode.INSERT_OR_UPDATE;
 import static com.alibaba.hologres.hive.utils.JDBCUtils.executeSql;
 import static com.alibaba.hologres.hive.utils.JDBCUtils.logErrorAndExceptionInConsole;
 
@@ -148,10 +150,10 @@ public class HoloRecordCopyWriter implements FileSinkOperator.RecordWriter {
                 String sql =
                         CopyUtil.buildCopyInSql(
                                 record,
-                                binary,
+                                binary ? CopyFormat.BINARY : CopyFormat.CSV,
                                 param.getWriteMode() == INSERT_OR_IGNORE
-                                        ? INSERT_OR_IGNORE
-                                        : INSERT_OR_UPDATE,
+                                        ? OnConflictAction.INSERT_OR_IGNORE
+                                        : OnConflictAction.INSERT_OR_UPDATE,
                                 !bulkLoad);
                 logger.info("copy sql :{}", sql);
                 CopyIn in = copyContext.manager.copyIn(sql);
@@ -239,12 +241,13 @@ public class HoloRecordCopyWriter implements FileSinkOperator.RecordWriter {
             Properties info = new Properties();
             PGProperty.USER.set(info, param.getUsername());
             PGProperty.PASSWORD.set(info, param.getPassword());
+            PGProperty.SOCKET_TIMEOUT.set(info, 360);
             PGProperty.APPLICATION_NAME.set(info, appName);
-
+            JDBCUtils.setAKv4Region(info, param.getAkv4Region());
             try {
                 // copy write mode 的瓶颈往往是vip endpoint的网络吞吐，因此我们在可以直连holo fe的场景默认使用直连
                 if (param.isDirectConnect()) {
-                    String directUrl = JDBCUtils.getJdbcDirectConnectionUrl(param);
+                    String directUrl = ConnectionUtil.getDirectConnectionUrl(url, info, false);
                     try {
                         conn = DriverManager.getConnection(directUrl, info);
                         logger.info("init conn success with direct url {}", directUrl);

@@ -1,5 +1,7 @@
 package com.alibaba.hologres.hive.utils;
 
+import com.alibaba.hologres.client.auth.AKv4AuthenticationPlugin;
+import com.alibaba.hologres.client.impl.util.ConnectionUtil;
 import com.alibaba.hologres.client.model.Column;
 import com.alibaba.hologres.hive.conf.HoloClientParam;
 import com.alibaba.hologres.org.postgresql.PGProperty;
@@ -14,53 +16,38 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.LocalDateTime;
 import java.util.Arrays;
-import java.util.Objects;
 import java.util.Properties;
-import java.util.Random;
 import java.util.stream.Collectors;
 
 /** JDBCUtils. */
 public class JDBCUtils {
     private static final Logger logger = LoggerFactory.getLogger(JDBCUtils.class);
 
+    public static void setAKv4Region(Properties info, String akv4Region) {
+        PGProperty.USER.set(info, AKv4AuthenticationPlugin.AKV4_PREFIX + PGProperty.USER.get(info));
+        PGProperty.AUTHENTICATION_PLUGIN_CLASS_NAME.set(
+                info, AKv4AuthenticationPlugin.class.getName());
+        if (akv4Region != null && !akv4Region.isEmpty()) {
+            info.setProperty(AKv4AuthenticationPlugin.REGION, akv4Region);
+        }
+    }
+
     public static boolean couldDirectConnect(HoloClientParam param) {
-        String url = param.getUrl();
         Properties info = new Properties();
         PGProperty.USER.set(info, param.getUsername());
         PGProperty.PASSWORD.set(info, param.getPassword());
+        PGProperty.SOCKET_TIMEOUT.set(info, 5);
         PGProperty.APPLICATION_NAME.set(info, "hologres-connector-hive_copy");
-        String directUrl = JDBCUtils.getJdbcDirectConnectionUrl(param);
-        try (Connection ignored = DriverManager.getConnection(directUrl, info)) {
-        } catch (Exception e) {
-            logger.warn("could not connect directly to holo.");
-            return false;
+        if (param.isEnableAkv4()) {
+            setAKv4Region(info, param.getAkv4Region());
         }
-        return true;
-    }
-
-    public static String getJdbcDirectConnectionUrl(HoloClientParam param) {
-        // Returns the jdbc url directly connected to fe
-        String endpoint = null;
-        String url = getJdbcUrlWithRandomFrontendId(param);
-        logger.info("try connect directly to holo with url {}", url);
-        try (Connection conn = createConnection(param)) {
-            try (Statement stat = conn.createStatement()) {
-                try (ResultSet rs =
-                        stat.executeQuery("select inet_server_addr(), inet_server_port()")) {
-                    while (rs.next()) {
-                        endpoint = rs.getString(1) + ":" + rs.getString(2);
-                        break;
-                    }
-                    if (Objects.isNull(endpoint)) {
-                        throw new RuntimeException(
-                                "Failed to query \"select inet_server_addr(), inet_server_port()\".");
-                    }
-                }
-            }
-        } catch (SQLException t) {
-            throw new RuntimeException(t);
+        boolean couldDirectConnect = false;
+        try {
+            String directUrl = ConnectionUtil.getDirectConnectionUrl(param.getUrl(), info, false);
+            couldDirectConnect = !directUrl.equals(param.getUrl());
+        } catch (SQLException ignored) {
         }
-        return replaceJdbcUrlEndpoint(param.getUrl(), endpoint);
+        return couldDirectConnect;
     }
 
     public static String formatUrlWithHologres(String oldUrl) {
@@ -70,23 +57,6 @@ public class JDBCUtils {
             url = "jdbc:hologres:" + oldUrl.substring("jdbc:postgresql:".length());
         }
         return url;
-    }
-
-    private static String getJdbcUrlWithRandomFrontendId(HoloClientParam param) {
-        String url = param.getUrl();
-        if (param.getHologresFrontendsNumber() > 0) {
-            url +=
-                    (url.contains("?") ? "&" : "?")
-                            + "options=fe="
-                            + (Math.abs(new Random().nextInt()) % param.getHologresFrontendsNumber()
-                                    + 1);
-        }
-        return url;
-    }
-
-    private static String replaceJdbcUrlEndpoint(String originalUrl, String newEndpoint) {
-        String replacement = "//" + newEndpoint + "/";
-        return originalUrl.replaceFirst("//\\S+/", replacement);
     }
 
     public static int getConnectionsNumberOfThisJob(HoloClientParam param, String appName) {
@@ -120,8 +90,14 @@ public class JDBCUtils {
             throw new RuntimeException(e);
         }
         try {
-            return DriverManager.getConnection(
-                    param.getUrl(), param.getUsername(), param.getPassword());
+            Properties info = new Properties();
+            PGProperty.USER.set(info, param.getUsername());
+            PGProperty.PASSWORD.set(info, param.getPassword());
+            PGProperty.SOCKET_TIMEOUT.set(info, 360);
+            if (param.isEnableAkv4()) {
+                setAKv4Region(info, param.getAkv4Region());
+            }
+            return DriverManager.getConnection(param.getUrl(), info);
         } catch (SQLException e) {
             logErrorAndExceptionInConsole(
                     String.format("Failed getting connection to %s because:", param.getUrl()), e);
