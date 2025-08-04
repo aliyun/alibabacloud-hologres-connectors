@@ -15,18 +15,18 @@
 
 package com.alibaba.hologres.spark.source.copy
 
-import com.alibaba.hologres.client.copy.CopyUtil
+import com.alibaba.hologres.client.copy.{CopyFormat, CopyUtil}
 import com.alibaba.hologres.client.copy.out.CopyOutInputStream
 import com.alibaba.hologres.client.copy.out.arrow.ArrowReader
 import com.alibaba.hologres.client.model.TableSchema
+import com.alibaba.hologres.org.apache.arrow.vector.{FieldVector, VectorSchemaRoot}
 import com.alibaba.hologres.spark.config.HologresConfigs
 import com.alibaba.hologres.spark.exception.SparkHoloException
 import com.alibaba.hologres.spark.source.copy.arrow.SparkArrowVectorAccessorUtil
-import com.alibaba.hologres.org.apache.arrow.vector.{FieldVector, VectorSchemaRoot}
+import com.alibaba.hologres.spark.utils.LoggerWrapper
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.GenericInternalRow
 import org.apache.spark.sql.types.StructType
-import org.slf4j.LoggerFactory
 
 import java.io.IOException
 import java.util
@@ -36,15 +36,18 @@ class BaseHoloCopyPartitionReader(hologresConfigs: HologresConfigs,
                                   query: String,
                                   holoSchema: TableSchema,
                                   sparkSchema: StructType) {
-  private val logger = LoggerFactory.getLogger(getClass)
+  private val logger = new LoggerWrapper(getClass)
+  logger.setSparkAppName(hologresConfigs.sparkAppName)
+  logger.setSparkAppId(hologresConfigs.sparkAppId)
+  logger.setHoloTableName(hologresConfigs.table)
 
   private val copyContext: CopyContext = new CopyContext
   copyContext.init(hologresConfigs)
 
   val isCompressed: Boolean = hologresConfigs.readMode == "bulk_read_compressed"
-  val copySql: String = CopyUtil.buildCopyOutSql(query, /*arrow*/true, /*lz4*/isCompressed)
-  logger.info("the bulk read copy query: {}", copySql)
-  logger.info("the sparkSchema: {}", sparkSchema)
+  val copySql: String = CopyUtil.buildCopyOutSql(query, if (isCompressed) CopyFormat.ARROW_LZ4 else CopyFormat.ARROW)
+  logger.info(s"the bulk read copy query: $copySql")
+  logger.info(s"the sparkSchema: $sparkSchema")
   copyContext.schema = holoSchema
   val coins: CopyOutInputStream = new CopyOutInputStream(copyContext.manager.copyOut(copySql), hologresConfigs.readCopyMaxBufferSize)
   copyContext.arrowReader = new ArrowReader(coins, isCompressed)

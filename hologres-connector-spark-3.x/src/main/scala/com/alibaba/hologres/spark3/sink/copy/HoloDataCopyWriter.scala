@@ -12,6 +12,7 @@ class HoloDataCopyWriter(
                           hologresConfigs: HologresConfigs,
                           sparkSchema: StructType,
                           holoSchema: TableSchema,
-                          targetShardList: String = "")
-  extends BaseHoloDataCopyWriter(hologresConfigs, sparkSchema, holoSchema, targetShardList)
+                          targetShardList: String = "",
+                          taskId: String = "")
+  extends BaseHoloDataCopyWriter(hologresConfigs, sparkSchema, holoSchema, targetShardList, taskId)
     with DataWriter[InternalRow]

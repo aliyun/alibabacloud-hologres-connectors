@@ -9,7 +9,8 @@ import java.sql.{Date, Timestamp}
 
 class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
 
-  def dataTypeTest(readType: ReadType.Value, writeType: WriteType.Value, querySource: Boolean = false, skipJsonb: Boolean = false): Unit = {
+  def dataTypeTest(readType: ReadType.Value, writeType: WriteType.Value, querySource: Boolean = false,
+                   skipJsonb: Boolean = false, useAkv4: Boolean = false): Unit = {
     val table = "table_for_holo_test_" + randomSuffix
     testUtils.dropTable(table)
     if (skipJsonb) {
@@ -33,11 +34,14 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
 
     val data = Seq(
       Row(0L, 1.shortValue(), -7L, 100, "phone1", BigDecimal(1234.567891234), false, 199.35, 6.7F, Timestamp.valueOf("2021-01-01 00:00:00.123"),
-        Timestamp.valueOf("2021-01-01 00:00:00.456"), Date.valueOf("2021-01-01"), byteArray, intArray, longArray, floatArray, doubleArray, booleanArray, stringArray, json, jsonb, roaringBitmap),
+        Timestamp.valueOf("2021-01-01 00:00:00.456"), Date.valueOf("2021-01-01"), byteArray,
+        intArray, longArray, floatArray, doubleArray, booleanArray, stringArray, json, jsonb, roaringBitmap),
       Row(1L, 2.shortValue(), 6L, -10, "phone2", BigDecimal(1234.56), true, 188.45, 7.8F, Timestamp.valueOf("2021-01-01 12:00:00.123"),
-        Timestamp.valueOf("2021-01-01 00:00:00.456"), Date.valueOf("1971-01-01"), byteArray, intArray, longArray, floatArray, doubleArray, booleanArray, stringArray, json, jsonb, roaringBitmap),
+        Timestamp.valueOf("2021-01-01 00:00:00.456"), Date.valueOf("1971-01-01"), byteArray,
+        intArray, longArray, floatArray, doubleArray, booleanArray, stringArray, json, jsonb, roaringBitmap),
       Row(2L, 3.shortValue(), 1L, 10, "phone3\"", BigDecimal(1234.56), true, 111.45, 8.9F, Timestamp.valueOf("2020-02-29 16:12:33.123"),
-        Timestamp.valueOf("2021-01-01 00:00:00.456"), Date.valueOf("2020-07-23"), byteArray, intArray, longArray, floatArray, doubleArray, booleanArray, stringArray, json, jsonb, roaringBitmap),
+        Timestamp.valueOf("2021-01-01 00:00:00.456"), Date.valueOf("2020-07-23"), byteArray,
+        intArray, longArray, floatArray, doubleArray, booleanArray, stringArray, json, jsonb, roaringBitmap),
       Row(3L, null, null, null, null, null, null, null, null, null, null, null,
         null, null, null, null, null, null, null, null, null, null, null, null)
     )
@@ -56,6 +60,8 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
       .option(SourceProvider.WRITE_ON_CONFLICT_ACTION, "insertOrIgnore")
       .option(SourceProvider.WRITE_MODE, writeType.toString)
       .option(SourceProvider.WRITE_COPY_DIRTY_DATA_CHECK, "true")
+      .option(SourceProvider.ENABLE_AKV4, useAkv4)
+      .option(SourceProvider.AKV4_REGION, "cn-beijing")
       .mode(SaveMode.Append)
       .save()
 
@@ -70,6 +76,8 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
       .option(sourceKey, sourceValue)
       .option(SourceProvider.READ_MODE, readType.toString)
       .option(SourceProvider.READ_MAX_TASK_COUNT, 4)
+      .option(SourceProvider.ENABLE_AKV4, useAkv4)
+      .option(SourceProvider.AKV4_REGION, "cn-beijing")
       .load().orderBy("pk").cache()
 
     // compare read and write
@@ -102,9 +110,18 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
 
     log.info("auto write then auto read, not support jsonb now.")
     dataTypeTest(ReadType.AUTO, WriteType.AUTO, skipJsonb = true)
+
+    log.info("insert then select.")
+    dataTypeTest(ReadType.SELECT, WriteType.INSERT, useAkv4 = true)
+
+    log.info("fixed_copy then select.")
+    dataTypeTest(ReadType.SELECT, WriteType.STREAM, useAkv4 = true)
+
+    log.info("bulk_load then select.")
+    dataTypeTest(ReadType.SELECT, WriteType.BULK_LOAD, useAkv4 = true)
   }
 
-  def partialInsertTest(copyMode: String): Unit = {
+  def partialInsertTest(copyMode: String, optionsMap: Map[String, String] = Map.empty): Unit = {
     val table = "table_for_holo_test_" + randomSuffix
     testUtils.dropTable(table)
     testUtils.createTable(defaultCreateHoloTableDDL, table, hasPk = false)
@@ -135,7 +152,7 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
       newSchema
     ).orderBy("pk").cache()
 
-    df.write
+    val writer = df.write
       .format("hologres")
       .option(SourceProvider.USERNAME, testUtils.username)
       .option(SourceProvider.PASSWORD, testUtils.password)
@@ -145,7 +162,8 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
       .option(SourceProvider.WRITE_MODE, copyMode)
       .option(SourceProvider.WRITE_COPY_DIRTY_DATA_CHECK, "true")
       .mode(SaveMode.Append)
-      .save()
+    optionsMap.foreach { case (key, value) => writer.option(key, value) }
+    writer.save()
 
     val readDf = spark.read
       .format("hologres")
@@ -176,6 +194,7 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
 
   test("update part fields and read test bulk load.") {
     partialInsertTest("bulk_load_on_conflict")
+    partialInsertTest("bulk_load_on_conflict", Map{SourceProvider.WRITE_COPY_DISABLE_RIGHT_JOIN -> true.toString})
   }
 
   test("SaveMode = overwrite.") {
@@ -337,10 +356,120 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
     }
   }
 
+  def noStrictDataTypeCheckTest(writeType: WriteType.Value, negative: Boolean = false): Unit = {
+    val table = "table_for_holo_test_" + randomSuffix
+    testUtils.dropTable(table)
+    testUtils.createTable(defaultCreateHoloTableDDLPrecisionPromotion, table)
+
+    val byteArray = Array(1.toByte, 2.toByte, 3.toByte, 'b'.toByte, 'a'.toByte)
+    val intArray = Array(1, 2, 3)
+    val longArray = Array(1L, 2L, 3L)
+    val floatArray = Array(1.2F, 2.44F, 3.77F)
+    val doubleArray = Array(1.222, 2.333, 3.444)
+    val booleanArray = Array(true, false, false)
+    val stringArray = Array("abcd", "bcde", "defg")
+    val json: String = "{\"a\":\"b\"}"
+    val jsonb: String = "{\"a\": \"b\"}"
+    val roaringBitmap = Array[Byte](58, 48, 0, 0, 1, 0, 0, 0, 0, 0, 2, 0, 16, 0, 0, 0, 1, 0, 4, 0, 5, 0) /*{1,4,5}*/
+
+    val data = Seq(
+      Row(0L, 1.shortValue(), -7L, 100, "phone1", BigDecimal(1234.567891234), false, 199.35, 6.7F, Timestamp.valueOf("2021-01-01 00:00:00.123"),
+        Timestamp.valueOf("2021-01-01 00:00:00.456"), Date.valueOf("2021-01-01"), byteArray,
+        intArray, longArray, floatArray, doubleArray, booleanArray, stringArray, json, jsonb, roaringBitmap),
+      Row(1L, 2.shortValue(), 6L, -10, "phone2", BigDecimal(1234.56), true, 188.45, 7.8F, Timestamp.valueOf("2021-01-01 12:00:00.123"),
+        Timestamp.valueOf("2021-01-01 00:00:00.456"), Date.valueOf("1971-01-01"), byteArray,
+        intArray, longArray, floatArray, doubleArray, booleanArray, stringArray, json, jsonb, roaringBitmap),
+      Row(2L, 3.shortValue(), 1L, 10, "phone3\"", BigDecimal(1234.56), true, 111.45, 8.9F, Timestamp.valueOf("2020-02-29 16:12:33.123"),
+        Timestamp.valueOf("2021-01-01 00:00:00.456"), Date.valueOf("2020-07-23"), byteArray,
+        intArray, longArray, floatArray, doubleArray, booleanArray, stringArray, json, jsonb, roaringBitmap),
+      Row(3L, null, null, null, null, null, null, null, null, null, null, null,
+        null, null, null, null, null, null, null, null, null, null, null, null)
+    )
+
+    var df = spark.createDataFrame(
+      spark.sparkContext.parallelize(data),
+      defaultSchema
+    ).cache()
+
+    try {
+      df.write
+        .format("hologres")
+        .option(SourceProvider.USERNAME, testUtils.username)
+        .option(SourceProvider.PASSWORD, testUtils.password)
+        .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
+        .option(SourceProvider.TABLE, table)
+        .option(SourceProvider.WRITE_ON_CONFLICT_ACTION, "insertOrIgnore")
+        .option(SourceProvider.WRITE_MODE, writeType.toString)
+        .option(SourceProvider.WRITE_COPY_DIRTY_DATA_CHECK, "true")
+        .option(SourceProvider.WRITE_ENABLE_STRICT_DATATYPE_CHECK, if (negative) "true" else "false")
+        .mode(SaveMode.Append)
+        .save()
+    } catch {
+      case e: Exception =>
+        if (!e.getMessage.contains("type does not match: spark type: ShortType, hologres type: int8")) {
+          throw new RuntimeException(e)
+        }
+        testUtils.dropTable(table)
+        return
+    }
+
+    val sourceKey: String = SourceProvider.TABLE
+    val sourceValue: String = table
+    // Read the data just written
+    var readDf = spark.read
+      .format("hologres")
+      .option(SourceProvider.USERNAME, testUtils.username)
+      .option(SourceProvider.PASSWORD, testUtils.password)
+      .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
+      .option(sourceKey, sourceValue)
+      .option(SourceProvider.READ_MAX_TASK_COUNT, 4)
+      .load().orderBy("pk").cache()
+
+    df = df.withColumn("pk", df("pk").cast(LongType))
+      .withColumn("st", df("st").cast(LongType))
+      .withColumn("id", df("id").cast(LongType))
+      .withColumn("count", df("count").cast(LongType))
+      .withColumn("price", df("price").cast(StringType))
+      .withColumn("out_of_stock", df("out_of_stock").cast(StringType))
+      .withColumn("weight", df("weight").cast(StringType))
+      .withColumn("thick", df("thick").cast(DoubleType))
+      .withColumn("ts1", df("ts1").cast(StringType))
+      .withColumn("ts2", df("ts2").cast(StringType))
+      .withColumn("dt", df("dt").cast(StringType))
+      .withColumn("by", df("by").cast(BinaryType))
+      .withColumn("inta", df("inta").cast(ArrayType(IntegerType)))
+
+    // compare read and write
+    if (df.except(readDf).count() > 0) {
+      df.show(false)
+      readDf.show(false)
+      throw new Exception("The data read is inconsistent with the data written！！！")
+    }
+    testUtils.dropTable(table)
+  }
+
+  test("no strict cast data types") {
+    log.info("implicit cast data types: insert")
+    noStrictDataTypeCheckTest(WriteType.INSERT)
+
+    log.info("implicit cast data types: stream")
+    noStrictDataTypeCheckTest(WriteType.STREAM)
+
+    log.info("implicit cast data types: bulk_load")
+    noStrictDataTypeCheckTest(WriteType.BULK_LOAD)
+
+    log.info("implicit cast data types: negative")
+    noStrictDataTypeCheckTest(WriteType.BULK_LOAD, negative = true)
+  }
 
   test("record have u0000.") {
+    log.info("u0000: stream")
     testU0000(WriteType.STREAM)
+
+    log.info("u0000: bulk_load")
     testU0000(WriteType.BULK_LOAD)
+
+    log.info("u0000: insert")
     testU0000(WriteType.INSERT)
   }
 
@@ -354,19 +483,19 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
 
     val data = Seq(
       Row(0L, "phone1\u0000", json, jsonb),
-      Row(1L, "phone\u00002", json, jsonb),
+      Row(1L, "phone\u00002", json, jsonb)
     )
 
     val dataRemovedU0000 = Seq(
       Row(0L, "phone1", json.replaceAll("\u0000", ""), jsonb.replaceAll("\u0000", "")),
-      Row(1L, "phone2", json.replaceAll("\u0000", ""), jsonb.replaceAll("\u0000", "")),
+      Row(1L, "phone2", json.replaceAll("\u0000", ""), jsonb.replaceAll("\u0000", ""))
     )
 
     val newSchema = StructType(Array(
       StructField("pk", LongType),
       StructField("NAME", StringType),
       StructField("json_column", StringType),
-      StructField("jsonb_column", StringType),
+      StructField("jsonb_column", StringType)
     ))
 
     val df = spark.createDataFrame(
@@ -732,5 +861,4 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
         }
     }
   }
-
 }

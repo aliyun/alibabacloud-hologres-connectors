@@ -58,7 +58,7 @@ abstract class SparkHoloSuiteBase extends QueryTest with SharedSparkSession {
     StructField("rb_column", BinaryType)
   ))
 
-  val defaultCreateHoloTableDDL = "create table TABLE_NAME (" +
+  val defaultCreateHoloTableDDL: String = "create table TABLE_NAME (" +
     "    pk bigint primary key," +
     "    st smallint," +
     "    id bigint," +
@@ -82,7 +82,7 @@ abstract class SparkHoloSuiteBase extends QueryTest with SharedSparkSession {
     "    jsonb_column jsonb," +
     "    rb_column roaringbitmap);"
 
-  val defaultCreateHoloParentTableDDL =
+  val defaultCreateHoloParentTableDDL: String =
     "create table PARENT_TABLE_NAME (" +
       "    pk bigint," +
       "    st smallint," +
@@ -109,6 +109,30 @@ abstract class SparkHoloSuiteBase extends QueryTest with SharedSparkSession {
       "    primary key(pk, dt)" +
       ") PARTITION BY LIST(dt);\n" +
       "CREATE TABLE TABLE_NAME PARTITION OF PARENT_TABLE_NAME FOR VALUES IN ('PARTITION_VALUE');"
+
+  val defaultCreateHoloTableDDLPrecisionPromotion: String = "create table TABLE_NAME (" +
+    "    pk bigint primary key," +
+    "    st bigint," +
+    "    id bigint," +
+    "    count bigint," +
+    "    \"NAME\" text," +
+    "    price text," +
+    "    out_of_stock text," +
+    "    weight text," +
+    "    thick float8," +
+    "    ts1 text," +
+    "    ts2 text," +
+    "    dt text," +
+    "    by bytea," +
+    "    inta int4[]," +
+    "    longa int8[]," +
+    "    floata float4[]," +
+    "    doublea float8[]," +
+    "    boola boolean[]," +
+    "    stringa text[]," +
+    "    json_column text," +
+    "    jsonb_column text," +
+    "    rb_column roaringbitmap);"
 
   def randomSuffix: String = new java.util.Random().nextInt(1000000).toString
 

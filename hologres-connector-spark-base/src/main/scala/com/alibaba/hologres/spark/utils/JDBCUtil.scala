@@ -1,5 +1,6 @@
 package com.alibaba.hologres.spark.utils
 
+import com.alibaba.hologres.client.auth.AKv4AuthenticationPlugin
 import com.alibaba.hologres.client.function.FunctionWithSQLException
 import com.alibaba.hologres.client.impl.util.ConnectionUtil
 import com.alibaba.hologres.client.model.{HoloVersion, TableName}
@@ -7,14 +8,13 @@ import com.alibaba.hologres.client.utils.IdentifierUtil
 import com.alibaba.hologres.org.postgresql.PGProperty
 import com.alibaba.hologres.spark.config.HologresConfigs
 import org.apache.commons.lang3.exception.ExceptionUtils
-import org.slf4j.LoggerFactory
 
 import java.sql.{Connection, DriverManager, ResultSet, SQLException}
-import java.util.{Objects, Properties}
+import java.util.Properties
 
 /** JDBC utils. */
 object JDBCUtil {
-  private val logger = LoggerFactory.getLogger(getClass)
+  private val logger = new LoggerWrapper(getClass)
 
   def getDbUrl(endpoint: String, database: String): String = {
     if (!checkEndpoint(endpoint)) {
@@ -50,60 +50,25 @@ object JDBCUtil {
     }
   }
 
+  def setAkv4Region(info: Properties, akv4Region: String): Any = {
+    PGProperty.USER.set(info, AKv4AuthenticationPlugin.AKV4_PREFIX + PGProperty.USER.get(info))
+    PGProperty.AUTHENTICATION_PLUGIN_CLASS_NAME.set(info, classOf[AKv4AuthenticationPlugin].getName)
+    if (akv4Region != null && akv4Region.nonEmpty) info.setProperty(AKv4AuthenticationPlugin.REGION, akv4Region)
+  }
+
   def couldDirectConnect(configs: HologresConfigs): Boolean = {
     val url = configs.jdbcUrl
     val info = new Properties
     PGProperty.USER.set(info, configs.username)
     PGProperty.PASSWORD.set(info, configs.password)
     PGProperty.APPLICATION_NAME.set(info, "hologres-connector-spark_copy")
-    val directUrl = getJdbcDirectConnectionUrl(configs)
-    var conn: Connection = null
-    logger.info("try connect directly to holo with url {}", url)
-    try {
-      conn = DriverManager.getConnection(directUrl, info)
-    } catch {
-      case _: Exception =>
-        logger.warn("could not connect directly to holo.")
-        return false
-    } finally if (conn != null) conn.close()
-    true
+    if (configs.enableAkv4) {
+      setAkv4Region(info, configs.akv4Region)
+    }
+    val directUrl = ConnectionUtil.getDirectConnectionUrl(url, info, false)
+    !directUrl.equals(url)
   }
 
-  // Returns the jdbc url directly connected to fe
-  def getJdbcDirectConnectionUrl(configs: HologresConfigs): String = {
-    var endpoint: String = null
-    try Class.forName("com.alibaba.hologres.org.postgresql.Driver")
-    catch {
-      case e: ClassNotFoundException =>
-        throw new RuntimeException(e)
-    }
-    val conn = DriverManager.getConnection(configs.jdbcUrl, configs.username, configs.password)
-    try {
-      val stat = conn.createStatement
-      try {
-        val rs = stat.executeQuery("select inet_server_addr(), inet_server_port()")
-        try {
-          if (rs.next) {
-            endpoint = rs.getString(1) + ":" + rs.getString(2)
-          }
-          if (Objects.isNull(endpoint)) {
-            throw new RuntimeException("Failed to query \"select inet_server_addr(), inet_server_port()\".")
-          }
-        } finally if (rs != null) rs.close()
-      }
-      finally if (stat != null) stat.close()
-    }
-    catch {
-      case t: SQLException =>
-        throw new RuntimeException(t)
-    } finally if (conn != null) conn.close()
-    replaceJdbcUrlEndpoint(configs.jdbcUrl, endpoint)
-  }
-
-  private def replaceJdbcUrlEndpoint(originalUrl: String, newEndpoint: String) = {
-    val replacement = "//" + newEndpoint + "/"
-    originalUrl.replaceFirst("//\\S+/", replacement)
-  }
 
   object getHoloVersion extends FunctionWithSQLException[Connection, HoloVersion] {
     override def apply(conn: Connection): HoloVersion = {
@@ -132,12 +97,16 @@ object JDBCUtil {
       val info: Properties = new Properties
       PGProperty.USER.set(info, hologresConfigs.username)
       PGProperty.PASSWORD.set(info, hologresConfigs.password)
+      PGProperty.SOCKET_TIMEOUT.set(info, 360)
       PGProperty.APPLICATION_NAME.set(info, "spark_connector_util")
+      if (hologresConfigs.enableAkv4) {
+        setAkv4Region(info, hologresConfigs.akv4Region)
+      }
       if (database != null) {
         url = replaceUrlDatabase(hologresConfigs.jdbcUrl, database)
       }
       val conn = DriverManager.getConnection(url, info)
-      logger.info("create connection to holo with url {}", url)
+      logger.info(s"create connection to holo with url $url")
       conn
     } catch {
       case e: SQLException =>
@@ -288,9 +257,9 @@ object JDBCUtil {
 
   def generateTempTableNameForOverwrite(hologresConfigs: HologresConfigs): String = {
     val tableName: TableName = TableName.valueOf(hologresConfigs.table)
-    val tempTableName = String.format("tmp_spark_to_holo_overwrite_%s_%s_%s"
+    val tempTableName = String.format("tmp_s2h_ow_%s_%s_%s"
       , System.currentTimeMillis.toString
-      , hologresConfigs.sparkAppName
+      , hologresConfigs.holoConfig.getAppName
       , tableName.getTableName)
 
     TableName.valueOf(
@@ -300,7 +269,27 @@ object JDBCUtil {
     ).getFullName
   }
 
+  private def getDropTableForceSuffix(hologresConfigs: HologresConfigs): String = {
+    // 3.1版本起默认开启回收站, 但我们创建的临时表,或者写入overwrite成功的旧表没必要进回收站
+    val RECYCLEBIN_HOLO_VERSION = new HoloVersion(3, 1, 0)
+
+    if (hologresConfigs.holoVersion != null
+      && new HoloVersion(hologresConfigs.holoVersion).compareTo(RECYCLEBIN_HOLO_VERSION) >=0
+      && hologresConfigs.overWriteDropForce) {
+      "FORCE"
+    } else {
+      ""
+    }
+  }
+
+  /**
+   * create temp table for overwrite
+   */
   def createTempTableForOverWrite(hologresConfigs: HologresConfigs): Unit = {
+    logger.setSparkAppName(hologresConfigs.sparkAppName)
+    logger.setSparkAppId(hologresConfigs.sparkAppId)
+    logger.setHoloTableName(hologresConfigs.table)
+    val suffix = getDropTableForceSuffix(hologresConfigs)
     /*
     BEGIN ;
     -- 清理潜在的临时表
@@ -309,17 +298,22 @@ object JDBCUtil {
     SET hg_experimental_enable_create_table_like_properties=on;
     CALL HG_CREATE_TABLE_LIKE ('<table_new>', 'select * from <table>');
     COMMIT ;
+    -- 更新统计信息
+    ANALYZE <table_new>;
     */
     var conn: Connection = null
     try {
       conn = createConnection(hologresConfigs)
       val statement = conn.createStatement()
-      val sql = String.format("BEGIN;\n"
-        + "DROP TABLE IF EXISTS %s;\n"
+      val sql = String.format("-- From Spark-Connector: <create temp table for overwrite>\n"
+        + "BEGIN;\n"
+        + "DROP TABLE IF EXISTS %s %s;\n"
         + "set hg_experimental_enable_create_table_like_properties=on;\n"
         + "CALL HG_CREATE_TABLE_LIKE ('%s', 'select * from %s');\n"
-        + "COMMIT;", hologresConfigs.tempTableForOverwrite, hologresConfigs.tempTableForOverwrite, hologresConfigs.table)
-      logger.info("create temp table for overwrite DDL: \n{}", sql)
+        + "COMMIT;"
+        + "ANALYZE %s;", hologresConfigs.tempTableForOverwrite, suffix, hologresConfigs.tempTableForOverwrite,
+        hologresConfigs.table, hologresConfigs.tempTableForOverwrite)
+      logger.info(s"create temp table for overwrite DDL: \n$sql")
       statement.execute(sql)
     } catch {
       case e: SQLException =>
@@ -331,7 +325,14 @@ object JDBCUtil {
     }
   }
 
+  /**
+   * replace the original table with the temp table when overwrite success
+   */
   def renameTempTableForOverWrite(hologresConfigs: HologresConfigs, parentTable: String = null, partitionValue: String = null): Unit = {
+    logger.setSparkAppName(hologresConfigs.sparkAppName)
+    logger.setSparkAppId(hologresConfigs.sparkAppId)
+    logger.setHoloTableName(hologresConfigs.table)
+    val suffix = getDropTableForceSuffix(hologresConfigs)
     /*
     BEGIN ;
     -- 删除旧表
@@ -348,19 +349,21 @@ object JDBCUtil {
       val tableName: TableName = TableName.valueOf(hologresConfigs.table)
       val onlyTablename = IdentifierUtil.quoteIdentifier(tableName.getTableName)
       if (partitionValue == null || parentTable == null) {
-        sql = String.format("BEGIN;\n"
-          + "DROP TABLE IF EXISTS %s;\n"
+        sql = String.format("-- From Spark-Connector: <replace the original table with the temp table when overwrite success>\n"
+          + "BEGIN;\n"
+          + "DROP TABLE IF EXISTS %s %s;\n"
           + "ALTER TABLE %s RENAME TO %s;\n"
-          + "COMMIT;", hologresConfigs.table, hologresConfigs.tempTableForOverwrite, onlyTablename)
+          + "COMMIT;", hologresConfigs.table, suffix, hologresConfigs.tempTableForOverwrite, onlyTablename)
       } else {
-        sql = String.format("BEGIN;\n"
-          + "DROP TABLE IF EXISTS %s;\n"
+        sql = String.format("-- From Spark-Connector: <replace the original table with the temp table when overwrite success>\n"
+          + "BEGIN;\n"
+          + "DROP TABLE IF EXISTS %s %s;\n"
           + "ALTER TABLE %s RENAME TO %s;\n"
           + "ALTER TABLE %s ATTACH PARTITION %s FOR VALUES IN(\'%s\');\n"
-          + "COMMIT;", hologresConfigs.table, hologresConfigs.tempTableForOverwrite, onlyTablename,
+          + "COMMIT;", hologresConfigs.table, suffix, hologresConfigs.tempTableForOverwrite, onlyTablename,
           parentTable, hologresConfigs.table, partitionValue)
       }
-      logger.info("rename temp table for overwrite DDL: \n{}", sql)
+      logger.info(s"rename temp table for overwrite DDL: \n$sql")
       statement.execute(sql)
     } catch {
       case e: SQLException =>
@@ -372,7 +375,14 @@ object JDBCUtil {
     }
   }
 
+  /**
+   * delete temp table when overwrite failed
+   */
   def deleteTempTableForOverWrite(hologresConfigs: HologresConfigs): Unit = {
+    logger.setSparkAppName(hologresConfigs.sparkAppName)
+    logger.setSparkAppId(hologresConfigs.sparkAppId)
+    logger.setHoloTableName(hologresConfigs.table)
+    val suffix = getDropTableForceSuffix(hologresConfigs)
     /*
     BEGIN ;
     -- 删除临时表
@@ -383,10 +393,11 @@ object JDBCUtil {
     try {
       conn = createConnection(hologresConfigs)
       val statement = conn.createStatement()
-      val sql = String.format("BEGIN;\n"
-        + "DROP TABLE IF EXISTS %s;\n"
-        + "COMMIT;", hologresConfigs.tempTableForOverwrite)
-      logger.info("drop temp table for overwrite DDL: \n{}", sql)
+      val sql = String.format("-- From Spark-Connector: <delete temp table when overwrite failed>\n"
+        + "BEGIN;\n"
+        + "DROP TABLE IF EXISTS %s %s;\n"
+        + "COMMIT;", hologresConfigs.tempTableForOverwrite, suffix)
+      logger.info(s"drop temp table for overwrite DDL: \n$sql")
       statement.execute(sql)
     } catch {
       case e: SQLException =>
@@ -399,6 +410,9 @@ object JDBCUtil {
   }
 
   def getChildTablePartitionInfo(hologresConfigs: HologresConfigs): (String, String) = {
+    logger.setSparkAppName(hologresConfigs.sparkAppName)
+    logger.setSparkAppId(hologresConfigs.sparkAppId)
+    logger.setHoloTableName(hologresConfigs.table)
     /*
     -- 获取父表名称(test_table)和当前子表的分区值(20230527)
     CREATE TABLE public.test_table_20230527 PARTITION OF test_table
@@ -412,7 +426,7 @@ object JDBCUtil {
       if (rs.next) {
         val pattern = "PARTITION OF ([^']*)\n  FOR VALUES IN \\('([^']*)'\\);".r
         val dumpScript = rs.getString(1)
-        logger.info("got dump script : \n{}", dumpScript)
+        logger.info(s"got dump script : \n$dumpScript")
         val matchOption = pattern.findFirstMatchIn(dumpScript)
         matchOption match {
           case Some(m) => return (m.group(1), m.group(2))

@@ -2,7 +2,7 @@ package com.alibaba.hologres.spark3
 
 import com.alibaba.hologres.client.model.TableSchema
 import com.alibaba.hologres.spark.config.HologresConfigs
-import com.alibaba.hologres.spark.utils.SparkHoloUtil
+import com.alibaba.hologres.spark.utils.{LoggerWrapper, SparkHoloUtil}
 import com.alibaba.hologres.spark3.sink.{HoloWriterBuilder, HoloWriterBuilderV1}
 import com.alibaba.hologres.spark3.source.HoloScanBuilder
 import org.apache.spark.sql.connector.catalog.{SupportsRead, SupportsWrite, TableCapability}
@@ -10,7 +10,6 @@ import org.apache.spark.sql.connector.read.ScanBuilder
 import org.apache.spark.sql.connector.write.{LogicalWriteInfo, WriteBuilder}
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
-import org.slf4j.LoggerFactory
 
 import scala.collection.JavaConverters._
 
@@ -19,10 +18,13 @@ class HoloTable(
                  sparkSchema: StructType,
                  hologresConfigs: HologresConfigs,
                  mockHoloSchemaForQuery: TableSchema = null) extends SupportsWrite with SupportsRead {
-  private val logger = LoggerFactory.getLogger(getClass)
+  private val logger = new LoggerWrapper(getClass)
+  logger.setSparkAppName(hologresConfigs.sparkAppName)
+  logger.setSparkAppId(hologresConfigs.sparkAppId)
+  logger.setHoloTableName(hologresConfigs.table)
   private var optimizeConfigs: HologresConfigs = hologresConfigs
 
-  logger.info("Initial {}", name())
+  logger.info(s"Initial ${name()}")
 
   override def name(): String = {
     if (tableType() == HoloTableType.QUERY) {
@@ -63,6 +65,8 @@ class HoloTable(
   ).asJava
 
   override def newWriteBuilder(info: LogicalWriteInfo): WriteBuilder = {
+    // 检查plan中的schema是否与sparkSchema一致, plan中的schema只需要检查字段数量和类型
+    SparkHoloUtil.checkSparkTableSchema(optimizeConfigs, sparkSchema, info.schema())
     if (tableType() == HoloTableType.TABLE_V1) {
       new HoloWriterBuilderV1(optimizeConfigs, sparkSchema)
     } else {

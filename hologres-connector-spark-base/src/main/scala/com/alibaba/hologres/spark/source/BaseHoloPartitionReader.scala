@@ -4,11 +4,10 @@ import com.alibaba.hologres.client.model.TableSchema
 import com.alibaba.hologres.org.postgresql.jdbc.PgConnection
 import com.alibaba.hologres.spark.config.HologresConfigs
 import com.alibaba.hologres.spark.exception.SparkHoloException
-import com.alibaba.hologres.spark.utils.JDBCUtil
+import com.alibaba.hologres.spark.utils.{JDBCUtil, LoggerWrapper}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.GenericInternalRow
 import org.apache.spark.sql.types.StructType
-import org.slf4j.LoggerFactory
 
 import java.sql.{PreparedStatement, ResultSet, SQLException}
 
@@ -16,7 +15,10 @@ class BaseHoloPartitionReader(hologresConfigs: HologresConfigs,
                               query: String,
                               holoSchema: TableSchema,
                               sparkSchema: StructType) {
-  private val logger = LoggerFactory.getLogger(getClass)
+  private val logger = new LoggerWrapper(getClass)
+  logger.setSparkAppName(hologresConfigs.sparkAppName)
+  logger.setSparkAppId(hologresConfigs.sparkAppId)
+  logger.setHoloTableName(hologresConfigs.table)
 
   private var conn: PgConnection = _
   private var statement: PreparedStatement = _
@@ -33,8 +35,8 @@ class BaseHoloPartitionReader(hologresConfigs: HologresConfigs,
   init()
 
   def init(): Unit = {
-    logger.info("the bulk read query: {}", query)
-    logger.info("the sparkSchema: {}", sparkSchema)
+    logger.info(s"the bulk read query: $query")
+    logger.info(s"the sparkSchema: $sparkSchema")
 
     conn = JDBCUtil.createConnection(hologresConfigs).unwrap(classOf[PgConnection])
     conn.setAutoCommit(false)
@@ -43,6 +45,7 @@ class BaseHoloPartitionReader(hologresConfigs: HologresConfigs,
     if (hologresConfigs.enableServerlessComputing) {
       JDBCUtil.executeSql(conn, "set hg_computing_resource = 'serverless'")
       JDBCUtil.executeSql(conn, s"SET hg_experimental_serverless_computing_query_priority = ${hologresConfigs.serverlessComputingQueryPriority}")
+      JDBCUtil.executeSql(conn, s"SET hg_experimental_serverless_computing_required_cores = 5")
     }
 
     statement = conn.prepareStatement(query, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)

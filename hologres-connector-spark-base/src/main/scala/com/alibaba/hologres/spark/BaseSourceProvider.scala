@@ -1,4 +1,5 @@
 package com.alibaba.hologres.spark
+
 import scala.reflect.runtime.{universe => ru}
 
 class BaseSourceProvider() {
@@ -8,6 +9,8 @@ class BaseSourceProvider() {
   val PASSWORD = "password"
   val ENDPOINT = "endpoint"
   val JDBCURL = "jdbcurl"
+  val ENABLE_AKV4 = "akv4_enabled"
+  val AKV4_REGION = "akv4_region"
   val DIRECT_CONNECT = "direct_connect"
   val FIXED_CONNECTION_MODE = "fixed_connection_mode"
   val CONNECTION_MAX_IDLE_MS = "connection_max_idle_ms"
@@ -22,7 +25,9 @@ class BaseSourceProvider() {
   val WRITE_MODE = "write.mode"
   val WRITE_REMOVE_U0000 = "write.remove_u0000"
   val RESHUFFLE_BY_HOLO_DISTRIBUTION_KEY = "write.reshuffle_by_holo_distribution_key"
+  val WRITE_ENABLE_STRICT_DATATYPE_CHECK = "write.strict_datatype_check"
   val WRITE_ON_CONFLICT_ACTION = "write.on_conflict_action"
+  val WRITE_OVERWRITE_DROP_FORCE = "write.overwrite_drop_force"
   // write insert
   val WRITE_INSERT_BATCH_SIZE = "write.insert.batch_size"
   val WRITE_INSERT_BATCH_BYTE_SIZE = "write.insert.batch_byte_size"
@@ -34,6 +39,7 @@ class BaseSourceProvider() {
   val WRITE_COPY_FORMAT = "write.copy.format"
   val WRITE_COPY_DIRTY_DATA_CHECK = "write.copy.dirty_data_check"
   val WRITE_COPY_MAX_BUFFER_SIZE = "write.copy.max_buffer_size"
+  val WRITE_COPY_DISABLE_RIGHT_JOIN = "write.copy.disable_right_join"
 
   // read
   val READ_MODE = "read.mode"

@@ -4,7 +4,7 @@ import com.alibaba.hologres.client.Command.getShardCount
 import com.alibaba.hologres.client.HoloClient
 import com.alibaba.hologres.client.model.TableSchema
 import com.alibaba.hologres.spark.config.HologresConfigs
-import com.alibaba.hologres.spark.utils.JDBCUtil
+import com.alibaba.hologres.spark.utils.{JDBCUtil, LoggerWrapper}
 import com.alibaba.hologres.spark3.source.copy.HoloCopyPartitionReader
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.connector.expressions.filter.Predicate
@@ -12,7 +12,6 @@ import org.apache.spark.sql.connector.read._
 import org.apache.spark.sql.execution.datasources.PartitioningUtils
 import org.apache.spark.sql.jdbc.JdbcDialects
 import org.apache.spark.sql.types.StructType
-import org.slf4j.LoggerFactory
 
 
 /** HoloScanBuilder. */
@@ -22,13 +21,17 @@ class HoloScanBuilder(hologresConfigs: HologresConfigs,
   extends ScanBuilder
     with SupportsPushDownV2Filters
     with SupportsPushDownLimit
-    with SupportsPushDownRequiredColumns{
+    with SupportsPushDownRequiredColumns {
 
-  private val logger = LoggerFactory.getLogger(getClass)
+  private val logger = new LoggerWrapper(getClass)
+  logger.setSparkAppName(hologresConfigs.sparkAppName)
+  logger.setSparkAppId(hologresConfigs.sparkAppId)
+  logger.setHoloTableName(hologresConfigs.table)
 
   private var pushedPredicate = Array.empty[Predicate]
   private var pushedLimit = 0
   private var finalSchema = sparkSchema
+
   override def build(): Scan = {
     if (hologresConfigs.isTableSource) {
       new HoloTableBatchScan(hologresConfigs, finalSchema, pushedPredicate, pushedLimit)
@@ -40,8 +43,8 @@ class HoloScanBuilder(hologresConfigs: HologresConfigs,
   override def pushPredicates(predicates: Array[Predicate]): Array[Predicate] = {
     if (hologresConfigs.readPushDownPredicate) {
       val (pushed, unSupported) = predicates.partition(JdbcDialects.get("jdbc:postgresql").compileExpression(_).isDefined)
-      logger.info("push down predicates: {}", pushed.mkString(","))
-      logger.info("unsupported predicates: {}", unSupported.mkString(","))
+      logger.info(s"push down predicates: ${pushed.mkString(",")}")
+      logger.info(s"unsupported predicates: ${unSupported.mkString(",")}")
       this.pushedPredicate = pushed
       unSupported
     } else {
@@ -75,7 +78,7 @@ class HoloTableBatchScan(hologresConfigs: HologresConfigs,
                          sparkSchema: StructType,
                          pushedPredicates: Array[Predicate],
                          pushedLimit: Int) extends Scan with Batch with PartitionReaderFactory {
-  private val logger = LoggerFactory.getLogger(getClass)
+  @transient private val logger = new LoggerWrapper(getClass)
 
   @transient val holoClient = new HoloClient(hologresConfigs.holoConfig)
   val holoSchema: TableSchema = holoClient.getTableSchema(hologresConfigs.table)
@@ -87,7 +90,7 @@ class HoloTableBatchScan(hologresConfigs: HologresConfigs,
       holoClient.close()
     }
     val numSplits = math.min(hologresConfigs.readMaxTaskCount, shardCount)
-    logger.info("split reading hologres table {} to {} partition", hologresConfigs.table, numSplits)
+    logger.info(s"split reading hologres table ${hologresConfigs.table} to $numSplits partition")
 
     val size = shardCount / numSplits
     var remain = shardCount % numSplits
@@ -134,7 +137,7 @@ class HoloTableBatchScan(hologresConfigs: HologresConfigs,
 class HoloQueryBatchScan(hologresConfigs: HologresConfigs,
                          sparkSchema: StructType,
                          mockHoloSchema: TableSchema) extends Scan with Batch with PartitionReaderFactory {
-  private val logger = LoggerFactory.getLogger(getClass)
+  @transient private val logger = new LoggerWrapper(getClass)
 
   override def readSchema(): StructType = sparkSchema
 

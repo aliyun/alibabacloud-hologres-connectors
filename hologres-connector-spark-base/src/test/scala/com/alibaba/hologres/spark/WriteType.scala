@@ -15,7 +15,7 @@ object ReadType extends Enumeration {
   val
   AUTO,
   SELECT, // select
-  BULK_READ,  // copy out arrow format
-  BULK_READ_COMPRESSED  // copy out arrow format
+  BULK_READ, // copy out arrow format
+  BULK_READ_COMPRESSED // copy out arrow format
   = Value
 }

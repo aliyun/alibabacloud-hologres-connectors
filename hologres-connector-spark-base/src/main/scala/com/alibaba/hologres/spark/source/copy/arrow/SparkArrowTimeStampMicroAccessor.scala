@@ -22,6 +22,7 @@ import java.util.TimeZone
 
 class SparkArrowTimeStampMicroAccessor(timeStampMicroVector: TimeStampMicroVector) extends BaseArrowTimeStampMicroAccessor(timeStampMicroVector) {
   private val TIMEZONE_OFFSET = TimeZone.getDefault.getRawOffset
+
   override def get(index: Int): AnyRef = {
     if (this.isNullAt(index)) {
       null

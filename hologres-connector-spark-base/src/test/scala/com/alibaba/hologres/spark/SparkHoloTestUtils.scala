@@ -1,15 +1,9 @@
 package com.alibaba.hologres.spark
 
-import com.alibaba.hologres.client.impl.util.ShardUtil
-import com.alibaba.hologres.client.model.TableSchema
 import com.alibaba.hologres.client.{HoloClient, HoloConfig}
-import com.alibaba.hologres.org.postgresql.jdbc.TimestampUtil
-import org.apache.spark.Partitioner
-import org.apache.spark.sql.Row
 import org.apache.spark.sql.types._
 
-import java.sql.{Date, DriverManager, SQLException, Timestamp}
-import java.util.concurrent.{ConcurrentSkipListMap, ThreadLocalRandom}
+import java.sql.{DriverManager, SQLException}
 
 /** SparkHoloTestUtils. */
 class SparkHoloTestUtils {
@@ -25,6 +19,7 @@ class SparkHoloTestUtils {
     holoConfig.setJdbcUrl(jdbcUrl)
     holoConfig.setUsername(username)
     holoConfig.setPassword(password)
+    holoConfig.setUseAKv4(false)
     holoConfig.setInputNumberAsEpochMsForDatetimeColumn(true)
     client = new HoloClient(holoConfig)
     client.setAsyncCommit(true)

@@ -6,11 +6,11 @@
 
     <groupId>com.alibaba.hologres</groupId>
     <artifactId>hologres-connector-parent</artifactId>
-    <version>1.5.1-SNAPSHOT</version>
+    <version>1.5.6-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <properties>
-        <hologres.client.version>2.5.8</hologres.client.version>
+        <hologres.client.version>2.6.7</hologres.client.version>
         <java.version>1.8</java.version>
         <maven.compiler.source>${java.version}</maven.compiler.source>
         <maven.compiler.target>${java.version}</maven.compiler.target>
@@ -87,27 +87,6 @@
                         <arg>-Xpkginfo:always</arg>
                     </compilerArgs>
                 </configuration>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-jar-plugin</artifactId>
-                <version>3.0.2</version>
-                <inherited>true</inherited>
-                <configuration>
-                    <archive>
-                        <manifest>
-                            <addDefaultImplementationEntries>true</addDefaultImplementationEntries>
-                            <addDefaultSpecificationEntries>true</addDefaultSpecificationEntries>
-                        </manifest>
-                    </archive>
-                </configuration>
-                <executions>
-                    <execution>
-                        <goals>
-                            <goal>test-jar</goal>
-                        </goals>
-                    </execution>
-                </executions>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

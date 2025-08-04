@@ -5,17 +5,20 @@ import com.alibaba.hologres.client.model.{Record, TableSchema}
 import com.alibaba.hologres.client.{HoloClient, Put}
 import com.alibaba.hologres.spark.config.HologresConfigs
 import com.alibaba.hologres.spark.exception.SparkHoloException
+import com.alibaba.hologres.spark.utils.LoggerWrapper
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.types._
-import org.slf4j.LoggerFactory
 
 /** BaseHoloJdbcDataWriter. */
 abstract class BaseHoloDataWriter(
                                    hologresConfigs: HologresConfigs,
                                    sparkSchema: StructType,
                                    holoSchema: TableSchema) extends Logging {
-  private val logger = LoggerFactory.getLogger(getClass)
+  private val logger = new LoggerWrapper(getClass)
+  logger.setSparkAppName(hologresConfigs.sparkAppName)
+  logger.setSparkAppId(hologresConfigs.sparkAppId)
+  logger.setHoloTableName(hologresConfigs.table)
 
   logger.debug("create new holo client")
   private val client: HoloClient = new HoloClient(hologresConfigs.holoConfig)
@@ -27,7 +30,7 @@ abstract class BaseHoloDataWriter(
     for (i <- 0 until recordLength) {
       val holoColumnIndex = holoSchema.getColumnIndex(sparkSchema.fields.apply(i).name)
       columnIdToHoloId(i) = holoColumnIndex
-      fieldWriters.update(i, FieldWriterUtils.createFieldWriter(holoSchema.getColumn(holoColumnIndex), hologresConfigs.writeRemoveU0000))
+      fieldWriters.update(i, FieldWriterUtils.createFieldWriter(sparkSchema.fields.apply(i), hologresConfigs.writeRemoveU0000))
     }
     fieldWriters
   }

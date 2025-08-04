@@ -37,7 +37,7 @@ class HoloWriterBuilderV1(hologresConfigs: HologresConfigs,
   }
 }
 
-/** HoloWriteV1 [[V1Write]], it is required to use v1 write for reshuffle by holo distribution key. */
+/** HoloWriteV1 [org.apache.spark.sql.connector.write.V1Write], it is required to use v1 write for reshuffle by holo distribution key. */
 class HoloWriteV1(hologresConfigs: HologresConfigs,
                   sparkSchema: StructType,
                   is_overwrite: Boolean) extends V1Write {
@@ -50,9 +50,7 @@ class HologresRelation(hologresConfigs: HologresConfigs,
                        sparkSchema: StructType,
                        is_overwrite: Boolean)(@transient val sparkSession: SparkSession) extends BaseRelation with InsertableRelation {
   override def insert(data: DataFrame, overwrite: Boolean): Unit = {
-    RepartitionUtil.reShuffleThenWrite(data, hologresConfigs.username, hologresConfigs.password, hologresConfigs.jdbcUrl,
-      hologresConfigs.table, writeMode = hologresConfigs.writeMode.toString, onConflictAction = hologresConfigs.onConflictAction.name(),
-      hologresConfigs.writeCopyMaxBufferSize, saveMode = if (is_overwrite) SaveMode.Overwrite else SaveMode.Append)
+    RepartitionUtil.reShuffleThenWrite(data, hologresConfigs, saveMode = if (is_overwrite) SaveMode.Overwrite else SaveMode.Append)
   }
 
   override def sqlContext: SQLContext = sparkSession.sqlContext

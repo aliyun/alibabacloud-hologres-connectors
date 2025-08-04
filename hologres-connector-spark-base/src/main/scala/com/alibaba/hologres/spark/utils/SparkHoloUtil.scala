@@ -6,18 +6,18 @@ import com.alibaba.hologres.client.model.{Column, HoloVersion, TableName, TableS
 import com.alibaba.hologres.spark.config.HologresConfigs
 import com.alibaba.hologres.spark.utils.JDBCUtil.getHoloVersion
 import org.apache.spark.sql.types._
-import org.slf4j.LoggerFactory
 
 import java.io.IOException
 import java.sql.Types
 import scala.collection.mutable.ArrayBuffer
 
 object SparkHoloUtil {
-  private val logger = LoggerFactory.getLogger(getClass)
+  private val logger = new LoggerWrapper(getClass)
 
   // 检查schema是否匹配, 其实是根据holo表或者查询的query生成一个默认的spark schema, 和传入的spark schema进行比较,
   // 传入的spark schema必须是holo表或者查询的query生成的spark schema的一部分
   def checkSparkTableSchema(hologresConfigs: HologresConfigs, sparkSchema: StructType, mockHoloSchemaForQuery: TableSchema = null): Unit = {
+
     var holoSchema: TableSchema = null
     if (hologresConfigs.isTableSource && holoSchema == null) {
       @transient val holoClient = new HoloClient(hologresConfigs.holoConfig)
@@ -37,10 +37,52 @@ object SparkHoloUtil {
       }
       val holoColumn = holoSchema.getColumn(holoSchema.getColumnIndex(column.name))
       if (column.dataType != getSparkDataType(holoColumn)) {
-        throw new IllegalArgumentException(String.format("column %s in hologres table %s type does not match: spark type: %s, hologres type: %s",
-          column.name, holoSchema.getTableName, column.dataType, holoColumn.getTypeName))
+        if (!hologresConfigs.writeStrictDataTypeCheck &&
+          getSparkDataTypesSupportImplicitCast(getSparkDataType(holoColumn), column.dataType).contains(column.dataType)) {
+          logger.warn(String.format("column %s in hologres table %s type does not match: spark type: %s," +
+            " hologres type: %s, but will be casted because write.strict_datatype_check is false",
+            column.name, holoSchema.getTableName, column.dataType, holoColumn.getTypeName))
+        } else {
+          val holoTypeName = holoColumn.getTypeName + (if (holoColumn.getPrecision > 0) {
+            s"(${holoColumn.getPrecision}" + (if (holoColumn.getScale > 0) {
+              s",${holoColumn.getScale})"
+            } else {
+              ")"
+            })
+          } else {
+            ""
+          })
+          throw new IllegalArgumentException(String.format("column %s in hologres table %s type does not match: spark type: %s, hologres type: %s",
+            column.name, holoSchema.getTableName, column.dataType, holoTypeName))
+        }
       }
     })
+  }
+
+
+  // 检查plan中的schema是否与sparkSchema匹配, plan中的schema只需要检查字段长度和类型
+  // catalog场景写入时, 用户源表的字段名并不一定与结果表一致, 我们按照列顺序写入; 非catalog场景则根据列名写入
+  def checkSparkTableSchema(hologresConfigs: HologresConfigs, sparkSchema: StructType, planSchema: StructType): Unit = {
+    logger.info("spark schema: " + sparkSchema.toDDL)
+    logger.info("plan schema: " + planSchema.toDDL)
+    if (planSchema.length != sparkSchema.length) {
+      throw new IllegalArgumentException(s"schema length not match, \nspark schema: ${sparkSchema}, " +
+        s"length ${sparkSchema.length}, \nwrite schema: ${planSchema}, length ${planSchema.length}")
+    }
+    for (i <- 0 until planSchema.length) {
+      val planType = planSchema.fields.apply(i).dataType
+      val sparkType = sparkSchema.fields.apply(i).dataType
+      if (planType != sparkType) {
+        if (!hologresConfigs.writeStrictDataTypeCheck && getSparkDataTypesSupportImplicitCast(sparkType, planType).contains(planType)) {
+          logger.warn(String.format("column %s in hologres catalog table type does not match: spark type: %s," +
+            " plan type: %s, but will be casted because write.strict_datatype_check is false",
+            sparkSchema.fields.apply(i).name, sparkType, planType))
+        } else {
+          throw new IllegalArgumentException(s"schema not match in field ${i}, \nspark schema type: ${sparkType}," +
+            s" \nwrite schema type: ${planType}, \nspark schema: ${sparkSchema}, \nwrite schema: ${planSchema}")
+        }
+      }
+    }
   }
 
   // 如果未传入spark的DDL，则根据holo表或者查询的query推断一个默认的spark schema
@@ -97,6 +139,38 @@ object SparkHoloUtil {
     }
   }
 
+  // 允许低精度类型写入holo高精度，一对多
+  private def getSparkDataTypesSupportImplicitCast(sinkType: DataType, sourceType: DataType): Set[DataType] = {
+    sinkType match {
+      case DataTypes.ShortType => Set(DataTypes.ShortType)
+      case DataTypes.IntegerType => Set(DataTypes.IntegerType, DataTypes.ShortType)
+      case DataTypes.LongType => Set(DataTypes.LongType, DataTypes.IntegerType, DataTypes.ShortType)
+      case DataTypes.FloatType => Set(DataTypes.FloatType)
+      case DataTypes.DoubleType => Set(DataTypes.DoubleType, DataTypes.FloatType)
+      case DataTypes.BooleanType => Set(DataTypes.BooleanType)
+      case DataTypes.TimestampType => Set(DataTypes.TimestampType)
+      case DataTypes.BinaryType => Set(DataTypes.BinaryType)
+      case DataTypes.DateType => Set(DataTypes.DateType)
+      case DataTypes.StringType =>
+        Set(DataTypes.StringType, DataTypes.ShortType, DataTypes.IntegerType, DataTypes.LongType,
+          DataTypes.FloatType, DataTypes.DoubleType, DataTypes.BooleanType, DataTypes.TimestampType,
+          DataTypes.DateType, sourceType match {
+            case decimalType: DecimalType => DecimalType(decimalType.precision, decimalType.scale)
+            case _ => DataTypes.StringType
+          })
+      case decimalType: DecimalType => Set(DecimalType(decimalType.precision, decimalType.scale))
+      case ArrayType(DataTypes.IntegerType, true) => Set(ArrayType(DataTypes.IntegerType))
+      case ArrayType(DataTypes.LongType, true) => Set(ArrayType(DataTypes.LongType))
+      case ArrayType(DataTypes.FloatType, true) => Set(ArrayType(DataTypes.FloatType))
+      case ArrayType(DataTypes.DoubleType, true) => Set(ArrayType(DataTypes.DoubleType))
+      case ArrayType(DataTypes.BooleanType, true) => Set(ArrayType(DataTypes.BooleanType))
+      case ArrayType(DataTypes.StringType, true) => Set(ArrayType(DataTypes.StringType))
+      case _ => throw new IllegalArgumentException(String.format("Spark data type %s does not supported now",
+        sourceType))
+    }
+  }
+
+  // holo类型对应的spark类型，严格检查类型，一对一
   def getSparkDataType(column: Column): DataType = {
     column.getType match {
       case Types.SMALLINT | Types.TINYINT => DataTypes.ShortType
@@ -139,6 +213,9 @@ object SparkHoloUtil {
         case e: Exception =>
           throw new IOException("Failed to get holo version", e)
       }
+      hologresConfigs.holoVersion = String.format("%s.%s.%s",
+        holoVersion.getMajorVersion.toString, holoVersion.getMinorVersion.toString, holoVersion.getFixVersion.toString)
+      logger.info(s"holo version: ${holoVersion}")
 
       // 2.2.25之后支持全字段时的bulk_load_onc_conflict, 3.1.0之后支持部分字段的bulk_load_on_conflict
       val supportBulkLoadOnConflict = holoSchema.getPrimaryKeys.length > 0 &&

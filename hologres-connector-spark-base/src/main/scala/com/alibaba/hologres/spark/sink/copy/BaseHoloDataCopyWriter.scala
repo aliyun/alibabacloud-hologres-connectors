@@ -11,10 +11,10 @@ import com.alibaba.hologres.org.postgresql.core.BaseConnection
 import com.alibaba.hologres.spark.config.HologresConfigs
 import com.alibaba.hologres.spark.exception.SparkHoloException
 import com.alibaba.hologres.spark.sink._
+import com.alibaba.hologres.spark.utils.LoggerWrapper
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.types._
-import org.slf4j.LoggerFactory
 
 import java.io.IOException
 
@@ -23,21 +23,30 @@ abstract class BaseHoloDataCopyWriter(
                                        hologresConfigs: HologresConfigs,
                                        sparkSchema: StructType,
                                        holoSchema: TableSchema,
-                                       targetShardList: String = "") extends Logging {
-  private val logger = LoggerFactory.getLogger(getClass)
+                                       targetShardList: String = "",
+                                       taskId: String = "") extends Logging {
+  private val logger = new LoggerWrapper(getClass)
+  logger.setSparkAppName(hologresConfigs.sparkAppName)
+  logger.setSparkAppId(hologresConfigs.sparkAppId)
+  logger.setSparkTaskId(taskId)
+  logger.setHoloTableName(hologresConfigs.table)
 
   private val copyContext: CopyContext = new CopyContext
   copyContext.init(hologresConfigs, targetShardList)
-  private val binary: Boolean = hologresConfigs.writeCopyFormat == "binary"
+  private val copyFormat: CopyFormat = if (hologresConfigs.writeCopyFormat == "binary") CopyFormat.BINARY else CopyFormat.CSV
 
   private val recordLength: Int = sparkSchema.fields.length
   private val columnIdToHoloId: Array[Int] = new Array[Int](recordLength)
+  private val fieldTypeCasters: Array[Caster] = new Array[Caster](recordLength)
   private val fieldWriters: Array[FieldWriter] = {
     val fieldWriters = new Array[FieldWriter](recordLength)
     for (i <- 0 until recordLength) {
       val holoColumnIndex = holoSchema.getColumnIndex(sparkSchema.fields.apply(i).name)
       columnIdToHoloId(i) = holoColumnIndex
-      fieldWriters.update(i, FieldWriterUtils.createFieldWriter(holoSchema.getColumn(holoColumnIndex), hologresConfigs.writeRemoveU0000))
+      fieldWriters.update(i, FieldWriterUtils.createFieldWriter(sparkSchema.fields.apply(i), hologresConfigs.writeRemoveU0000))
+      if (!hologresConfigs.writeStrictDataTypeCheck) {
+        fieldTypeCasters.update(i, FieldWriterUtils.createCaster(holoSchema.getColumn(holoColumnIndex)))
+      }
     }
     fieldWriters
   }
@@ -78,11 +87,11 @@ abstract class BaseHoloDataCopyWriter(
           case mode: CopyMode => mode
           case _ => CopyMode.STREAM
         }
-        val sql = CopyUtil.buildCopyInSql(record, binary, if (hologresConfigs.onConflictAction eq INSERT_OR_IGNORE) INSERT_OR_IGNORE else INSERT_OR_UPDATE,
+        val sql = CopyUtil.buildCopyInSql(record, copyFormat, if (hologresConfigs.onConflictAction eq INSERT_OR_IGNORE) INSERT_OR_IGNORE else INSERT_OR_UPDATE,
           copyMode)
         logger.info(s"copyMode ${copyMode.name()}, copy sql :$sql")
         val in = copyContext.manager.copyIn(sql)
-        copyContext.os = if (copyMode == CopyMode.STREAM && binary) {
+        copyContext.os = if (copyMode == CopyMode.STREAM && copyFormat == CopyFormat.BINARY) {
           new RecordBinaryOutputStream(new CopyInOutputStream(in), schema, copyContext.pgConn.unwrap(classOf[BaseConnection]),
             hologresConfigs.writeCopyMaxBufferSize)
         } else {
@@ -117,7 +126,11 @@ abstract class BaseHoloDataCopyWriter(
       for (i <- 0 until recordLength) {
         val columnHoloId = columnIdToHoloId(i)
         if (!row.isNullAt(i)) {
-          put.setObject(columnHoloId, fieldWriters.apply(i).writeValue(row, i))
+          var value = fieldWriters.apply(i).writeValue(row, i)
+          if (!hologresConfigs.writeStrictDataTypeCheck) {
+            value = fieldTypeCasters.apply(i).castValue(value)
+          }
+          put.setObject(columnHoloId, value)
         } else {
           put.setObject(columnHoloId, null)
         }

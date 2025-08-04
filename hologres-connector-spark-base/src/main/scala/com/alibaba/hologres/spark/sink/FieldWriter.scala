@@ -2,7 +2,7 @@ package com.alibaba.hologres.spark.sink
 
 import com.alibaba.hologres.client.model.Column
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.types.StringType
+import org.apache.spark.sql.types._
 
 import java.sql.{Date, Timestamp, Types}
 import java.time.LocalDate
@@ -124,45 +124,102 @@ class StringArrayFieldWriter extends FieldWriter {
   }
 }
 
+/**
+ * 目前仅支持低精度到高精度的类型转换，例如int -> long，或者long -> string
+ * 不支持高精度到低精度的类型转换，例如long -> int， 以及string -> long
+ */
+trait Caster {
+  def castValue(value: Any): Any
+}
+
+class ToOriginCaster extends Caster {
+  override def castValue(value: Any): Any = {
+    value
+  }
+}
+
+class ToStringCaster extends Caster {
+  override def castValue(value: Any): Any = {
+    value.toString
+  }
+}
+
+class ToIntCaster extends Caster {
+  override def castValue(value: Any): Any = {
+    value match {
+      case value: Short => value.toInt
+      case _ => value
+    }
+  }
+}
+
+class ToLongCaster extends Caster {
+  override def castValue(value: Any): Any = {
+    value match {
+      case value: Short => value.toLong
+      case value: Int => value.toLong
+      case _ => value
+    }
+  }
+}
+
+class ToDoubleCaster extends Caster {
+  override def castValue(value: Any): Any = {
+    value match {
+      case value: Float => value.toDouble
+      case _ => value
+    }
+  }
+}
+
+
 object FieldWriterUtils {
-  def createFieldWriter(holoColumn: Column, removeU0000: Boolean = false): FieldWriter = {
-    holoColumn.getType match {
-      case Types.TINYINT | Types.SMALLINT =>
+  def createFieldWriter(sparkColumn: StructField, removeU0000: Boolean = false): FieldWriter = {
+    sparkColumn.dataType match {
+      case DataTypes.ShortType =>
         new ShortFieldWriter
-      case Types.INTEGER =>
+      case DataTypes.IntegerType =>
         new IntFieldWriter
-      case Types.BIGINT =>
+      case DataTypes.LongType =>
         new LongFieldWriter
-      case Types.REAL | Types.FLOAT =>
+      case DataTypes.FloatType =>
         new FloatFieldWriter
-      case Types.DOUBLE =>
+      case DataTypes.DoubleType =>
         new DoubleFieldWriter
-      case Types.NUMERIC | Types.DECIMAL =>
-        new DecimalFieldWriter(holoColumn.getPrecision, holoColumn.getScale)
-      case Types.BOOLEAN | Types.BIT =>
+      case DecimalType() =>
+        val decimalType = sparkColumn.dataType.asInstanceOf[DecimalType]
+        new DecimalFieldWriter(decimalType.precision, decimalType.scale)
+      case DataTypes.BooleanType =>
         new BooleanFieldWriter
-      case Types.CHAR | Types.VARCHAR | Types.LONGVARCHAR =>
+      case DataTypes.StringType =>
         new StringFieldWriter(removeU0000)
-      case Types.DATE => new DateFieldWriter
-      case Types.TIMESTAMP => new TimestampFieldWriter
-      case Types.BINARY | Types.VARBINARY => new BinaryFieldWriter
-      case Types.OTHER =>
-        holoColumn.getTypeName match {
-          case "json" | "jsonb" => new StringFieldWriter(removeU0000)
-          case "roaringbitmap" => new BinaryFieldWriter
-        }
-      case Types.ARRAY =>
-        holoColumn.getTypeName match {
-          case "_int4" => new IntArrayFieldWriter
-          case "_int8" => new LongArrayFieldWriter
-          case "_float4" => new FloatArrayFieldWriter
-          case "_float8" => new DoubleArrayFieldWriter
-          case "_bool" => new BooleanArrayFieldWriter
-          case "_varchar" | "_text" => new StringArrayFieldWriter
-        }
+      case DataTypes.DateType => new DateFieldWriter
+      case DataTypes.TimestampType => new TimestampFieldWriter
+      case DataTypes.BinaryType => new BinaryFieldWriter
+      case ArrayType(DataTypes.IntegerType, _) => new IntArrayFieldWriter
+      case ArrayType(DataTypes.LongType, _) => new LongArrayFieldWriter
+      case ArrayType(DataTypes.FloatType, _) => new FloatArrayFieldWriter
+      case ArrayType(DataTypes.DoubleType, _) => new DoubleArrayFieldWriter
+      case ArrayType(DataTypes.BooleanType, _) => new BooleanArrayFieldWriter
+      case ArrayType(DataTypes.StringType, _) => new StringArrayFieldWriter
       case _ =>
-        throw new IllegalArgumentException(String.format("Hologres sink does not support data type %s for now", holoColumn.getTypeName))
+        throw new IllegalArgumentException(String.format("Hologres sink does not support data type %s for now", sparkColumn.dataType.typeName))
     }
   }
 
+
+  def createCaster(holoColumn: Column): Caster = {
+    holoColumn.getType match {
+      case Types.INTEGER =>
+        new ToIntCaster
+      case Types.BIGINT =>
+        new ToLongCaster
+      case Types.DOUBLE =>
+        new ToDoubleCaster
+      case Types.VARCHAR | Types.CHAR | Types.LONGVARCHAR | Types.LONGNVARCHAR =>
+        new ToStringCaster
+      case _ =>
+        new ToOriginCaster
+    }
+  }
 }

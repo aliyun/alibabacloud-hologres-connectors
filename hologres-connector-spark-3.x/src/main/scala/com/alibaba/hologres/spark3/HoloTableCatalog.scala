@@ -2,13 +2,12 @@ package com.alibaba.hologres.spark3
 
 import com.alibaba.hologres.client.model.TableName
 import com.alibaba.hologres.spark.config.HologresConfigs
-import com.alibaba.hologres.spark.utils.{JDBCUtil, SparkHoloUtil}
+import com.alibaba.hologres.spark.utils.{JDBCUtil, LoggerWrapper, SparkHoloUtil}
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.connector.catalog.{Identifier, NamespaceChange, SupportsNamespaces, Table, TableCatalog, TableChange}
+import org.apache.spark.sql.connector.catalog._
 import org.apache.spark.sql.connector.expressions.Transform
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
-import org.slf4j.LoggerFactory
 
 import java.util
 import scala.collection.JavaConverters.mapAsScalaMapConverter
@@ -21,7 +20,7 @@ import scala.collection.JavaConverters.mapAsScalaMapConverter
  * 目前不支持执行DDL, 只支持对已有表的查询和写入
  */
 class HoloTableCatalog extends TableCatalog with SupportsNamespaces with Logging {
-  private val logger = LoggerFactory.getLogger(getClass)
+  private val logger = new LoggerWrapper(getClass)
 
   private var catalogName: String = _
   private var hologresConfigs: HologresConfigs = _

@@ -4,13 +4,12 @@ import com.alibaba.hologres.client.Command.getShardCount
 import com.alibaba.hologres.client.HoloClient
 import com.alibaba.hologres.client.model.{TableName, TableSchema}
 import com.alibaba.hologres.spark.config.HologresConfigs
-import com.alibaba.hologres.spark.utils.JDBCUtil
+import com.alibaba.hologres.spark.utils.{JDBCUtil, LoggerWrapper}
 import com.alibaba.hologres.spark3.sink.copy.HoloDataCopyWriter
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.connector.write._
 import org.apache.spark.sql.sources.Filter
 import org.apache.spark.sql.types.StructType
-import org.slf4j.LoggerFactory
 
 import java.io.IOException
 import java.time.LocalDateTime
@@ -38,7 +37,11 @@ class HoloBatchWriter(
                        hologresConfigs: HologresConfigs,
                        sparkSchema: StructType,
                        is_overwrite: Boolean) extends BatchWrite {
-  private val logger = LoggerFactory.getLogger(getClass)
+  private val logger = new LoggerWrapper(getClass)
+  logger.setSparkAppName(hologresConfigs.sparkAppName)
+  logger.setSparkAppId(hologresConfigs.sparkAppId)
+  logger.setHoloTableName(hologresConfigs.table)
+
   private var partitionInfo: (String, String) = _
   logger.info("HoloBatchWriter begin: " + LocalDateTime.now())
 
@@ -81,7 +84,7 @@ class HoloBatchWriter(
       }
 
       val shardCount = getShardCount(holoClient, holoSchema)
-      logger.info("write mode {}", hologresConfigs.writeMode.toString)
+      logger.info(s"write mode ${hologresConfigs.writeMode.toString}")
       HoloWriterFactory(hologresConfigs, sparkSchema, holoSchema, numPartitions, shardCount)
     } finally {
       if (holoClient != null) {
@@ -114,9 +117,9 @@ case class HoloWriterFactory(
                              taskId: Long): DataWriter[InternalRow] = {
     if ("insert" != hologresConfigs.writeMode) {
       if (hologresConfigs.reshuffleByHoloDistributionKey) {
-        new HoloDataCopyWriter(hologresConfigs, sparkSchema, holoSchema, getTargetShardList(partitionId))
+        new HoloDataCopyWriter(hologresConfigs, sparkSchema, holoSchema, getTargetShardList(partitionId), taskId.toString)
       } else {
-        new HoloDataCopyWriter(hologresConfigs, sparkSchema, holoSchema)
+        new HoloDataCopyWriter(hologresConfigs, sparkSchema, holoSchema, taskId = taskId.toString)
       }
     } else {
       new HoloDataWriter(hologresConfigs, sparkSchema, holoSchema)

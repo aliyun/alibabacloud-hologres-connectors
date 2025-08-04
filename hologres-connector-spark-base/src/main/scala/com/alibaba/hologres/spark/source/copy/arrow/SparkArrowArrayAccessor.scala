@@ -15,7 +15,7 @@
 
 package com.alibaba.hologres.spark.source.copy.arrow
 
-import com.alibaba.hologres.client.copy.out.arrow.accessor.{BaseArrowArrayAccessor, AbstractArrowVectorAccessor}
+import com.alibaba.hologres.client.copy.out.arrow.accessor.{AbstractArrowVectorAccessor, BaseArrowArrayAccessor}
 import com.alibaba.hologres.org.apache.arrow.vector.complex.ListVector
 import org.apache.spark.sql.catalyst.util.ArrayData
 import org.apache.spark.unsafe.types.UTF8String

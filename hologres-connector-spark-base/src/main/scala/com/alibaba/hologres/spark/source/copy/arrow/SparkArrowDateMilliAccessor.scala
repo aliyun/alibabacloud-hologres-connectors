@@ -18,8 +18,6 @@ package com.alibaba.hologres.spark.source.copy.arrow
 import com.alibaba.hologres.client.copy.out.arrow.accessor.BaseArrowDateMilliAccessor
 import com.alibaba.hologres.org.apache.arrow.vector.DateMilliVector
 
-import java.util.TimeZone
-
 class SparkArrowDateMilliAccessor(dateVector: DateMilliVector) extends BaseArrowDateMilliAccessor(dateVector) {
   override def get(index: Int): AnyRef = {
     if (this.isNullAt(index)) {

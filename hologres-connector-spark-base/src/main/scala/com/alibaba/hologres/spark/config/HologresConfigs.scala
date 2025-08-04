@@ -3,10 +3,10 @@ package com.alibaba.hologres.spark.config
 import com.alibaba.hologres.client.HoloConfig
 import com.alibaba.hologres.client.copy.CopyMode
 import com.alibaba.hologres.client.model.OnConflictAction
+import com.alibaba.hologres.spark.ConfigUtils
 import com.alibaba.hologres.spark.utils.JDBCUtil
 import com.alibaba.hologres.spark.utils.JDBCUtil._
 import org.apache.spark.SparkContext
-import com.alibaba.hologres.spark.ConfigUtils
 
 /** Hologres config parameters process. */
 class HologresConfigs(sourceOptions: Map[String, String]) extends Serializable {
@@ -24,6 +24,13 @@ class HologresConfigs(sourceOptions: Map[String, String]) extends Serializable {
   val password: String = sourceOptions.getOrElse("password",
     throw new IllegalArgumentException("Missing necessary parameter 'password'."))
   holoConfig.setPassword(password)
+  val enableAkv4: Boolean = sourceOptions.getOrElse("akv4_enabled", "false").toBoolean
+  holoConfig.setUseAKv4(enableAkv4)
+  var akv4Region: String = _
+  if (enableAkv4) {
+    akv4Region = sourceOptions.get("akv4_region").orNull
+    holoConfig.setRegion(akv4Region)
+  }
 
   lazy val database: String = sourceOptions.getOrElse("database",
     throw new IllegalArgumentException("If jdbcUrl is not provided, please provide parameter 'database'."))
@@ -57,7 +64,7 @@ class HologresConfigs(sourceOptions: Map[String, String]) extends Serializable {
   sourceOptions.get("retry_sleep_step_ms").map(v => holoConfig.setRetrySleepStepMs(v.toLong))
   sourceOptions.get("connection_max_idle_ms").map(v => holoConfig.setConnectionMaxIdleMs(v.toLong))
   sourceOptions.get("fixed_connection_mode").map(v => holoConfig.setUseFixedFe(v.toBoolean))
-  var directConnect: Boolean = sourceOptions.getOrElse("direct_connect", "true").toBoolean
+  var directConnect: Boolean = sourceOptions.getOrElse("direct_connect", "false").toBoolean
   holoConfig.setEnableDirectConnection(directConnect)
 
   // -------------------------------------write----------------------------------------
@@ -86,11 +93,14 @@ class HologresConfigs(sourceOptions: Map[String, String]) extends Serializable {
   sourceOptions.get("write.insert.max_interval_ms").map(v => holoConfig.setWriteMaxIntervalMs(v.toLong))
   sourceOptions.get("write.insert.thread_size").map(v => holoConfig.setWriteThreadSize(v.toInt))
   sourceOptions.get("write.insert.use_legacy_put_handler").map(v => holoConfig.setUseLegacyPutHandler(v.toBoolean))
-  val writeRemoveU0000: Boolean = sourceOptions.getOrElse("remove_u0000", "true").toBoolean
+  val writeRemoveU0000: Boolean = sourceOptions.getOrElse("write.remove_u0000", "true").toBoolean
   holoConfig.setRemoveU0000InTextColumnValue(writeRemoveU0000)
   val writeCopyFormat: String = sourceOptions.getOrElse("write.copy.format", "binary")
   val writeCopyDirtyDataCheck: Boolean = sourceOptions.getOrElse("write.copy.dirty_data_check", "false").toBoolean
   val writeCopyMaxBufferSize: Int = sourceOptions.getOrElse("write.copy.max_buffer_size", "52428800").toInt
+  val writeStrictDataTypeCheck: Boolean = sourceOptions.getOrElse("write.strict_datatype_check", "false").toBoolean
+  val disableRightJoinInCopy: Boolean = sourceOptions.getOrElse("write.copy.disable_right_join", "false").toBoolean
+  val overWriteDropForce: Boolean = sourceOptions.getOrElse("write.overwrite_drop_force", "true").toBoolean
 
   // -------------------------------------read----------------------------------------
   private val readModeStr: String = sourceOptions.getOrElse("read.mode", "auto").toLowerCase
@@ -114,6 +124,11 @@ class HologresConfigs(sourceOptions: Map[String, String]) extends Serializable {
   if (sparkAppName == null || "".eq(sparkAppName)) {
     sparkAppName = "default"
   }
+  var sparkAppId: String = SparkContext.getOrCreate().applicationId
+  if (sparkAppId == null) {
+    sparkAppId = ""
+  }
+
   holoConfig.setAppName("hologres-connector-spark-" + sparkAppName)
 
   // -------------------------------------内部参数----------------------------------------
@@ -124,6 +139,8 @@ class HologresConfigs(sourceOptions: Map[String, String]) extends Serializable {
   // 与reshuffle_by_holo_distribution_key参数配合使用, 表示是否已经进行了repartition. 是则使用WRITE_V2直接写入, 否则使用WRITE_V1对DataFrame进行repartition之后再调用WRITE_V2写入
   // 内部参数, 不建议用户设置
   var needReshuffle: Boolean = sourceOptions.getOrElse("needReshuffle", "false").toBoolean
+
+  var holoVersion: String = _
 
   override def clone(): HologresConfigs = new HologresConfigs(sourceOptions)
 }

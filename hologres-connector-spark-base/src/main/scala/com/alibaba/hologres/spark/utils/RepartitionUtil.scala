@@ -18,59 +18,114 @@ package com.alibaba.hologres.spark.utils
 import com.alibaba.hologres.client.impl.util.ShardUtil
 import com.alibaba.hologres.client.{Command, HoloClient, HoloConfig}
 import com.alibaba.hologres.org.postgresql.jdbc.TimestampUtil
+import com.alibaba.hologres.spark.config.HologresConfigs
 import org.apache.spark.Partitioner
-import org.apache.spark.sql.{DataFrame, Row, SaveMode}
 import org.apache.spark.sql.types._
+import org.apache.spark.sql.{DataFrame, Row, SaveMode}
 
 import java.sql.{Date, Timestamp}
 import java.util.concurrent.{ConcurrentSkipListMap, ThreadLocalRandom}
 
 object RepartitionUtil {
-  def reShuffleThenWrite(inputDf: DataFrame, username: String, password: String, url: String, tableName: String,
-                         writeMode: String = "bulk_load", onConflictAction: String = "insertOrReplace",
-                         maxBufferSize: Int = 50 * 1024 * 1024,saveMode: SaveMode = SaveMode.Append): Unit = {
-    val reShuffledDf = reShuffleByHoloDistributionKey(inputDf, username, password, url, tableName)
-    // 将shuffle之后的DataFrame写入到Hologres中
+
+  private val logger = new LoggerWrapper(getClass)
+
+  def reShuffleThenWrite(inputDf: DataFrame, hologresConfigs: HologresConfigs, saveMode: SaveMode): Unit = {
+    logger.setSparkAppName(hologresConfigs.sparkAppName)
+    logger.setSparkAppId(hologresConfigs.sparkAppId)
+    logger.setHoloTableName(hologresConfigs.table)
+
+    val reShuffledDf = reShuffleByHoloDistributionKey(inputDf,
+      hologresConfigs.username, hologresConfigs.password, hologresConfigs.jdbcUrl, hologresConfigs.table)
+    // 将shuffle之后的DataFrame写入到Hologres中, 原样传入所有写入和通用参数
     reShuffledDf.write
       .format("hologres")
-      .option("username", username)
-      .option("password", password)
-      .option("jdbcurl", url)
-      .option("table", tableName)
-      .option("write.mode", writeMode)
-      .option("write.on_conflict_action", onConflictAction)
-      .option("write.copy.max_buffer_size", maxBufferSize)
+      .option("username", hologresConfigs.username)
+      .option("password", hologresConfigs.password)
+      .option("jdbcurl", hologresConfigs.jdbcUrl)
+      .option("table", hologresConfigs.table)
+      .option("enable_serverless_computing", hologresConfigs.enableServerlessComputing)
+      .option("serverless_computing_query_priority", hologresConfigs.serverlessComputingQueryPriority)
+      .option("statement_timeout_seconds", hologresConfigs.statementTimeout)
+      .option("retry_count", hologresConfigs.holoConfig.getRetryCount)
+      .option("retry_sleep_init_ms", hologresConfigs.holoConfig.getRetrySleepInitMs)
+      .option("retry_sleep_step_ms", hologresConfigs.holoConfig.getRetrySleepStepMs)
+      .option("connection_max_idle_ms", hologresConfigs.holoConfig.getConnectionMaxIdleMs)
+      .option("fixed_connection_mode", hologresConfigs.holoConfig.isUseFixedFe)
+      .option("direct_connect", hologresConfigs.directConnect)
+      .option("retry_count", hologresConfigs.holoConfig.getRetryCount)
+      .option("write.mode", hologresConfigs.writeMode.toString)
+      .option("write.on_conflict_action", hologresConfigs.onConflictAction.name())
+      .option("write.copy.max_buffer_size", hologresConfigs.writeCopyMaxBufferSize)
+      .option("write.copy.format", hologresConfigs.writeCopyFormat)
+      .option("write.copy.disable_right_join", hologresConfigs.disableRightJoinInCopy)
+      .option("write.copy.dirty_data_check", hologresConfigs.writeCopyDirtyDataCheck)
+      .option("write.strict_datatype_check", hologresConfigs.writeStrictDataTypeCheck)
+      .option("write.remove_u0000", hologresConfigs.writeRemoveU0000)
       .option("write.reshuffle_by_holo_distribution_key", "true")
       .mode(saveMode)
       .save()
   }
 
+  @deprecated()
+  def reShuffleThenWrite(inputDf: DataFrame, username: String, password: String, url: String, tableName: String,
+                         writeMode: String = "bulk_load", onConflictAction: String = "insertOrReplace",
+                         maxBufferSize: Int = 50 * 1024 * 1024, saveMode: SaveMode = SaveMode.Append,
+                         directConnect: Boolean = false, enableServerlessComputing: Boolean = false): Unit = {
+    val hologresConfigs:HologresConfigs = new HologresConfigs(Map(
+      "username" -> username,
+      "password" -> password,
+      "jdbcurl" -> url,
+      "table" -> tableName,
+      "write.mode" -> writeMode,
+      "write.on_conflict_action" -> onConflictAction,
+      "write.copy.max_buffer_size" -> maxBufferSize.toString,
+      "direct_connect" -> directConnect.toString,
+      "enable_serverless_computing" -> enableServerlessComputing.toString
+    ))
+    logger.setSparkAppName(hologresConfigs.sparkAppName)
+    logger.setSparkAppId(hologresConfigs.sparkAppId)
+    logger.setHoloTableName(hologresConfigs.table)
+
+    reShuffleThenWrite(inputDf, hologresConfigs, saveMode)
+  }
+
   /**
    * 传入holo的配置,从而自行计算表的shardCount和分布键信息
    */
-  def reShuffleByHoloDistributionKey(inputDf: DataFrame, username: String, password: String, url: String, tableName: String): DataFrame = {
+  def reShuffleByHoloDistributionKey(inputDf: DataFrame, username: String, password: String, url: String, tableName: String,
+                                     enableAkv4: Boolean = false, akv4Region: String = ""): DataFrame = {
     val holoConf = new HoloConfig
     holoConf.setUsername(username)
     holoConf.setPassword(password)
     holoConf.setJdbcUrl(url)
-    val client = new HoloClient(holoConf)
-    val holoSchema = client.getTableSchema(tableName)
-    val shardCount = Command.getShardCount(client, holoSchema)
-    val sparkSession = inputDf.sparkSession
-    val inputSchema = inputDf.schema
-
-    val keySelector = new HoloKeySelector(shardCount, inputSchema, holoSchema.getDistributionKeys)
-    val partitioner = new CustomerPartition(shardCount)
-    val rdd = {
-      // keySelector 根据 distribution key字段的值计算shard
-      inputDf.rdd.map(row => {
-          (keySelector.getKey(row), row)
-        })
-        // 数据repartition为shardCount个分区
-        .partitionBy(partitioner)
-        .map(_._2)
+    holoConf.setUseAKv4(enableAkv4)
+    if (enableAkv4 && akv4Region != "") {
+      holoConf.setRegion(akv4Region)
     }
-    sparkSession.createDataFrame(rdd, inputSchema)
+    val client = new HoloClient(holoConf)
+    try {
+      val holoSchema = client.getTableSchema(tableName)
+      val shardCount = Command.getShardCount(client, holoSchema)
+      val sparkSession = inputDf.sparkSession
+      val inputSchema = inputDf.schema
+      logger.info(s"start repartition by holo distribution key, shardCount: $shardCount")
+      val keySelector = new HoloKeySelector(shardCount, inputSchema, holoSchema.getDistributionKeys)
+      val partitioner = new CustomerPartition(shardCount)
+      val rdd = {
+        // keySelector 根据 distribution key字段的值计算shard
+        inputDf.rdd.map(row => {
+            (keySelector.getKey(row), row)
+          })
+          // 数据repartition为shardCount个分区
+          .partitionBy(partitioner)
+          .map(_._2)
+      }
+      logger.info(s"repartition by holo distribution key finished")
+      sparkSession.createDataFrame(rdd, inputSchema)
+    } finally {
+      client.close()
+    }
   }
 
   private object RowShardUtil {
