@@ -29,6 +29,15 @@ public class HoloSinkConfig extends AbstractConfig {
     private static final String PASSWORD_DOC = "阿里云账号的 AccessKey SECRET.";
     private static final String PASSWORD_DISPLAY = "Hologres User Password";
 
+    public static final String CONNECTION_ENABLE_AKV4 = "connection.enableAkv4";
+    private static final Boolean CONNECTION_ENABLE_AKV4_DEFAULT = false;
+    private static final String CONNECTION_ENABLE_AKV4_DOC = "是否开启AKV4认证";
+    private static final String CONNECTION_ENABLE_AKV4_DISPLAY = "ENABLE AKV4";
+
+    public static final String CONNECTION_AKV4_REGION = "connection.akv4Region";
+    private static final String CONNECTION_AKV4_REGION_DOC = "AKV4认证区域";
+    private static final String CONNECTION_AKV4_REGION_DISPLAY = "AKV4 REGION";
+
     public static final String WRITE_MODE = "connection.writeMode";
     public static final String WRITE_MODE_DEFAULT = "insert_or_replace";
     private static final String WRITE_MODE_DOC =
@@ -242,6 +251,28 @@ public class HoloSinkConfig extends AbstractConfig {
                 1,
                 ConfigDef.Width.LONG,
                 PASSWORD_DISPLAY);
+
+        config.define(
+                CONNECTION_ENABLE_AKV4,
+                ConfigDef.Type.BOOLEAN,
+                CONNECTION_ENABLE_AKV4_DEFAULT,
+                ConfigDef.Importance.HIGH,
+                CONNECTION_ENABLE_AKV4_DOC,
+                CONFIG_CONNECTION_GROUP,
+                1,
+                ConfigDef.Width.LONG,
+                CONNECTION_ENABLE_AKV4_DISPLAY);
+
+        config.define(
+                CONNECTION_AKV4_REGION,
+                ConfigDef.Type.STRING,
+                ConfigDef.NO_DEFAULT_VALUE,
+                ConfigDef.Importance.HIGH,
+                CONNECTION_AKV4_REGION_DOC,
+                CONFIG_CONNECTION_GROUP,
+                1,
+                ConfigDef.Width.LONG,
+                CONNECTION_AKV4_REGION_DISPLAY);
 
         config.define(
                 WRITE_MODE,

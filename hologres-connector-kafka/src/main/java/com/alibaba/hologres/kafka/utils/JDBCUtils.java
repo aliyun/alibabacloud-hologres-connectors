@@ -1,16 +1,13 @@
 package com.alibaba.hologres.kafka.utils;
 
+import com.alibaba.hologres.client.auth.AKv4AuthenticationPlugin;
+import com.alibaba.hologres.client.impl.util.ConnectionUtil;
 import com.alibaba.hologres.kafka.conf.HoloSinkConfigManager;
 import com.alibaba.hologres.org.postgresql.PGProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
-import java.util.Objects;
 import java.util.Properties;
 
 /** JDBCUtils. */
@@ -18,46 +15,23 @@ public class JDBCUtils {
     private static final Logger logger = LoggerFactory.getLogger(JDBCUtils.class);
 
     public static boolean couldDirectConnect(HoloSinkConfigManager configManager) {
-        String url = configManager.getHoloConfig().getJdbcUrl();
         Properties info = new Properties();
         PGProperty.USER.set(info, configManager.getHoloConfig().getUsername());
         PGProperty.PASSWORD.set(info, configManager.getHoloConfig().getPassword());
-        PGProperty.APPLICATION_NAME.set(info, "hologres-connector-hive_copy");
-        String directUrl = JDBCUtils.getJdbcDirectConnectionUrl(configManager);
-        logger.info("try connect directly to holo with url {}", url);
-        try (Connection ignored = DriverManager.getConnection(directUrl, info)) {
-        } catch (Exception e) {
-            logger.warn("could not connect directly to holo.");
-            return false;
+        PGProperty.SOCKET_TIMEOUT.set(info, 5);
+        PGProperty.APPLICATION_NAME.set(info, "hologres-connector-kafka_copy");
+        if (configManager.getHoloConfig().isUseAKv4()) {
+            setAKv4Region(info, configManager.getHoloConfig().getRegion());
         }
-        return true;
-    }
-
-    public static String getJdbcDirectConnectionUrl(HoloSinkConfigManager configManager) {
-        // Returns the jdbc url directly connected to fe
-        String endpoint = null;
-        try (Connection conn =
-                DriverManager.getConnection(
-                        configManager.getHoloConfig().getJdbcUrl(),
-                        configManager.getHoloConfig().getUsername(),
-                        configManager.getHoloConfig().getPassword())) {
-            try (Statement stat = conn.createStatement()) {
-                try (ResultSet rs =
-                        stat.executeQuery("select inet_server_addr(), inet_server_port()")) {
-                    while (rs.next()) {
-                        endpoint = rs.getString(1) + ":" + rs.getString(2);
-                        break;
-                    }
-                    if (Objects.isNull(endpoint)) {
-                        throw new RuntimeException(
-                                "Failed to query \"select inet_server_addr(), inet_server_port()\".");
-                    }
-                }
-            }
-        } catch (SQLException t) {
-            throw new RuntimeException(t);
+        boolean couldDirectConnect = false;
+        try {
+            String directUrl =
+                    ConnectionUtil.getDirectConnectionUrl(
+                            configManager.getHoloConfig().getJdbcUrl(), info, false);
+            couldDirectConnect = !directUrl.equals(configManager.getHoloConfig().getJdbcUrl());
+        } catch (SQLException ignored) {
         }
-        return replaceJdbcUrlEndpoint(configManager.getHoloConfig().getJdbcUrl(), endpoint);
+        return couldDirectConnect;
     }
 
     public static String formatUrlWithHologres(String oldUrl) {
@@ -69,8 +43,12 @@ public class JDBCUtils {
         return url;
     }
 
-    private static String replaceJdbcUrlEndpoint(String originalUrl, String newEndpoint) {
-        String replacement = "//" + newEndpoint + "/";
-        return originalUrl.replaceFirst("//\\S+/", replacement);
+    public static void setAKv4Region(Properties info, String akv4Region) {
+        PGProperty.USER.set(info, AKv4AuthenticationPlugin.AKV4_PREFIX + PGProperty.USER.get(info));
+        PGProperty.AUTHENTICATION_PLUGIN_CLASS_NAME.set(
+                info, AKv4AuthenticationPlugin.class.getName());
+        if (akv4Region != null && !akv4Region.isEmpty()) {
+            info.setProperty(AKv4AuthenticationPlugin.REGION, akv4Region);
+        }
     }
 }

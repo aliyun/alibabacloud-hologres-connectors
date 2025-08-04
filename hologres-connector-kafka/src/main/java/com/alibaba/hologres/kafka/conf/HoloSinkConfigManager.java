@@ -102,6 +102,12 @@ public class HoloSinkConfigManager {
             // use jdbc:hologres instead of jdbc:postgresql
             holoConfig.setJdbcUrl(JDBCUtils.formatUrlWithHologres(holoConfig.getJdbcUrl()));
             holoConfig.setInputNumberAsEpochMsForDatetimeColumn(true);
+            holoConfig.setUseAKv4(config.getBoolean(HoloSinkConfig.CONNECTION_ENABLE_AKV4));
+            if (holoConfig.isUseAKv4()
+                    && config.getString(HoloSinkConfig.CONNECTION_AKV4_REGION) != null
+                    && !config.getString(HoloSinkConfig.CONNECTION_AKV4_REGION).isEmpty()) {
+                holoConfig.setRegion(config.getString(HoloSinkConfig.CONNECTION_AKV4_REGION));
+            }
         } catch (Exception e) {
             throw new KafkaHoloException(e);
         }

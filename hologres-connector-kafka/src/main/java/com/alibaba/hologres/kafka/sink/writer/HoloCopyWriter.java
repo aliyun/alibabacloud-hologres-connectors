@@ -1,12 +1,15 @@
 package com.alibaba.hologres.kafka.sink.writer;
 
 import com.alibaba.hologres.client.Put;
+import com.alibaba.hologres.client.copy.CopyFormat;
 import com.alibaba.hologres.client.copy.CopyUtil;
 import com.alibaba.hologres.client.copy.in.CopyInOutputStream;
 import com.alibaba.hologres.client.copy.in.RecordBinaryOutputStream;
 import com.alibaba.hologres.client.copy.in.RecordOutputStream;
 import com.alibaba.hologres.client.copy.in.RecordTextOutputStream;
 import com.alibaba.hologres.client.exception.HoloClientException;
+import com.alibaba.hologres.client.impl.util.ConnectionUtil;
+import com.alibaba.hologres.client.model.OnConflictAction;
 import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.utils.RecordChecker;
 import com.alibaba.hologres.kafka.conf.HoloSinkConfigManager;
@@ -67,10 +70,12 @@ public class HoloCopyWriter extends AbstractHoloWriter {
                 String sql =
                         CopyUtil.buildCopyInSql(
                                 record,
-                                binary,
-                                configManager.getHoloConfig().getWriteMode() == INSERT_OR_IGNORE
-                                        ? INSERT_OR_IGNORE
-                                        : INSERT_OR_UPDATE);
+                                binary ? CopyFormat.BINARY : CopyFormat.CSV,
+                                OnConflictAction.fromWriteMode(
+                                        configManager.getHoloConfig().getWriteMode()
+                                                        == INSERT_OR_IGNORE
+                                                ? INSERT_OR_IGNORE
+                                                : INSERT_OR_UPDATE));
                 logger.info("copy sql :{}", sql);
                 CopyIn in = copyContext.manager.copyIn(sql);
                 copyContext.os =
@@ -134,12 +139,15 @@ public class HoloCopyWriter extends AbstractHoloWriter {
             Properties info = new Properties();
             PGProperty.USER.set(info, configManager.getHoloConfig().getUsername());
             PGProperty.PASSWORD.set(info, configManager.getHoloConfig().getPassword());
-            PGProperty.APPLICATION_NAME.set(info, "hologres-connector-hive_copy");
-
+            PGProperty.SOCKET_TIMEOUT.set(info, 360);
+            PGProperty.APPLICATION_NAME.set(info, "hologres-connector-kafka_copy");
+            if (configManager.getHoloConfig().isUseAKv4()) {
+                JDBCUtils.setAKv4Region(info, configManager.getHoloConfig().getRegion());
+            }
             try {
                 // copy write mode 的瓶颈往往是vip endpoint的网络吞吐，因此我们在可以直连holo fe的场景默认使用直连
                 if (configManager.isCopyWriteDirectConnect()) {
-                    String directUrl = JDBCUtils.getJdbcDirectConnectionUrl(configManager);
+                    String directUrl = ConnectionUtil.getDirectConnectionUrl(url, info, false);
                     try {
                         logger.info("try connect directly to holo with url {}", directUrl);
                         conn = DriverManager.getConnection(directUrl, info);

@@ -49,7 +49,9 @@ public class HoloSinkTask extends SinkTask {
                             "The hologres instance version is {}, but only instances greater than 1.3.24 support copy "
                                     + "write mode",
                             holoVersion);
-                } else if (configManager.isCopyWriteMode()) {
+                }
+
+                if (configManager.isCopyWriteDirectConnect()) {
                     configManager.setCopyWriteDirectConnect(
                             JDBCUtils.couldDirectConnect(configManager));
                 }
