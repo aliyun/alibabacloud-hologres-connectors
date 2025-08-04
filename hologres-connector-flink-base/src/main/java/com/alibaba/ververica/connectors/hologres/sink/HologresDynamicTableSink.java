@@ -11,16 +11,14 @@ import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.types.RowKind;
 
 import com.alibaba.hologres.client.copy.CopyMode;
+import com.alibaba.ververica.connectors.common.source.resolver.DirtyDataStrategy;
 import com.alibaba.ververica.connectors.hologres.api.HologresTableSchema;
 import com.alibaba.ververica.connectors.hologres.api.HologresWriter;
 import com.alibaba.ververica.connectors.hologres.config.HologresConnectionParam;
 import com.alibaba.ververica.connectors.hologres.jdbc.HologresJDBCConfigs;
 import com.alibaba.ververica.connectors.hologres.jdbc.HologresJDBCWriter;
 import com.alibaba.ververica.connectors.hologres.jdbc.copy.HologresJDBCCopyWriter;
-import com.alibaba.ververica.connectors.hologres.utils.JDBCUtils;
 import com.alibaba.ververica.connectors.hologres.utils.SchemaUtil;
-
-import java.util.Random;
 
 import static org.apache.flink.table.factories.FactoryUtil.SINK_PARALLELISM;
 import static org.apache.flink.util.Preconditions.checkNotNull;
@@ -58,6 +56,10 @@ public class HologresDynamicTableSink implements DynamicTableSink {
         HologresConnectionParam param = new HologresConnectionParam(config);
         HologresTableSchema hologresTableSchema = HologresTableSchema.get(param.getJdbcOptions());
         HologresWriter<RowData> hologresWriter;
+        if (copyMode != null && !param.getDirtyDataStrategy().equals(DirtyDataStrategy.EXCEPTION)) {
+            throw new UnsupportedOperationException(
+                    "only support EXCEPTION dirty data strategy when copy mode is enabled");
+        }
         if (copyMode != null && param.isEnableReshuffleByHolo()) {
             return new HologresDataStreamSinkProvider(
                     (dataStream) -> {
@@ -72,18 +74,10 @@ public class HologresDynamicTableSink implements DynamicTableSink {
                         return builder.build();
                     });
         } else if (copyMode != null) {
-            param.setDirectConnect(JDBCUtils.couldDirectConnect(param.getJdbcOptions()));
-            int numFrontends = JDBCUtils.getNumberFrontends(param.getJdbcOptions());
-            int frontendOffset =
-                    numFrontends > 0 ? (Math.abs(new Random().nextInt()) % numFrontends) : 0;
+
             hologresWriter =
                     HologresJDBCCopyWriter.createRowDataWriter(
-                            param,
-                            fieldNames,
-                            fieldTypes,
-                            hologresTableSchema,
-                            numFrontends,
-                            frontendOffset);
+                            param, fieldNames, fieldTypes, hologresTableSchema);
         } else {
             hologresWriter =
                     HologresJDBCWriter.createTableWriter(

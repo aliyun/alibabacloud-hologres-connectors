@@ -43,6 +43,8 @@ public interface RowDataReader<T> extends Serializable {
                 return (obj) -> rowDataReader.readInt(obj, index);
             case Types.DATE:
                 return (obj) -> rowDataReader.readDate(obj, index);
+            case Types.TIME:
+                return (obj) -> rowDataReader.readTime(obj, index);
             case Types.BIGINT:
                 return (obj) -> rowDataReader.readLong(obj, index);
             case Types.REAL:
@@ -131,6 +133,8 @@ public interface RowDataReader<T> extends Serializable {
     StringData readString(T record, int index);
 
     Integer readDate(T record, int index);
+
+    Integer readTime(T record, int index);
 
     Long readLong(T record, int index);
 

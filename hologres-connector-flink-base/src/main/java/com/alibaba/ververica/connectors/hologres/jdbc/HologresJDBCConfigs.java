@@ -32,6 +32,10 @@ public class HologresJDBCConfigs {
             key("serverless-computing-query-priority".toLowerCase()).intType().defaultValue(3);
     public static final ConfigOption<Integer> STATEMENT_TIMEOUT_SECONDS =
             key("statement-timeout-seconds".toLowerCase()).intType().defaultValue(28800000);
+    public static final ConfigOption<Boolean> ENABLE_AKV4 =
+            key("connection.akv4.enabled".toLowerCase()).booleanType().defaultValue(false);
+    public static final ConfigOption<String> AKV4_REGION =
+            key("connection.akv4.region".toLowerCase()).stringType().noDefaultValue();
 
     public static final ConfigOption<Integer> OPTIONAL_JDBC_RETRY_COUNT =
             key("jdbcRetryCount".toLowerCase()).intType().defaultValue(10);

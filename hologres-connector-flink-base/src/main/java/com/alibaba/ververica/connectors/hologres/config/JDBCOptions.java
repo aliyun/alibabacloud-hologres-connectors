@@ -15,6 +15,8 @@ public class JDBCOptions implements Serializable {
     private final SSLMode sslMode;
     private final String sslRootCertLocation;
     private final String delimiter;
+    private final boolean enableAkv4;
+    private final String akv4Region;
 
     public JDBCOptions(
             String database,
@@ -24,7 +26,9 @@ public class JDBCOptions implements Serializable {
             String endpoint,
             String sslMode,
             String sslRootCertLocation,
-            String delimiter) {
+            String delimiter,
+            boolean enableAkv4,
+            String akv4Region) {
         this.database = database;
         this.table = table;
         this.username = username;
@@ -33,6 +37,8 @@ public class JDBCOptions implements Serializable {
         this.sslMode = SSLMode.fromPgPropertyValue(sslMode);
         this.sslRootCertLocation = sslRootCertLocation;
         this.delimiter = delimiter;
+        this.enableAkv4 = enableAkv4;
+        this.akv4Region = akv4Region;
     }
 
     public String getDatabase() {
@@ -74,6 +80,14 @@ public class JDBCOptions implements Serializable {
         return "jdbc:hologres://" + endpoint + "/" + database;
     }
 
+    public boolean isEnableAkv4() {
+        return enableAkv4;
+    }
+
+    public String getAkv4Region() {
+        return akv4Region;
+    }
+
     @Override
     public String toString() {
         return "JDBCOptions{"
@@ -100,6 +114,12 @@ public class JDBCOptions implements Serializable {
                 + '\''
                 + ", delimiter='"
                 + delimiter
+                + '\''
+                + ", enableAkv4='"
+                + enableAkv4
+                + '\''
+                + ", akv4Region='"
+                + akv4Region
                 + '\''
                 + '}';
     }

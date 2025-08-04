@@ -103,34 +103,31 @@ public class HologresJDBCWriter<T> extends HologresWriter<T> {
     }
 
     @Override
-    public long writeAddRecord(T record) throws IOException {
+    public long writeAddRecord(T record) throws HoloClientException, IOException {
         Record jdbcRecord = recordConverter.convertFrom(record);
-        try {
-            if (param.isEnableHoldOnUpdateBefore()) {
-                RecordKey key = new RecordKey(jdbcRecord);
-                if (holdOnUpdateBeforeRecords.containsKey(key)) {
-                    clientProvider.getClient().flush();
-                    Record ubRecord = holdOnUpdateBeforeRecords.remove(key);
-                    putRecord(ubRecord);
-                    putRecord(jdbcRecord);
-                    clientProvider.getClient().flush();
-                    // 将update before和update after同时写入
-                    LOG.debug(
-                            "Write update before record {} and update after record {} at same batch",
-                            ubRecord,
-                            jdbcRecord);
-                    return ubRecord.getByteSize() + jdbcRecord.getByteSize();
-                }
+
+        if (param.isEnableHoldOnUpdateBefore()) {
+            RecordKey key = new RecordKey(jdbcRecord);
+            if (holdOnUpdateBeforeRecords.containsKey(key)) {
+                clientProvider.getClient().flush();
+                Record ubRecord = holdOnUpdateBeforeRecords.remove(key);
+                putRecord(ubRecord);
+                putRecord(jdbcRecord);
+                clientProvider.getClient().flush();
+                // 将update before和update after同时写入
+                LOG.debug(
+                        "Write update before record {} and update after record {} at same batch",
+                        ubRecord,
+                        jdbcRecord);
+                return ubRecord.getByteSize() + jdbcRecord.getByteSize();
             }
-            putRecord(jdbcRecord);
-            return jdbcRecord.getByteSize();
-        } catch (HoloClientException e) {
-            throw new IOException(e);
         }
+        putRecord(jdbcRecord);
+        return jdbcRecord.getByteSize();
     }
 
     @Override
-    public long writeDeleteRecord(T record) throws IOException {
+    public long writeDeleteRecord(T record) throws HoloClientException, IOException {
         Record jdbcRecord = recordConverter.convertFrom(record);
         jdbcRecord.setType(MutationType.DELETE);
         if (param.isEnableHoldOnUpdateBefore()) {
@@ -139,11 +136,7 @@ public class HologresJDBCWriter<T> extends HologresWriter<T> {
             LOG.debug("Hold on update before record: {}", jdbcRecord);
             return 0;
         }
-        try {
-            putRecord(jdbcRecord);
-        } catch (HoloClientException e) {
-            throw new IOException(e);
-        }
+        putRecord(jdbcRecord);
         return jdbcRecord.getByteSize();
     }
 
@@ -157,29 +150,21 @@ public class HologresJDBCWriter<T> extends HologresWriter<T> {
     }
 
     @Override
-    public void flush() throws IOException {
-        try {
-            if (!holdOnUpdateBeforeRecords.isEmpty()) {
-                LOG.info("Flushing {} hold on delete records", holdOnUpdateBeforeRecords.size());
-                for (Record record : holdOnUpdateBeforeRecords.values()) {
-                    putRecord(record);
-                }
+    public void flush() throws HoloClientException, IOException {
+        if (!holdOnUpdateBeforeRecords.isEmpty()) {
+            LOG.info("Flushing {} hold on delete records", holdOnUpdateBeforeRecords.size());
+            for (Record record : holdOnUpdateBeforeRecords.values()) {
+                putRecord(record);
             }
-            holdOnUpdateBeforeRecords.clear();
-            clientProvider.getClient().flush();
-        } catch (HoloClientException e) {
-            throw new IOException(e);
         }
+        holdOnUpdateBeforeRecords.clear();
+        clientProvider.getClient().flush();
     }
 
     @Override
     public void close() throws IOException {
-        try {
-            flush();
-        } finally {
-            if (null != clientProvider.getClient()) {
-                clientProvider.getClient().close();
-            }
+        if (null != clientProvider) {
+            clientProvider.closeClient();
         }
     }
 }

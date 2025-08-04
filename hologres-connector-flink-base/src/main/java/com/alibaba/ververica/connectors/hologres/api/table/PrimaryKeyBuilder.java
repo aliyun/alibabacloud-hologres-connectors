@@ -54,7 +54,7 @@ public class PrimaryKeyBuilder<T> implements Serializable {
                             holgoresColumn.getTypeName(),
                             rowDataWriter,
                             hologresTableSchema.get().getColumnIndex(fieldNames[targetIdx]),
-                            param.getJdbcOptions().getDelimiter());
+                            param.isJdbcEnableRemoveU0000InText());
         }
     }
 

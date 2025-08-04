@@ -39,4 +39,12 @@ public class HologresUtils {
         String nullAs = properties.get(HologresJDBCConfigs.OPTIONAL_CHECK_AND_PUT_NULL_AS);
         return new CheckAndPutCondition(columnName, CheckCompareOp.valueOf(operator), null, nullAs);
     }
+
+    public static String removeU0000(final String in) {
+        if (in != null && in.contains("\u0000")) {
+            return in.replaceAll("\u0000", "");
+        } else {
+            return in;
+        }
+    }
 }

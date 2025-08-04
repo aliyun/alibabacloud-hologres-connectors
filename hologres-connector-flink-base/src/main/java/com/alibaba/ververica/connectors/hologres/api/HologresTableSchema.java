@@ -25,6 +25,10 @@ public class HologresTableSchema implements Serializable {
         holoConfig.setJdbcUrl(jdbcOptions.getDbUrl());
         holoConfig.setUsername(jdbcOptions.getUsername());
         holoConfig.setPassword(jdbcOptions.getPassword());
+        holoConfig.setUseAKv4(jdbcOptions.isEnableAkv4());
+        if (jdbcOptions.isEnableAkv4()) {
+            holoConfig.setRegion(jdbcOptions.getAkv4Region());
+        }
         try {
             HoloClient client = new HoloClient(holoConfig);
             TableSchema tableSchema = client.getTableSchema(jdbcOptions.getTable());

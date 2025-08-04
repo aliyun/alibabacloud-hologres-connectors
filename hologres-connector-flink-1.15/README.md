@@ -16,7 +16,7 @@
 <dependency>
     <groupId>com.alibaba.hologres</groupId>
     <artifactId>hologres-connector-flink-1.15</artifactId>
-    <version>1.5.1</version>
+    <version>1.5.6</version>
     <classifier>jar-with-dependencies</classifier>
 </dependency>
 ```
@@ -77,6 +77,8 @@ mvn clean install -N
 |        connection.ssl.mode        | 参数取值如下：disable（默认值）：不启用传输加密。require：启用SSL，只对数据链路加密。verify-ca：启用SSL，加密数据链路，同时使用CA证书验证Hologres服务端的真实性。verify-full：启用SSL，加密数据链路，使用CA证书验证Hologres服务端的真实性，同时比对证书内的CN或DNS与连接时配置的Hologres连接地址是否一致。 |  否   |                                    默认值：disable, 表示不启用加密                                     | 
 | connection.ssl.root-cert.location |                                                        当connection.ssl.mode配置为verify-ca或者verify-full时，需要同时配置CA证书的路径，需要上传到flink集群环境。                                                         |  否   |                                            默认值：无                                            | 
 |    jdbcDirectConnect     |                                                                              是否开启直连                                                                              |  否   | 默认值为false。批量写入的瓶颈往往是VIP endpoint的网络吞吐，开启此参数会测试当前环境能否直连holo fe，支持的话默认使用直连。此参数设置为false则不进行直连。 |
+|    connection.akv4.enabled     |                                                                              是否开启AKv4认证                                                                              |  否   | 默认值为false, 表示不启用akv4认证。 |
+|    connection.akv4.region     |                                                                              akv4认证设置的region                                                                         |  否   | 无默认值, 在启用akv4认证时,需要根据实例所在的region设置,例如cn-beijing |
 | serverless-computing.enabled| 是否使用serverless资源, 仅对读取和bulk_load写入有效,详见[serverless computing](https://help.aliyun.com/zh/hologres/user-guide/serverless-computing)  |            否              |                                          默认值:false                                          | 
 | serverless-computing-query-priority|   serverless computing执行优先级   |             否             |                                            默认值:3                                            | 
 | statement-timeout-seconds| query执行的超时时间 | 否 |                                    默认值:  28800000, 单位为s                                     |  

@@ -154,6 +154,8 @@ public class HologresSourceTableITTest extends HologresTestBase {
                         + "v varchar\n" // jsonb
                         + ") with ("
                         + "'connector'='hologres',\n"
+                        + "'connection.akv4.enabled'='true',"
+                        + "'connection.akv4.region'='cn-beijing',"
                         // + "'serverless-computing.enabled'='true',\n"
                         + "'endpoint'='"
                         + endpoint

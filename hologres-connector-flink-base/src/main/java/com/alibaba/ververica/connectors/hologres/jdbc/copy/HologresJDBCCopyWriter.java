@@ -4,6 +4,7 @@ import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.types.logical.LogicalType;
 
 import com.alibaba.hologres.client.Put;
+import com.alibaba.hologres.client.copy.CopyFormat;
 import com.alibaba.hologres.client.copy.CopyMode;
 import com.alibaba.hologres.client.copy.in.CopyInOutputStream;
 import com.alibaba.hologres.client.copy.in.RecordBinaryOutputStream;
@@ -53,8 +54,6 @@ import static com.alibaba.ververica.connectors.hologres.utils.JDBCUtils.executeS
 public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
     private static final transient Logger LOG =
             LoggerFactory.getLogger(HologresJDBCCopyWriter.class);
-    private final int frontendOffset;
-    private final int numFrontends;
     private int taskNumber;
     private int numTasks;
     private final int shardCount;
@@ -71,13 +70,9 @@ public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
             String[] fieldNames,
             LogicalType[] fieldTypes,
             HologresRecordConverter<T, Record> converter,
-            int numFrontends,
-            int frontendOffset,
             int shardCount) {
         super(param, fieldNames, fieldTypes);
         this.recordConverter = converter;
-        this.numFrontends = numFrontends;
-        this.frontendOffset = frontendOffset;
         this.copyMode = param.getCopyMode();
         this.shardCount = shardCount;
     }
@@ -86,9 +81,7 @@ public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
             HologresConnectionParam param,
             String[] fieldNames,
             LogicalType[] fieldTypes,
-            HologresTableSchema hologresTableSchema,
-            int numFrontends,
-            int frontendOffset) {
+            HologresTableSchema hologresTableSchema) {
         return new HologresJDBCCopyWriter<>(
                 param,
                 fieldNames,
@@ -100,8 +93,6 @@ public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
                         new HologresJDBCRecordWriter(param),
                         new HologresJDBCRecordReader(fieldNames, hologresTableSchema),
                         hologresTableSchema),
-                numFrontends,
-                frontendOffset,
                 hologresTableSchema.getShardCount());
     }
 
@@ -178,7 +169,7 @@ public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
                 String sql =
                         buildCopyInSql(
                                 jdbcRecord,
-                                binary,
+                                binary ? CopyFormat.BINARY : CopyFormat.CSV,
                                 param.getJDBCWriteMode() == INSERT_OR_IGNORE
                                         ? INSERT_OR_IGNORE
                                         : INSERT_OR_UPDATE,
@@ -288,23 +279,10 @@ public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
         public CopyContext init(HologresConnectionParam param) {
             Connection conn = null;
             String url = param.getJdbcOptions().getDbUrl();
-            // Copy is generally used in scenarios with large parallelism, but load balancing of
-            // hologres vip endpoints may not be good. we randomize an offset and distribute
-            // connections evenly to each fe
-            if (numFrontends > 0) {
-                int choseFrontendId = chooseFrontendId();
-                LOG.info(
-                        "taskNumber {}, number of frontends {}, frontend id offset {}, frontend id chose {}",
-                        taskNumber,
-                        numFrontends,
-                        frontendOffset,
-                        choseFrontendId);
-                url += ("?options=fe=" + choseFrontendId);
-                // for none public cloud, we connect to holo fe with inner ip:port directly
-                if (param.isDirectConnect()) {
-                    url = JDBCUtils.getJdbcDirectConnectionUrl(param.getJdbcOptions(), url);
-                    LOG.info("will connect directly to fe id {} with url {}", choseFrontendId, url);
-                }
+
+            if (param.isDirectConnect()) {
+                url = JDBCUtils.getJdbcDirectConnectionUrl(param.getJdbcOptions(), url);
+                LOG.info("will connect directly to url {}", url);
             }
             try {
                 conn =
@@ -385,11 +363,6 @@ public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
                 pgConn = null;
             }
         }
-    }
-
-    private int chooseFrontendId() {
-        // hologres frontend id starts from 1
-        return (taskNumber + frontendOffset) % numFrontends + 1;
     }
 
     /**

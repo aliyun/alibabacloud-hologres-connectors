@@ -222,6 +222,8 @@ public class HologresDimTableITTest extends HologresTestBase {
                         + "v varchar\n" // jsonb
                         + ") with ("
                         + "'connector'='hologres',\n"
+                        + "'connection.akv4.enabled'='true',"
+                        + "'connection.akv4.region'='cn-beijing',"
                         + "'fixedConnectionMode'='"
                         + fixedConnectionMode
                         + "',\n"

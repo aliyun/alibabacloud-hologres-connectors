@@ -61,6 +61,10 @@ public class HologresJDBCClientProvider {
         holoConfig.setAppName("hologres-connector-flink");
         holoConfig.setUsername(jdbcOptions.getUsername());
         holoConfig.setPassword(jdbcOptions.getPassword());
+        holoConfig.setUseAKv4(jdbcOptions.isEnableAkv4());
+        if (jdbcOptions.isEnableAkv4()) {
+            holoConfig.setRegion(jdbcOptions.getAkv4Region());
+        }
 
         // connection config
         holoConfig.setRetryCount(param.getJdbcRetryCount());
@@ -81,6 +85,7 @@ public class HologresJDBCClientProvider {
         holoConfig.setReadBatchQueueSize(param.getJdbcReadBatchQueueSize());
         holoConfig.setScanFetchSize(param.getJdbcScanFetchSize());
         holoConfig.setScanTimeoutSeconds(param.getScanTimeoutSeconds());
+        holoConfig.setReadRetryCount(param.getJdbcRetryCount());
 
         // writer config
         holoConfig.setWriteThreadSize(param.getConnectionPoolSize());

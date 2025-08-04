@@ -13,6 +13,7 @@ import com.alibaba.ververica.connectors.hologres.api.table.RowDataReader;
 import java.math.BigDecimal;
 import java.sql.Date;
 import java.sql.SQLException;
+import java.sql.Time;
 import java.sql.Timestamp;
 import java.util.HashMap;
 import java.util.Map;
@@ -81,6 +82,15 @@ public class HologresJDBCRecordReader implements RowDataReader<Record> {
                         (((Date) record.getObject(flinkColumnToHologresColumn.get(index))).getTime()
                                 / 86400000)
                 + 1;
+    }
+
+    @Override
+    public Integer readTime(Record record, int index) {
+        Object val = record.getObject(flinkColumnToHologresColumn.get(index));
+        if (val == null) {
+            return null;
+        }
+        return (int) (((Time) val).toLocalTime().toNanoOfDay() / 1_000_000L);
     }
 
     @Override

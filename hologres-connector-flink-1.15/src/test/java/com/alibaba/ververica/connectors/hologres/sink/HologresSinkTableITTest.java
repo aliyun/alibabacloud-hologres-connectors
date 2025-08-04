@@ -72,7 +72,7 @@ public class HologresSinkTableITTest extends HologresTestBase {
                     + "m double precision[],\n"
                     + "n boolean[],\n"
                     + "o text[],\n"
-                    + "p boolean,\n"
+                    + "p time,\n"
                     + "q numeric(6, 2),\n"
                     + "r timestamp without time zone,\n"
                     + "s smallint,\n"
@@ -87,19 +87,19 @@ public class HologresSinkTableITTest extends HologresTestBase {
                     + "0,'dim',cast(20.2007 as double),false,652482,cast('2020-07-08' as date),'source_test',cast('2020-07-10 16:28:07.737' as timestamp),"
                     + "cast(8.58965 as float),cast(ARRAY [464,98661,32489] as array<int>),cast(ARRAY [8589934592,8589934593,8589934594] as array<bigint>),"
                     + "ARRAY[cast(8.58967 as float),cast(96.4667 as float),cast(9345.16 as float)], ARRAY [cast(587897.4646746 as double),cast(792343.646446 as double),cast(76.46464 as double)],"
-                    + "cast(ARRAY [true,true,false,true] as array<boolean>),cast(ARRAY ['monday','saturday','sunday'] as array<STRING>),true,cast(8119.21 as numeric(6,2)), "
+                    + "cast(ARRAY [true,true,false,true] as array<boolean>),cast(ARRAY ['monday','saturday','sunday'] as array<STRING>),cast('18:17:36.789' as time),cast(8119.21 as numeric(6,2)), "
                     + "cast('2020-07-10 16:28:07.737' as timestamp), cast(2 as smallint), cast('{\"a\":\"bbbb\", \"c\":\"dddd\"}' as varchar), cast('{\"a\":\"bbbb\", \"c\":\"dddd\"}' as varchar)"
                     + "), ("
                     + "2,'dim',cast(20.2007 as double),false,652482,cast('2020-07-08' as date),'source_test',cast('2020-07-10 16:28:07.737' as timestamp),"
                     + "cast(8.58965 as float),cast(ARRAY [464,98661,32489] as array<int>),cast(ARRAY [8589934592,8589934593,8589934594] as array<bigint>),"
                     + "ARRAY[cast(8.58967 as float),cast(96.4667 as float),cast(9345.16 as float)], ARRAY [cast(587897.4646746 as double),cast(792343.646446 as double),cast(76.46464 as double)],"
-                    + "cast(ARRAY [true,true,false,true] as array<boolean>),cast(ARRAY ['monday','saturday','sunday'] as array<STRING>),true,cast(8119.21 as numeric(6,2)), "
+                    + "cast(ARRAY [true,true,false,true] as array<boolean>),cast(ARRAY ['monday','saturday','sunday'] as array<STRING>),cast('18:17:36.789' as time),cast(8119.21 as numeric(6,2)), "
                     + "cast('2020-07-10 16:28:07.737' as timestamp), cast(2 as smallint), cast('{\"a\":\"bbbb\", \"c\":\"dddd\"}' as varchar), cast('{\"a\":\"bbbb\", \"c\":\"dddd\"}' as varchar)"
                     + "),("
                     + "11,'dim',cast(20.2007 as double),false,652482,cast('2020-07-08' as date),'source_test',cast('2020-07-10 16:28:07.737' as timestamp),"
                     + "cast(8.58965 as float),cast(ARRAY [464,98661,32489] as array<int>),cast(ARRAY [8589934592,8589934593,8589934594] as array<bigint>),"
                     + "ARRAY[cast(8.58967 as float),cast(96.4667 as float),cast(9345.16 as float)], ARRAY [cast(587897.4646746 as double),cast(792343.646446 as double),cast(76.46464 as double)],"
-                    + "cast(ARRAY [true,true,false,true] as array<boolean>),cast(ARRAY ['monday','saturday','sunday'] as array<STRING>),true,cast(8119.21 as numeric(6,2)), "
+                    + "cast(ARRAY [true,true,false,true] as array<boolean>),cast(ARRAY ['monday','saturday','sunday'] as array<STRING>),cast('18:17:36.789' as time),cast(8119.21 as numeric(6,2)), "
                     + "cast('2020-07-10 16:28:07.737' as timestamp), cast(2 as smallint), cast('{\"a\":\"bbbb\", \"c\":\"dddd\"}' as varchar), cast('{\"a\":\"bbbb\", \"c\":\"dddd\"}' as varchar)"
                     + ")";
 
@@ -121,7 +121,7 @@ public class HologresSinkTableITTest extends HologresTestBase {
                     "{587897.464674600051,792343.64644599997,76.4646400000000028}",
                     "{t,t,f,t}",
                     "{monday,saturday,sunday}",
-                    true,
+                    new java.sql.Time(123456789L), // "18:17:36.789"
                     new BigDecimal("8119.21"),
                     Timestamp.valueOf("2020-07-10 16:28:07.737"),
                     2,
@@ -144,7 +144,7 @@ public class HologresSinkTableITTest extends HologresTestBase {
                     "{587897.464674600051,792343.64644599997,76.4646400000000028}",
                     "{t,t,f,t}",
                     "{monday,saturday,sunday}",
-                    true,
+                    new java.sql.Time(123456789L), // "18:17:36.789"
                     new BigDecimal("8119.21"),
                     Timestamp.valueOf("2020-07-10 16:28:07.737"),
                     2,
@@ -167,7 +167,7 @@ public class HologresSinkTableITTest extends HologresTestBase {
                     "{587897.464674600051,792343.64644599997,76.4646400000000028}",
                     "{t,t,f,t}",
                     "{monday,saturday,sunday}",
-                    true,
+                    new java.sql.Time(123456789L), // "18:17:36.789"
                     new BigDecimal("8119.21"),
                     Timestamp.valueOf("2020-07-10 16:28:07.737"),
                     2,
@@ -215,7 +215,7 @@ public class HologresSinkTableITTest extends HologresTestBase {
                                 + "m ARRAY<DOUBLE>,"
                                 + "n ARRAY<BOOLEAN>,"
                                 + "o ARRAY<STRING>,"
-                                + "p BOOLEAN,"
+                                + "p TIME,"
                                 + "q NUMERIC(6,2),"
                                 + "r TIMESTAMP,"
                                 + "s SMALLINT,"
@@ -227,6 +227,8 @@ public class HologresSinkTableITTest extends HologresTestBase {
                                 + "%s"
                                 + "'mutateType'='insertorignore',"
                                 + "'aggressive.enabled'='true',"
+                                + "'connection.akv4.enabled'='true',"
+                                + "'connection.akv4.region'='cn-beijing',"
                                 + "'endpoint'='%s',"
                                 + "'dbName'='%s',"
                                 + "'tableName'='%s',"
@@ -283,7 +285,7 @@ public class HologresSinkTableITTest extends HologresTestBase {
                                 + "m ARRAY<DOUBLE>,"
                                 + "n ARRAY<BOOLEAN>,"
                                 + "o ARRAY<STRING>,"
-                                + "p BOOLEAN,"
+                                + "p TIME,"
                                 + "q NUMERIC(6,2),"
                                 + "r TIMESTAMP,"
                                 + "s SMALLINT,"
@@ -313,7 +315,7 @@ public class HologresSinkTableITTest extends HologresTestBase {
                         + "11,'dim',cast(20.2007 as double),false,652482,cast('2020-07-08' as date),'source_test',cast('2020-07-10 16:28:07.737' as timestamp),"
                         + "cast(8.58965 as float),cast(ARRAY [464,98661,32489] as array<int>),cast(ARRAY [8589934592,8589934593,8589934594] as array<bigint>),"
                         + "ARRAY[cast(8.58967 as float),cast(96.4667 as float),cast(9345.16 as float)], ARRAY [cast(587897.4646746 as double),cast(792343.646446 as double),cast(76.46464 as double)],"
-                        + "cast(ARRAY [true,true,false,true] as array<boolean>),cast(ARRAY ['monday','saturday','sunday'] as array<STRING>),true,cast(8119.21 as numeric(6,2)), "
+                        + "cast(ARRAY [true,true,false,true] as array<boolean>),cast(ARRAY ['monday','saturday','sunday'] as array<STRING>),cast('18:17:36.789' as time),cast(8119.21 as numeric(6,2)), "
                         + "cast('2020-07-10 16:28:07.737' as timestamp), cast(2 as smallint), cast('{\"a\":\"bbbb\", \"c\":\"dddd\"}' as varchar), cast('{\"a\":\"bbbb\", \"c\":\"dddd\"}' as varchar)"
                         + ")";
         tEnv.executeSql(String.format(insertStatement + insertAnotherRow, "sinkTable")).await();
@@ -348,7 +350,7 @@ public class HologresSinkTableITTest extends HologresTestBase {
                                 + "m ARRAY<DOUBLE>,"
                                 + "n ARRAY<BOOLEAN>,"
                                 + "o ARRAY<STRING>,"
-                                + "p BOOLEAN,"
+                                + "p TIME,"
                                 + "q NUMERIC(6,2),"
                                 + "r TIMESTAMP,"
                                 + "s SMALLINT,"
@@ -415,7 +417,7 @@ public class HologresSinkTableITTest extends HologresTestBase {
                                 + "m ARRAY<DOUBLE>,"
                                 + "n ARRAY<BOOLEAN>,"
                                 + "o ARRAY<STRING>,"
-                                + "p BOOLEAN,"
+                                + "p TIME,"
                                 + "q NUMERIC(6,2),"
                                 + "r TIMESTAMP,"
                                 + "s SMALLINT,"

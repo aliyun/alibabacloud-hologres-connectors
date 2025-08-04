@@ -17,16 +17,21 @@ package com.alibaba.ververica.connectors.hologres.sink.v2;
 
 import org.apache.flink.api.connector.sink2.Sink;
 import org.apache.flink.api.connector.sink2.SinkWriter;
+import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.metrics.Counter;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.types.RowKind;
 
+import com.alibaba.hologres.client.exception.ExceptionCode;
+import com.alibaba.hologres.client.exception.HoloClientException;
+import com.alibaba.ververica.connectors.common.source.resolver.DirtyDataStrategy;
 import com.alibaba.ververica.connectors.hologres.api.HologresTableSchema;
 import com.alibaba.ververica.connectors.hologres.api.HologresWriter;
 import com.alibaba.ververica.connectors.hologres.config.HologresConnectionParam;
 import com.alibaba.ververica.connectors.hologres.jdbc.copy.HologresJDBCCopyWriter;
 import com.alibaba.ververica.connectors.hologres.utils.JDBCUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -46,6 +51,10 @@ public class HologresSinkWriter<InputT> implements SinkWriter<InputT> {
 
     private final Counter numRecordsOutCounter;
     private final Counter numBytesSendCounter;
+    protected Counter sinkSkipCounter;
+
+    protected DirtyDataStrategy dirtyDataStrategy;
+    protected Tuple2<String, Exception> exception = null;
 
     public HologresSinkWriter(
             HologresConnectionParam hologresConnectionParam,
@@ -60,26 +69,51 @@ public class HologresSinkWriter<InputT> implements SinkWriter<InputT> {
         this.primarykeys = primarykeys;
         this.numRecordsOutCounter = initContext.metricGroup().getNumRecordsSendCounter();
         this.numBytesSendCounter = initContext.metricGroup().getNumBytesSendCounter();
+        this.sinkSkipCounter = initContext.metricGroup().getNumRecordsOutErrorsCounter();
         this.hologresWriter = getHologresWriter();
         this.hologresWriter.open(
                 initContext.getSubtaskId(), initContext.getNumberOfParallelSubtasks());
+        this.dirtyDataStrategy = param.getDirtyDataStrategy();
     }
 
     @Override
     public void write(InputT input, Context context) throws IOException {
         long byteSize = 0;
-        if (input instanceof RowData) {
-            RowKind kind = ((RowData) input).getRowKind();
-            if (kind.equals(RowKind.INSERT) || kind.equals(RowKind.UPDATE_AFTER)) {
-                byteSize = hologresWriter.writeAddRecord(input);
-            } else if ((kind.equals(RowKind.DELETE) || kind.equals(RowKind.UPDATE_BEFORE))
-                    && !param.isIgnoreDelete()) {
-                byteSize = hologresWriter.writeDeleteRecord(input);
+        try {
+            if (input instanceof RowData) {
+                RowKind kind = ((RowData) input).getRowKind();
+                if (kind.equals(RowKind.INSERT) || kind.equals(RowKind.UPDATE_AFTER)) {
+                    byteSize = hologresWriter.writeAddRecord(input);
+                } else if ((kind.equals(RowKind.DELETE) || kind.equals(RowKind.UPDATE_BEFORE))
+                        && !param.isIgnoreDelete()) {
+                    byteSize = hologresWriter.writeDeleteRecord(input);
+                } else {
+                    LOG.debug("Ignore rowdata {}.", input);
+                }
             } else {
-                LOG.debug("Ignore rowdata {}.", input);
+                byteSize = hologresWriter.writeAddRecord(input);
             }
-        } else {
-            byteSize = hologresWriter.writeAddRecord(input);
+        } catch (HoloClientException e) {
+            LOG.error(
+                    "Upsert data '{}' failed, caused by {}",
+                    input,
+                    ExceptionUtils.getStackTrace(e));
+            // Only a specific ERROR_CODE indicates dirty data, so dirtyDataStrategy can choose to
+            // ignore the exception. Other exceptions cannot be skipped.
+            if ((dirtyDataStrategy.equals(DirtyDataStrategy.SKIP)
+                            || dirtyDataStrategy.equals(DirtyDataStrategy.SKIP_SILENT))
+                    && (e.getCode() == ExceptionCode.DATA_VALUE_ERROR
+                            || e.getCode() == ExceptionCode.DATA_TYPE_ERROR)) {
+                sinkSkipCounter.inc();
+            } else {
+                throw new IOException(e);
+            }
+        } catch (IOException e) {
+            LOG.error(
+                    "Upsert data '{}' failed, caused by {}",
+                    input,
+                    ExceptionUtils.getStackTrace(e));
+            throw e;
         }
         numRecordsOutCounter.inc();
         numBytesSendCounter.inc(byteSize);
@@ -87,7 +121,14 @@ public class HologresSinkWriter<InputT> implements SinkWriter<InputT> {
 
     @Override
     public void flush(boolean endOfInput) throws IOException {
-        getHologresWriter().flush();
+        LOG.info("start to wait request to finish");
+        try {
+            getHologresWriter().flush();
+            LOG.info("end to wait request to finish");
+        } catch (HoloClientException e) {
+            LOG.error("Flush messages failed", e);
+            throw new IOException(e);
+        }
     }
 
     @Override
@@ -108,12 +149,7 @@ public class HologresSinkWriter<InputT> implements SinkWriter<InputT> {
                     numFrontends > 0 ? (Math.abs(new Random().nextInt()) % numFrontends) : 0;
             hologresWriter =
                     HologresJDBCCopyWriter.createRowDataWriter(
-                            param,
-                            fieldNames,
-                            fieldTypes,
-                            hologresTableSchema,
-                            numFrontends,
-                            frontendOffset);
+                            param, fieldNames, fieldTypes, hologresTableSchema);
         }
         return hologresWriter;
     }

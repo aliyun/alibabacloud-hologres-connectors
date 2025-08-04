@@ -23,6 +23,7 @@ import org.apache.flink.configuration.ReadableConfig;
 import com.alibaba.hologres.client.copy.CopyMode;
 import com.alibaba.hologres.client.model.OnConflictAction;
 import com.alibaba.hologres.client.model.checkandput.CheckAndPutCondition;
+import com.alibaba.ververica.connectors.common.source.resolver.DirtyDataStrategy;
 import com.alibaba.ververica.connectors.hologres.jdbc.HologresJDBCConfigs;
 import com.alibaba.ververica.connectors.hologres.utils.HologresUtils;
 import com.alibaba.ververica.connectors.hologres.utils.JDBCUtils;
@@ -57,6 +58,7 @@ public class HologresConnectionParam implements Serializable {
     private final boolean enableServerlessComputing;
     private final Integer serverlessComputingQueryPriority;
     private final Integer statementTimeoutSeconds;
+
     // JDBC source
     private final int jdbcReadBatchSize;
     private final int jdbcReadBatchQueueSize;
@@ -74,6 +76,7 @@ public class HologresConnectionParam implements Serializable {
     private final Boolean jdbcUseLegacyPutHandler;
     private final boolean jdbcEnableDefaultForNotNullColumn;
     private final CheckAndPutCondition checkAndPutCondition;
+    private final DirtyDataStrategy dirtyDataStrategy;
     // JDBC dim
     private final boolean insertIfNotExists;
     // JDBC copy sink
@@ -91,6 +94,8 @@ public class HologresConnectionParam implements Serializable {
 
         this.splitDataSize = properties.get(HologresConfigs.OPTIONAL_SPLIT_DATA_SIZE);
         this.ignoreDelete = properties.get(HologresConfigs.OPTIONAL_SINK_IGNORE_DELETE);
+
+        this.dirtyDataStrategy = properties.get(HologresConfigs.ACTION_ON_INSERT_ERROR);
 
         this.jdbcRetryCount = properties.get(HologresJDBCConfigs.OPTIONAL_JDBC_RETRY_COUNT);
         this.jdbcRetrySleepInitMs =
@@ -221,6 +226,10 @@ public class HologresConnectionParam implements Serializable {
 
     public boolean isIgnoreDelete() {
         return ignoreDelete;
+    }
+
+    public DirtyDataStrategy getDirtyDataStrategy() {
+        return dirtyDataStrategy;
     }
 
     public int getJdbcWriteBatchSize() {

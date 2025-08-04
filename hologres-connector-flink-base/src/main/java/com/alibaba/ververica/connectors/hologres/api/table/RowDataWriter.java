@@ -10,6 +10,7 @@ import org.apache.flink.table.types.logical.utils.LogicalTypeChecks;
 
 import java.io.Serializable;
 import java.sql.Types;
+import java.util.Objects;
 
 /** An interface to transform from RowData to other data type T. */
 public interface RowDataWriter<T> extends Serializable {
@@ -19,14 +20,20 @@ public interface RowDataWriter<T> extends Serializable {
             String hologresTypeName,
             RowDataWriter<T> rowDataWriter,
             int columnIndexInHologresTable,
-            String arrayDelimiter) {
+            boolean isJdbcEnableRemoveU0000InText) {
         FieldWriter fieldWriter;
         switch (hologresType) {
             case Types.CHAR:
             case Types.VARCHAR:
                 fieldWriter =
                         (obj) -> {
-                            rowDataWriter.writeString((StringData) obj, columnIndexInHologresTable);
+                            if (isJdbcEnableRemoveU0000InText) {
+                                rowDataWriter.writeStringRemoveU0000(
+                                        (StringData) obj, columnIndexInHologresTable);
+                            } else {
+                                rowDataWriter.writeString(
+                                        (StringData) obj, columnIndexInHologresTable);
+                            }
                         };
                 break;
             case Types.BIT:
@@ -86,6 +93,10 @@ public interface RowDataWriter<T> extends Serializable {
                             rowDataWriter.writeDate((Integer) obj, columnIndexInHologresTable);
                         };
                 break;
+            case Types.TIME:
+                fieldWriter =
+                        obj -> rowDataWriter.writeTime((Integer) obj, columnIndexInHologresTable);
+                break;
             case Types.BIGINT:
                 fieldWriter =
                         (obj) -> {
@@ -143,30 +154,28 @@ public interface RowDataWriter<T> extends Serializable {
                 }
                 break;
             case Types.ARRAY:
-                if (fieldType.getTypeRoot().equals(LogicalTypeRoot.VARCHAR)) {
-                    fieldWriter =
-                            (obj) -> {
-                                rowDataWriter.writeStringArray(
-                                        ((String) obj).split(arrayDelimiter),
-                                        columnIndexInHologresTable);
-                            };
-                } else {
-                    fieldWriter =
-                            createArrayFieldWriter(
-                                    fieldType,
-                                    hologresTypeName,
-                                    rowDataWriter,
-                                    columnIndexInHologresTable);
-                }
+                fieldWriter =
+                        createArrayFieldWriter(
+                                fieldType,
+                                hologresTypeName,
+                                rowDataWriter,
+                                columnIndexInHologresTable);
+
                 break;
             case Types.OTHER:
                 // The type check of jdbc copy writer is relatively strict, only supports
                 // java.lang.String but not BinaryStringData.
                 if (hologresTypeName.equals("json") || hologresTypeName.equals("jsonb")) {
                     fieldWriter =
-                            (obj) ->
+                            (obj) -> {
+                                if (isJdbcEnableRemoveU0000InText) {
+                                    rowDataWriter.writeStringRemoveU0000(
+                                            (StringData) obj, columnIndexInHologresTable);
+                                } else {
                                     rowDataWriter.writeString(
                                             (StringData) obj, columnIndexInHologresTable);
+                                }
+                            };
                 } else {
                     fieldWriter =
                             (obj) -> rowDataWriter.writeObject(obj, columnIndexInHologresTable);
@@ -224,7 +233,7 @@ public interface RowDataWriter<T> extends Serializable {
                     ArrayData arrayData = (ArrayData) obj;
                     String[] strings = new String[arrayData.size()];
                     for (int i = 0; i < arrayData.size(); i++) {
-                        strings[i] = arrayData.getString(i).toString();
+                        strings[i] = Objects.toString(arrayData.getString(i));
                     }
                     rowDataWriter.writeStringArray(strings, columnIndexInHologresTable);
                 };
@@ -256,7 +265,11 @@ public interface RowDataWriter<T> extends Serializable {
 
     void writeString(StringData value, int columnIndexInHologresTable);
 
+    void writeStringRemoveU0000(StringData value, int columnIndexInHologresTable);
+
     void writeDate(Integer value, int columnIndexInHologresTable);
+
+    void writeTime(Integer value, int columnIndexInHologresTable);
 
     void writeLTZAsTimestampTz(TimestampData value, int columnIndexInHologresTable);
 

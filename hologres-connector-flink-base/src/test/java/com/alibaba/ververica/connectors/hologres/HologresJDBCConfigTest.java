@@ -188,7 +188,7 @@ public class HologresJDBCConfigTest {
         assertEquals(
                 "HologresConnectionParam{options=JDBCOptions{database='null', table='null', username='null', "
                         + "password='********', endpoint='null', connection.ssl.mode='DISABLE', connection.ssl.root-cert.location='null', "
-                        + "delimiter='\u0002'}, splitDataSize=262144, ignoreDelete=true, createMissingPartTable=false,"
+                        + "delimiter='\u0002', enableAkv4='false', akv4Region='null'}, splitDataSize=262144, ignoreDelete=true, createMissingPartTable=false,"
                         + " ignoreNullWhenUpdate=false, remove-u0000-in-text.enabled=true, deduplication.enabled=true, "
                         + "affect-rows.enabledtrue, aggressive.enabled=false, reshuffle-by-holo-distribution-key.enabled=false, "
                         + "jdbcRetryCount=10, jdbcRetrySleepInitMs=1000, "

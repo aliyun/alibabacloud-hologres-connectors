@@ -76,7 +76,7 @@ public class HologresRowDataConverter<T> implements HologresRecordConverter<RowD
                             holgoresColumn.getTypeName(),
                             rowDataWriter,
                             hologresTableSchema.get().getColumnIndex(fieldNames[i]),
-                            param.getJdbcOptions().getDelimiter());
+                            param.isJdbcEnableRemoveU0000InText());
             this.fieldReaders[i] =
                     RowDataReader.createFieldReader(
                             fieldTypes[i],
@@ -167,6 +167,10 @@ public class HologresRowDataConverter<T> implements HologresRecordConverter<RowD
                     break;
                 case Types.DATE:
                     matched = flinkType.getTypeRoot().equals(LogicalTypeRoot.DATE);
+                    break;
+                case Types.TIME:
+                    matched =
+                            flinkType.getTypeRoot().equals(LogicalTypeRoot.TIME_WITHOUT_TIME_ZONE);
                     break;
                 case Types.BIGINT:
                     matched = flinkType.getTypeRoot().equals(LogicalTypeRoot.BIGINT);

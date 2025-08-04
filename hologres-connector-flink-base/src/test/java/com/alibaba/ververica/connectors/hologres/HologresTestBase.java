@@ -80,6 +80,7 @@ public class HologresTestBase {
         config.setJdbcUrl(JDBCUtils.getDbUrl(endpoint, database));
         config.setUsername(username);
         config.setPassword(password);
+        config.setUseAKv4(false);
         return new HoloClient(config);
     }
 

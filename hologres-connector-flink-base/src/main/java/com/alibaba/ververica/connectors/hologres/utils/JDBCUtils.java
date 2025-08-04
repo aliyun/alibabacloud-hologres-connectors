@@ -3,6 +3,7 @@ package com.alibaba.ververica.connectors.hologres.utils;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.configuration.ReadableConfig;
 
+import com.alibaba.hologres.client.auth.AKv4AuthenticationPlugin;
 import com.alibaba.hologres.client.model.SSLMode;
 import com.alibaba.hologres.org.postgresql.PGProperty;
 import com.alibaba.ververica.connectors.hologres.config.JDBCOptions;
@@ -89,6 +90,18 @@ public class JDBCUtils {
                         PGProperty.SSL_ROOT_CERT.set(properties, options.getSslRootCertLocation());
                     }
                 }
+
+                if (options.isEnableAkv4()) {
+                    PGProperty.USER.set(
+                            properties,
+                            AKv4AuthenticationPlugin.AKV4_PREFIX + options.getUsername());
+                    PGProperty.AUTHENTICATION_PLUGIN_CLASS_NAME.set(
+                            properties, AKv4AuthenticationPlugin.class.getName());
+                    if (options.getAkv4Region() != null) {
+                        properties.setProperty(
+                                AKv4AuthenticationPlugin.REGION, options.getAkv4Region());
+                    }
+                }
                 return DriverManager.getConnection(url, properties);
             } catch (SQLException e) {
                 exception = e;
@@ -118,9 +131,20 @@ public class JDBCUtils {
         String sslMode = properties.get(HologresJDBCConfigs.OPTIONAL_CONNECTION_SSL_MODE);
         String sslRootCertLocation =
                 properties.get(HologresJDBCConfigs.OPTIONAL_CONNECTION_SSL_ROOT_CERT_LOCATION);
+        boolean enableAkv4 = properties.get(HologresJDBCConfigs.ENABLE_AKV4);
+        String akv4Region = properties.get(HologresJDBCConfigs.AKV4_REGION);
 
         return new JDBCOptions(
-                db, table, username, pwd, endpoint, sslMode, sslRootCertLocation, delimiter);
+                db,
+                table,
+                username,
+                pwd,
+                endpoint,
+                sslMode,
+                sslRootCertLocation,
+                delimiter,
+                enableAkv4,
+                akv4Region);
     }
 
     public static int getShardCount(JDBCOptions options) {
@@ -143,22 +167,6 @@ public class JDBCUtils {
         } catch (SQLException e) {
             throw new RuntimeException(e);
         }
-    }
-
-    public static boolean couldDirectConnect(JDBCOptions options) {
-        String url = options.getDbUrl();
-        Properties info = new Properties();
-        PGProperty.USER.set(info, options.getUsername());
-        PGProperty.PASSWORD.set(info, options.getPassword());
-        PGProperty.APPLICATION_NAME.set(info, DEFAULT_APP_NAME);
-        String directUrl = JDBCUtils.getJdbcDirectConnectionUrl(options, url);
-        LOG.info("try connect directly to holo with url {}", url);
-        try (Connection ignored = DriverManager.getConnection(directUrl, info)) {
-        } catch (Exception e) {
-            LOG.warn("could not connect directly to holo.");
-            return false;
-        }
-        return true;
     }
 
     public static String getJdbcDirectConnectionUrl(JDBCOptions options, String url) {

@@ -4,6 +4,7 @@ import org.apache.flink.configuration.ConfigOption;
 import org.apache.flink.configuration.ConfigOptions;
 
 import com.alibaba.ververica.connectors.common.dim.DimOptions;
+import com.alibaba.ververica.connectors.common.source.resolver.DirtyDataStrategy;
 import com.alibaba.ververica.connectors.hologres.jdbc.HologresJDBCConfigs;
 import org.apache.commons.lang3.reflect.FieldUtils;
 
@@ -54,10 +55,10 @@ public class HologresConfigs {
     public static final ConfigOption<Boolean> IGNORE_NULL_WHEN_UPDATE =
             key("ignoreNullWhenUpdate".toLowerCase()).defaultValue(false);
 
-    public static final ConfigOption<String> ACTION_ON_INSERT_ERROR =
-            ConfigOptions.key("actionOnInsert".toLowerCase())
-                    .stringType()
-                    .defaultValue("Exception");
+    public static final ConfigOption<DirtyDataStrategy> ACTION_ON_INSERT_ERROR =
+            ConfigOptions.key("sink.error-handler".toLowerCase())
+                    .enumType(DirtyDataStrategy.class)
+                    .defaultValue(DirtyDataStrategy.EXCEPTION);
 
     public static Set<ConfigOption<?>> getAllOption() {
         Set<ConfigOption<?>> allOptions = new HashSet<>();

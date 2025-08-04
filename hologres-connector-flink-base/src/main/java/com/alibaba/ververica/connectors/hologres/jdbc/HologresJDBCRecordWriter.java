@@ -9,9 +9,12 @@ import com.alibaba.hologres.client.model.checkandput.CheckAndPutRecord;
 import com.alibaba.ververica.connectors.hologres.api.HologresTableSchema;
 import com.alibaba.ververica.connectors.hologres.api.table.RowDataWriter;
 import com.alibaba.ververica.connectors.hologres.config.HologresConnectionParam;
+import com.alibaba.ververica.connectors.hologres.utils.HologresUtils;
 
 import java.sql.Date;
+import java.sql.Time;
 import java.sql.Timestamp;
+import java.time.LocalTime;
 import java.util.Objects;
 
 /** Transform RowData to Record. */
@@ -89,8 +92,21 @@ public class HologresJDBCRecordWriter implements RowDataWriter<Record> {
     }
 
     @Override
+    public void writeStringRemoveU0000(StringData value, int columnIndexInHologresTable) {
+        this.record.setObject(
+                columnIndexInHologresTable, HologresUtils.removeU0000(value.toString()));
+    }
+
+    @Override
     public void writeDate(Integer value, int columnIndexInHologresTable) {
         this.record.setObject(columnIndexInHologresTable, new Date(value * 86400000L));
+    }
+
+    @Override
+    public void writeTime(Integer value, int columnIndexInHologresTable) {
+        this.record.setObject(
+                columnIndexInHologresTable,
+                Time.valueOf(LocalTime.ofNanoOfDay(value * 1_000_000L)));
     }
 
     @Override
