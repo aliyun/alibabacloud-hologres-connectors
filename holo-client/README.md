@@ -27,7 +27,7 @@
     - [checkandput](#checkandput)
   - [1.X与2.X升级说明](#1x与2x升级说明)
   - [2.X版本已知问题](#2x版本已知问题)
-  - [Release Note](#Release-Note)
+  - [ReleaseNote](#ReleaseNote)
   - [附录](#附录)
     - [HoloConfig参数说明](#holoconfig参数说明)
       - [基础配置](#基础配置)
@@ -715,8 +715,12 @@ unnest格式相比multi values有如下优点:
 - binlog消费时，存在内存泄露问题，bug引入版本2.1.0，bug修复版本2.2.10
 - 分区表drop column之后，自动创建子分区时，可能拿到错误的分区值，bug引入版本1.X，bug修复版本2.2.11
 - 当用户表名中有下划线时，可能获取到错误的字段信息，bug引入版本1.X，bug修复版本2.2.12
+- 当用户的JVM时区不是UTC时，可能会导致V4认证签名计算错误，从而导致登录认证失败，例如客户端时区为+8时，每日00:00-08:00的新建都会连接失败。bug引入版本2.6.0，bug修复版本2.6.1
+- 当写入分区父表同时有DELETE和INSERT数据，由于攒批去重逻辑问题，可能导致数据被DELETE之后没有插入从而丢失数据。bug引入版本2.6.2，bug修复版本2.6.6
+- 如果主键有Decimal类型，在客户端计算shard过程中会发生NPE。bug引入版本2.6.1，bug修复版本2.6.7
 
-## Release Note
+
+## ReleaseNote
 - 2.4.0
   - 新建连接时会设置LOGIN_TIMEOUT为60S，之前未设置
   - 对实例只读状态的报错增加重试
@@ -740,6 +744,20 @@ unnest格式相比multi values有如下优点:
   - 修复 scan 操作通过 clustering key 排序不生效的问题
   - copy 模式支持 time，timetz 类型；
   - 新增 copyMode，分为 STREAM，BULK_LOAD, BULK_LOAD_ON_CONFLICT
+- 2.5.6
+  — 支持消费逻辑分区表
+  - Hologres3.1版本起, 轻量级连接fixed支持直连
+- 2.5.7
+  - holo-client在query执行耗时超过阈值时，会在日志中打印慢query的queryid
+  - 支持copy out通过arrow格式批量导出,可以选择数据压缩
+- 2.6.1
+  - 支持AKv4认证,默认开启
+  - 连接最大存活时间调整为1小时,会在连接空闲时自动重建连接
+  - Hologres3.2版本起,消费binlog支持列裁剪以及数据压缩
+- 2.6.7
+  - 修复copy写入在夏令时时区时间偏移的问题
+  - 修复非Asia/Shanghai时区在消费binlog指定startTime，启动时间不符合预期的问题
+  - copy接口优化，可以使用CopyInWrapper和CopyOutWrapper接口写入或读取
 
 ## 附录
 ### HoloConfig参数说明
