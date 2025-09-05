@@ -26,7 +26,7 @@ joblib==1.4.2
 jsonpatch==1.33
 jsonpointer==3.0.0
 langchain==0.3.18
-langchain-community==0.3.17
+langchain-community==0.3.27
 langchain-core==0.3.35
 langchain-text-splitters==0.3.6
 langsmith==0.3.8
