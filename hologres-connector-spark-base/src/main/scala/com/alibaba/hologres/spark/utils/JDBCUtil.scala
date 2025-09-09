@@ -306,6 +306,7 @@ object JDBCUtil {
       conn = createConnection(hologresConfigs)
       val statement = conn.createStatement()
       val sql = String.format("-- From Spark-Connector: <create temp table for overwrite>\n"
+        + "set hg_experimental_force_sync_replay=on;\n"
         + "BEGIN;\n"
         + "DROP TABLE IF EXISTS %s %s;\n"
         + "set hg_experimental_enable_create_table_like_properties=on;\n"
@@ -350,12 +351,14 @@ object JDBCUtil {
       val onlyTablename = IdentifierUtil.quoteIdentifier(tableName.getTableName)
       if (partitionValue == null || parentTable == null) {
         sql = String.format("-- From Spark-Connector: <replace the original table with the temp table when overwrite success>\n"
+          + "set hg_experimental_force_sync_replay=on;\n"
           + "BEGIN;\n"
           + "DROP TABLE IF EXISTS %s %s;\n"
           + "ALTER TABLE %s RENAME TO %s;\n"
           + "COMMIT;", hologresConfigs.table, suffix, hologresConfigs.tempTableForOverwrite, onlyTablename)
       } else {
         sql = String.format("-- From Spark-Connector: <replace the original table with the temp table when overwrite success>\n"
+          + "set hg_experimental_force_sync_replay=on;\n"
           + "BEGIN;\n"
           + "DROP TABLE IF EXISTS %s %s;\n"
           + "ALTER TABLE %s RENAME TO %s;\n"
@@ -394,6 +397,7 @@ object JDBCUtil {
       conn = createConnection(hologresConfigs)
       val statement = conn.createStatement()
       val sql = String.format("-- From Spark-Connector: <delete temp table when overwrite failed>\n"
+        + "set hg_experimental_force_sync_replay=on;\n"
         + "BEGIN;\n"
         + "DROP TABLE IF EXISTS %s %s;\n"
         + "COMMIT;", hologresConfigs.tempTableForOverwrite, suffix)
