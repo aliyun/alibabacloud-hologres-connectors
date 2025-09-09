@@ -58,13 +58,13 @@ select count(*) from pg_stat_activity where backend_type='client backend';
 <dependency>
   <groupId>com.alibaba.hologres</groupId>
   <artifactId>holo-client</artifactId>
-  <version>2.5.4</version>
+  <version>2.5.8</version>
 </dependency>
 ```
 
 - Gradle
 ```
-implementation 'com.alibaba.hologres:holo-client:2.5.4'
+implementation 'com.alibaba.hologres:holo-client:2.5.8'
 ```
 
 ## 连接数说明

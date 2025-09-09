@@ -24,7 +24,7 @@ public class SparkReadHoloToDataFrameExample {
 
     /**
      * Hologres DDL.
-     * <p> create table sink_table(user_id bigint, user_name text, price decimal(38,
+     * <p> create table source_table(user_id bigint, "USER_NAME" text, price decimal(38,
      * 2),sale_timestamp timestamptz);
      * <p>
      * insert into source_table select generate_series(1,20), 'abcd', 123.45, now();
@@ -50,7 +50,7 @@ public class SparkReadHoloToDataFrameExample {
         List<StructField> asList =
                 Arrays.asList(
                         DataTypes.createStructField("user_id", DataTypes.LongType, true),
-                        DataTypes.createStructField("user_name", DataTypes.StringType, true),
+                        DataTypes.createStructField("USER_NAME", DataTypes.StringType, true),
                         DataTypes.createStructField("price", new DecimalType(38, 2), true),
                         DataTypes.createStructField(
                                 "sale_timestamp", DataTypes.TimestampType, true));
@@ -63,9 +63,9 @@ public class SparkReadHoloToDataFrameExample {
                 .option("username", username)
                 .option("password", password)
                 .option("jdbcurl", url)
-                .option("table", "test_table_batch_8")
-                .option("bulk_read", "true")
-                // .option("query", "select * from " + tableName) // 1.5.0版本支持通过query读取
+                // .option("table", "source_table")
+                .option("read.mode", "bulk_read")
+                .option("read.query", "select * from source_table") // 1.5.0版本支持通过query读取
                 .load();
 
         df.show();

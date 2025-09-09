@@ -1,6 +1,7 @@
 package com.alibaba.ververica.connectors.hologres.example;
 
 import com.alibaba.hologres.client.Put.MutationType;
+import com.alibaba.hologres.client.exception.HoloClientException;
 import com.alibaba.hologres.client.model.Record;
 import com.alibaba.ververica.connectors.common.sink.OutputFormatSinkFunction;
 import com.alibaba.ververica.connectors.hologres.api.HologresRecordConverter;
@@ -9,7 +10,7 @@ import com.alibaba.ververica.connectors.hologres.config.HologresConfigs;
 import com.alibaba.ververica.connectors.hologres.config.HologresConnectionParam;
 import com.alibaba.ververica.connectors.hologres.example.SourceItem.EventType;
 import com.alibaba.ververica.connectors.hologres.jdbc.HologresJDBCWriter;
-import com.alibaba.ververica.connectors.hologres.sink.HologresOutputFormat;
+import com.alibaba.ververica.connectors.hologres.sink.AbstractHologresOutputFormat;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.DefaultParser;
@@ -21,6 +22,7 @@ import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.table.api.DataTypes;
 import org.apache.flink.table.api.TableSchema;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 
@@ -85,12 +87,21 @@ public class FlinkDataStreamToHoloExample {
 
         source.addSink(
                 new OutputFormatSinkFunction<SourceItem>(
-                        new HologresOutputFormat<>(
+                        new AbstractHologresOutputFormat<SourceItem>(
                                 hologresConnectionParam,
                                 new HologresJDBCWriter<>(
                                         hologresConnectionParam,
                                         schema,
-                                        new RecordConverter(hologresConnectionParam)))));
+                                        new RecordConverter(hologresConnectionParam))) {
+                            @Override
+                            public long writeData(SourceItem data) throws HoloClientException, IOException {
+                                if (data.eventType == EventType.DELETE) {
+                                    return hologresIOClient.writeDeleteRecord(data);
+                                } else {
+                                    return hologresIOClient.writeAddRecord(data);
+                                }
+                            }
+                        }));
 
         env.execute("Insert");
     }
