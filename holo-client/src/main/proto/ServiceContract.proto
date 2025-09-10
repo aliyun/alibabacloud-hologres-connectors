@@ -1,0 +1,32 @@
+syntax = "proto2";
+
+package niagara.table.proto;
+option java_package = "com.alibaba.niagara.client.table";
+option java_outer_classname = "ServiceContractMsg";
+
+//与holo_proto/proto/holo/service/service_contract.proto::OperatorType 保持一致
+enum OperatorType {
+  // Binary Operators
+  // original value is always on the right side
+  GREATER = 1;
+  GREATER_EQUAL = 2;
+  LESS = 3;
+  LESS_EQUAL = 4;
+  EQUAL = 5;
+  NOT_EQUAL = 6;
+  // Unary Operators(apply on old value)
+  IS_NULL = 7;
+  IS_NOT_NULL = 8;
+}
+
+//与holo_proto/proto/holo/service/service_contract.proto::BinlogFilter 保持一致
+message BinlogFilter {
+  required OperatorType op_type = 1;
+  optional bytes column_name = 2;
+  optional bytes value = 3;
+}
+
+//与holo_proto/proto/holo/service/service_contract.proto::BinlogFilters 保持一致
+message BinlogFilters {
+  repeated BinlogFilter filters = 1;
+}

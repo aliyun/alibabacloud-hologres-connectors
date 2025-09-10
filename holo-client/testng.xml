@@ -1,13 +1,23 @@
 <!DOCTYPE suite SYSTEM "https://testng.org/testng-1.0.dtd" >
 <suite name="Suite" verbose="1">
     <test name="p" parallel="methods" thread-count="10">
+        <groups>
+            <run>
+                <exclude name="nonConcurrentGroup"/>
+            </run>
+        </groups>
         <packages>
             <package name="com.alibaba.hologres.client.*">
-                <exclude name="com.alibaba.hologres.client.statefull.*"></exclude>
+                <exclude name="com.alibaba.hologres.client.statefull.*"/>
             </package>
         </packages>
     </test>
-    <test name="s">
+    <test name="NonConcurrentGroup" parallel="false">
+        <groups>
+            <run>
+                <include name="nonConcurrentGroup"/>
+            </run>
+        </groups>
         <packages>
             <package name="com.alibaba.hologres.client.statefull.*">
             </package>

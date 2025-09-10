@@ -14,61 +14,66 @@ import org.postgresql.util.PSQLState;
 import java.sql.SQLException;
 import java.sql.Types;
 
-/**
- * 列存对象构建.
- */
+/** 列存对象构建. */
 public class JdbcColumnValuesBuilder {
 
-	public static JdbcColumnValues build(PgConnection connection, int rowCount, int targetSqlType, String typeName, HoloConfig config) throws SQLException {
-		TimestampUtils timestampUtils = connection.getTimestampUtils();
-		switch (targetSqlType) {
-			case Types.INTEGER:
-				return new JdbcIntegerColumnValues(timestampUtils, rowCount);
-			case Types.TINYINT:
-			case Types.SMALLINT:
-				return new JdbcShortColumnValues(timestampUtils, rowCount);
-			case Types.BIGINT:
-				return new JdbcLongColumnValues(timestampUtils, rowCount);
-			case Types.REAL:
-				return new JdbcFloatColumnValues(timestampUtils, rowCount);
-			case Types.DOUBLE:
-			case Types.FLOAT:
-				return new JdbcDoubleColumnValues(timestampUtils, rowCount);
-			case Types.DECIMAL:
-			case Types.NUMERIC:
-				return new JdbcBigDecimalColumnValues(timestampUtils, rowCount);
-			case Types.CHAR:
-			case Types.VARCHAR:
-			case Types.LONGVARCHAR:
-				return new JdbcStringColumnValues(timestampUtils, rowCount, config);
-			case Types.DATE:
-				return new JdbcDateColumnValues(timestampUtils, rowCount, config);
-			case Types.TIME:
-				return new JdbcTimeColumnValues(timestampUtils, rowCount);
-			case Types.TIMESTAMP:
-			case Types.TIMESTAMP_WITH_TIMEZONE:
-				return new JdbcTimestampColumnValues(timestampUtils, rowCount, config);
-			case Types.BOOLEAN:
-			case Types.BIT:
-				return new JdbcBooleanColumnValues(timestampUtils, rowCount);
-			case Types.BINARY:
-			case Types.VARBINARY:
-			case Types.LONGVARBINARY:
-				return new JdbcByteaColumnValues(timestampUtils, rowCount);
-			case Types.OTHER:
-				if ("json".equals(typeName) || "jsonb".equals(typeName)) {
-					return new JdbcStringColumnValues(timestampUtils, rowCount, config);
-				}
-				if ("roaringbitmap".equals(typeName)) {
-					return new JdbcByteaColumnValues(timestampUtils, rowCount);
-				} else {
-					throw new PSQLException(GT.tr("Unsupported Types value: {0}", targetSqlType),
-							PSQLState.INVALID_PARAMETER_TYPE);
-				}
-			default:
-				throw new PSQLException(GT.tr("Unsupported Types value: {0}", targetSqlType),
-						PSQLState.INVALID_PARAMETER_TYPE);
-		}
-
-	}
+    public static JdbcColumnValues build(
+            PgConnection connection,
+            int rowCount,
+            int targetSqlType,
+            String typeName,
+            HoloConfig config)
+            throws SQLException {
+        TimestampUtils timestampUtils = connection.getTimestampUtils();
+        switch (targetSqlType) {
+            case Types.INTEGER:
+                return new JdbcIntegerColumnValues(timestampUtils, rowCount);
+            case Types.TINYINT:
+            case Types.SMALLINT:
+                return new JdbcShortColumnValues(timestampUtils, rowCount);
+            case Types.BIGINT:
+                return new JdbcLongColumnValues(timestampUtils, rowCount);
+            case Types.REAL:
+                return new JdbcFloatColumnValues(timestampUtils, rowCount);
+            case Types.DOUBLE:
+            case Types.FLOAT:
+                return new JdbcDoubleColumnValues(timestampUtils, rowCount);
+            case Types.DECIMAL:
+            case Types.NUMERIC:
+                return new JdbcBigDecimalColumnValues(timestampUtils, rowCount);
+            case Types.CHAR:
+            case Types.VARCHAR:
+            case Types.LONGVARCHAR:
+                return new JdbcStringColumnValues(timestampUtils, rowCount, config);
+            case Types.DATE:
+                return new JdbcDateColumnValues(timestampUtils, rowCount, config);
+            case Types.TIME:
+                return new JdbcTimeColumnValues(timestampUtils, rowCount);
+            case Types.TIMESTAMP:
+            case Types.TIMESTAMP_WITH_TIMEZONE:
+                return new JdbcTimestampColumnValues(timestampUtils, rowCount, config);
+            case Types.BOOLEAN:
+            case Types.BIT:
+                return new JdbcBooleanColumnValues(timestampUtils, rowCount);
+            case Types.BINARY:
+            case Types.VARBINARY:
+            case Types.LONGVARBINARY:
+                return new JdbcByteaColumnValues(timestampUtils, rowCount);
+            case Types.OTHER:
+                if ("json".equals(typeName) || "jsonb".equals(typeName)) {
+                    return new JdbcStringColumnValues(timestampUtils, rowCount, config);
+                }
+                if ("roaringbitmap".equals(typeName)) {
+                    return new JdbcByteaColumnValues(timestampUtils, rowCount);
+                } else {
+                    throw new PSQLException(
+                            GT.tr("Unsupported Types value: {0}", targetSqlType),
+                            PSQLState.INVALID_PARAMETER_TYPE);
+                }
+            default:
+                throw new PSQLException(
+                        GT.tr("Unsupported Types value: {0}", targetSqlType),
+                        PSQLState.INVALID_PARAMETER_TYPE);
+        }
+    }
 }

@@ -4,11 +4,9 @@
 
 package com.alibaba.hologres.client;
 
-/**
- * Scan操作的排序keys.
- */
+/** Scan操作的排序keys. */
 public enum SortKeys {
-	PRIMARY_KEY,
-	CLUSTERING_KEY,
-	NONE,
+    PRIMARY_KEY,
+    CLUSTERING_KEY,
+    NONE,
 }

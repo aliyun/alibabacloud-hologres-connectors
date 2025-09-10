@@ -4,8 +4,5 @@
 
 package com.alibaba.hologres.client;
 
-/**
- * Filter.
- */
-public interface Filter {
-}
+/** Filter. */
+public interface Filter {}

@@ -6,7 +6,7 @@
 
     <groupId>com.alibaba.hologres</groupId>
     <artifactId>holo-client</artifactId>
-    <version>2.5.4</version>
+    <version>2.6.11</version>
 
     <url>https://www.hologres.io/</url>
     <name>holo-client</name>
@@ -18,6 +18,11 @@
         </license>
     </licenses>
 
+    <scm>
+        <url>git@github.com:hologres/hologres-connectors.git</url>
+        <connection>scm:git:git@github.com:hologres/hologres-connectors.git</connection>
+        <developerConnection>scm:git:git@github.com:hologres/hologres-connectors.git</developerConnection>
+    </scm>
     <developers>
         <developer>
             <id>shangtang</id>
@@ -40,6 +45,8 @@
         <metrics.version>4.1.16</metrics.version>
         <slf4j.version>1.7.10</slf4j.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <protobuf.version>3.17.3</protobuf.version>
+        <protobuf.plugin.version>0.6.1</protobuf.plugin.version>
     </properties>
 
     <dependencies>
@@ -83,6 +90,54 @@
             <artifactId>binaryrow</artifactId>
             <version>0.0.2.3-SNAPSHOT</version>
         </dependency>
+
+        <dependency>
+            <groupId>com.google.protobuf</groupId>
+            <artifactId>protobuf-java</artifactId>
+            <version>${protobuf.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>arrow-memory</artifactId>
+            <version>0.10.0</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>io.netty</groupId>
+                    <artifactId>netty-buffer</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>io.netty</groupId>
+                    <artifactId>netty-common</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>arrow-vector</artifactId>
+            <version>0.10.0</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>commons-codec</groupId>
+                    <artifactId>commons-codec</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>arrow-format</artifactId>
+            <version>0.10.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+            <version>3.12.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.lz4</groupId>
+            <artifactId>lz4-java</artifactId>
+            <version>1.8.0</version>
+        </dependency>
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-simple</artifactId>
@@ -97,9 +152,22 @@
             <scope>test</scope>
         </dependency>
 
+        <dependency>
+            <groupId>com.github.jsqlparser</groupId>
+            <artifactId>jsqlparser</artifactId>
+            <version>4.5</version>
+        </dependency>
+
     </dependencies>
 
     <build>
+        <extensions>
+            <extension>
+                <groupId>kr.motd.maven</groupId>
+                <artifactId>os-maven-plugin</artifactId>
+                <version>1.6.2</version>
+            </extension>
+        </extensions>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -137,34 +205,6 @@
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-checkstyle-plugin</artifactId>
-                <version>3.1.1</version>
-                <dependencies>
-                    <dependency>
-                        <groupId>com.puppycrawl.tools</groupId>
-                        <artifactId>checkstyle</artifactId>
-                        <version>8.14</version>
-                    </dependency>
-                </dependencies>
-                <configuration>
-                    <suppressionsLocation>/tools/maven/suppressions.xml</suppressionsLocation>
-                    <configLocation>/tools/maven/checkstyle.xml</configLocation>
-                    <includeTestSourceDirectory>true</includeTestSourceDirectory>
-                    <logViolationsToConsole>true</logViolationsToConsole>
-                    <failOnViolation>true</failOnViolation>
-                </configuration>
-                <executions>
-                    <execution>
-                        <id>validate</id>
-                        <phase>validate</phase>
-                        <goals>
-                            <goal>check</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
                 <version>3.2.4</version>
                 <executions>
@@ -194,10 +234,6 @@
                                 <relocation>
                                     <pattern>org.postgresql</pattern>
                                     <shadedPattern>com.alibaba.hologres.org.postgresql</shadedPattern>
-                                    <excludes>
-                                        <exclude>org.postgresql.model.*</exclude>
-                                        <exclude>org.postgresql.core.SqlCommandType</exclude>
-                                    </excludes>
                                 </relocation>
                                 <relocation>
                                     <pattern>com.codahale.metrics</pattern>
@@ -210,6 +246,18 @@
                                 <relocation>
                                     <pattern>org.apache.commons.csv</pattern>
                                     <shadedPattern>com.alibaba.hologres.org.apache.commons.csv</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>io.netty</pattern>
+                                    <shadedPattern>com.alibaba.hologres.io.netty</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>com.fasterxml.jackson</pattern>
+                                    <shadedPattern>com.alibaba.hologres.com.fasterxml.jackson</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>org.apache.arrow</pattern>
+                                    <shadedPattern>com.alibaba.hologres.org.apache.arrow</shadedPattern>
                                 </relocation>
                             </relocations>
                         </configuration>
@@ -256,6 +304,61 @@
                                 <source>${project.build.directory}/generated-sources/java</source>
                             </sources>
                         </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>com.diffplug.spotless</groupId>
+                <artifactId>spotless-maven-plugin</artifactId>
+                <version>2.27.1</version>
+                <configuration>
+                    <java>
+                        <googleJavaFormat>
+                            <version>1.7</version>
+                            <style>AOSP</style>
+                        </googleJavaFormat>
+                        <!-- \# refers to the static imports -->
+                        <importOrder>
+                            <order>,javax,java,scala,\#</order>
+                        </importOrder>
+                        <removeUnusedImports/>
+                    </java>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>spotless-check</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.xolstice.maven.plugins</groupId>
+                <artifactId>protobuf-maven-plugin</artifactId>
+                <version>${protobuf.plugin.version}</version>
+                <configuration>
+                    <protoSourceRoot>src/main/proto</protoSourceRoot>
+                    <outputDirectory>${project.build.directory}/generated-sources/proto</outputDirectory>
+
+                    <clearOutputDirectory>true</clearOutputDirectory>
+
+                    <protocArtifact>
+                        com.google.protobuf:protoc:${protobuf.version}:exe:${os.detected.classifier}
+                    </protocArtifact>
+                    <!--<skip>true</skip>-->
+                    <!--mvn
+                    clean package -Dprotoc.skip=true-->
+                    <!--protoc.skip
+                    default is false-->
+
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>compile</goal>
+                        </goals>
                     </execution>
                 </executions>
             </plugin>

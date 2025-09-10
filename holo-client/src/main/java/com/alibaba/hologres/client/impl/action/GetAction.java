@@ -8,18 +8,16 @@ import com.alibaba.hologres.client.Get;
 
 import java.util.List;
 
-/**
- * ga.
- */
+/** ga. */
 public class GetAction extends AbstractAction<Void> {
 
-	List<Get> getList;
+    List<Get> getList;
 
-	public GetAction(List<Get> getList) {
-		this.getList = getList;
-	}
+    public GetAction(List<Get> getList) {
+        this.getList = getList;
+    }
 
-	public List<Get> getGetList() {
-		return getList;
-	}
+    public List<Get> getGetList() {
+        return getList;
+    }
 }

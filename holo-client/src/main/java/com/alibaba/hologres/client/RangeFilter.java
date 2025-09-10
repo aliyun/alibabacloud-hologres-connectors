@@ -4,29 +4,27 @@
 
 package com.alibaba.hologres.client;
 
-/**
- * RangeFilter.
- */
+/** RangeFilter. */
 public class RangeFilter implements Filter {
-	int index;
-	Object start;
-	Object stop;
+    int index;
+    Object start;
+    Object stop;
 
-	public RangeFilter(int index, Object start, Object stop) {
-		this.index = index;
-		this.start = start;
-		this.stop = stop;
-	}
+    public RangeFilter(int index, Object start, Object stop) {
+        this.index = index;
+        this.start = start;
+        this.stop = stop;
+    }
 
-	public int getIndex() {
-		return index;
-	}
+    public int getIndex() {
+        return index;
+    }
 
-	public Object getStart() {
-		return start;
-	}
+    public Object getStart() {
+        return start;
+    }
 
-	public Object getStop() {
-		return stop;
-	}
+    public Object getStop() {
+        return stop;
+    }
 }

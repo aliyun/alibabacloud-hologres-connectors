@@ -7,18 +7,16 @@ package com.alibaba.hologres.client.impl.action;
 import com.alibaba.hologres.client.Scan;
 import com.alibaba.hologres.client.model.RecordScanner;
 
-/**
- * ga.
- */
+/** ga. */
 public class ScanAction extends AbstractAction<RecordScanner> {
 
-	Scan scan;
+    Scan scan;
 
-	public ScanAction(Scan scan) {
-		this.scan = scan;
-	}
+    public ScanAction(Scan scan) {
+        this.scan = scan;
+    }
 
-	public Scan getScan() {
-		return scan;
-	}
+    public Scan getScan() {
+        return scan;
+    }
 }

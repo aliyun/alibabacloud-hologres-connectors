@@ -17,6 +17,8 @@
   - [数据查询](#数据查询)
     - [基于完整主键查询](#基于完整主键查询)
     - [Scan查询](#scan查询)
+  - [批量读取](#批量读取)
+    - [copy批量读取](#copy批量读取)
   - [消费Binlog](#消费binlog)
     - [消费普通表](#消费普通表)
     - [消费分区表](#消费分区表)
@@ -27,7 +29,7 @@
     - [checkandput](#checkandput)
   - [1.X与2.X升级说明](#1x与2x升级说明)
   - [2.X版本已知问题](#2x版本已知问题)
-  - [ReleaseNote](#ReleaseNote)
+  - [Release Note](#Release-Note)
   - [附录](#附录)
     - [HoloConfig参数说明](#holoconfig参数说明)
       - [基础配置](#基础配置)
@@ -37,7 +39,7 @@
       - [连接配置](#连接配置)
       - [消费Binlog配置](#消费binlog配置)
     - [参数详解](#参数详解)
-      - [writeMode](#writemode)
+      - [onConflictAction](#onConflictAction)
 
 
 ## 功能介绍
@@ -58,13 +60,13 @@ select count(*) from pg_stat_activity where backend_type='client backend';
 <dependency>
   <groupId>com.alibaba.hologres</groupId>
   <artifactId>holo-client</artifactId>
-  <version>2.5.8</version>
+  <version>2.6.3</version>
 </dependency>
 ```
 
 - Gradle
 ```
-implementation 'com.alibaba.hologres:holo-client:2.5.8'
+implementation 'com.alibaba.hologres:holo-client:2.6.3'
 ```
 
 ## 连接数说明
@@ -130,7 +132,7 @@ config.setJdbcUrl(url);
 config.setUsername(username);
 config.setPassword(password);
 
-config.setWriteMode(WriteMode.INSERT_OR_REPLACE);//配置主键冲突时策略
+config.setOnConflictAction(WriteMode.INSERT_OR_REPLACE);//配置主键冲突时策略
 
 try (HoloClient client = new HoloClient(config)) {
     //create table t0(id int not null,name0 text,address text,primary key(id))
@@ -161,7 +163,7 @@ config.setJdbcUrl(url);
 config.setUsername(username);
 config.setPassword(password);
 
-config.setWriteMode(WriteMode.INSERT_OR_UPDATE);//局部更新时，配置主键冲突时策略为INSERT_OR_UPDATE
+config.setOnConflictAction(WriteMode.INSERT_OR_UPDATE);//局部更新时，配置主键冲突时策略为INSERT_OR_UPDATE
 
 try (HoloClient client = new HoloClient(config)) {
     //create table t0(id int not null,name0 text,address text,primary key(id))
@@ -193,7 +195,7 @@ config.setJdbcUrl(url);
 config.setUsername(username);
 config.setPassword(password);
 
-config.setWriteMode(WriteMode.INSERT_OR_REPLACE);//配置主键冲突时策略
+config.setOnConflictAction(WriteMode.INSERT_OR_REPLACE);//配置主键冲突时策略
 
 try (HoloClient client = new HoloClient(config)) {
     //create table t0(id int not null,name0 text,address text,primary key(id))
@@ -218,7 +220,7 @@ HoloConfig config = new HoloConfig();
 config.setJdbcUrl(url);
 config.setUsername(username);
 config.setPassword(password);
-config.setWriteMode(WriteMode.INSERT_OR_UPDATE); //Checkandput接口要求WriteMode必须为INSERT_OR_UPDATE或者INSERT_OR_REPLACE
+config.setOnConflictAction(WriteMode.INSERT_OR_UPDATE); //Checkandput接口要求WriteMode必须为INSERT_OR_UPDATE或者INSERT_OR_REPLACE
 
 try (HoloClient client = new HoloClient(config)) {
     TableSchema schema0 = client.getTableSchema("t0");
@@ -259,79 +261,81 @@ fixed copy与HoloClient.put，以及普通copy的差异如下：
 对于无delete的实时写入场景，建议都使用fixed copy写入.
 
 ### fixed copy写入普通表
+
 ```java
+import com.alibaba.hologres.client.copy.CopyFormat;
+import com.alibaba.hologres.client.copy.CopyMode;
+import com.alibaba.hologres.client.copy.in.CopyInWrapper;
+import com.alibaba.hologres.client.model.OnConflictAction;
+import com.alibaba.hologres.client.model.TableSchema;
+import com.alibaba.hologres.client.Put;
+
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.util.ArrayList;
+import java.util.List;
+
 public class CopyDemo {
-	public static void main(String[] args) throws Exception {
-		//注意,jdbcurl里需要是jdbc:hologres
-		String jdbcUrl = "jdbc:hologres://host:port/db";
-		String user = "";
-		String password = "";
+  public static void main(String[] args) throws Exception {
+    //注意,jdbcurl里需要是jdbc:hologres
+    String jdbcUrl = "jdbc:hologres://host:port/db";
+    String username = "";
+    String password = "";
 
-		//加载Driver类
-		Class.forName("com.alibaba.hologres.org.postgresql.Driver");
+    /*
+    CREATE TABLE copy_demo (id INT NOT NULL, name TEXT NOT NULL, address TEXT, PRIMARY KEY(id));
+    */
+    String tableName = "copy_demo";
 
-		/*
-		CREATE TABLE copy_demo (id INT NOT NULL, name TEXT NOT NULL, address TEXT, PRIMARY KEY(id));
-		* */
-		String tableName = "copy_demo";
-		try (Connection conn = DriverManager.getConnection(jdbcUrl, user, password)) {
-			//所有postgresql相关类均在com.alibaba.hologres包下,如果项目同时引用了holo-client和postgresql,请注意包名
-			BaseConnection pgConn = conn.unwrap(BaseConnection.class);
-			TableSchema schema = ConnectionUtil.getTableSchema(conn, TableName.valueOf(tableName));
+    // 支持写入部分列, 列在List里的顺序一定要和建表保持一致.
+    List<String> columns = new ArrayList<>();
+    columns.add("id");
+    columns.add("name");
+    try (Connection conn = DriverManager.getConnection(jdbcUrl, username, password);
+         CopyInWrapper copyIn =
+                 new CopyInWrapper(
+                         conn,
+                         tableName,
+                         columns,
+                         CopyFormat.BINARY, /*底层是否走二进制协议，二进制格式的速率更快，否则为文本模式.*/
+                         CopyMode.STREAM, // STREAM表示流模式，即fixed copy.*/
+                         OnConflictAction.INSERT_OR_UPDATE,
+                         1024 * 1024 * 10 // maxCellBufferSize,需要保证能放下一行数据，否则会写入失败.
+                 )) {
+      TableSchema schema = copyIn.getSchema();
+      for (int i = 0; i < 10; ++i) {
+        Put put = new Put(schema);
+        /*
+         *	一定要和CopyInWrapper的columns保持一致，不然会错列.
+         *	如果一列出现在columns中，这一列一定要调用setObject(index, obj);
+         *	否则，这一列一定不能调用setObject.
+         */
+        put.setObject("id", i);
+        put.setObject("name", "name0");
 
-			CopyManager copyManager = new CopyManager(pgConn.unwrap(PgConnection.class));
-			// 支持写入部分列, 列在List里的顺序一定要和建表保持一致.
-			List<String> columns = new ArrayList<>();
-			columns.add("id");
-			columns.add("name");
-            /*
-            INSERT_OR_REPLACE是INSERT_OR_UPDATE的一种特殊情况，考虑到实用性，在fixed copy这里没有做区分；
-            这里INSERT_OR_REPLACE语义等同于INSERT_OR_UPDATE，当主键冲突时只对columns里添加的列进行更新；
-             */
-			String copySql = CopyUtil.buildCopyInSql(schema.getTableName(), columns
-					, true /*底层是否走二进制协议，二进制格式的速率更快，否则为文本模式.*/
-					, schema.getPrimaryKeys().length > 0 /* 是否包含PK */, WriteMode.INSERT_OR_UPDATE);
+        /*
+         * 如果有脏数据，写入失败的报错很难定位具体行.
+         * 此时可以启用RecordChecker做事前校验，找到有问题的数据.
+         * RecordChecker会对写入性能造成一定影响，非排查环节不建议开启.
+         */
+        // RecordChecker.check(put.getRecord());
 
-			//写入完成/异常后，仅RecordOutputStream调用close方法即可，CopyInOutputStream无需close.
-			CopyInOutputStream os = new CopyInOutputStream(copyManager.copyIn(copySql));
-			//maxCellBufferSize需要保证能放下一行数据，否则会写入失败.
-			try (RecordOutputStream ros = new RecordBinaryOutputStream(os, schema,
-					pgConn.unwrap(PgConnection.class), 1024 * 1024 * 10)) {
-				for (int i = 0; i < 10; ++i) {
-					Record record = new Record(schema);
-    
-                    /*
-                    一定要和buildCopyInSql的columns保持一致，不然会错列.
-                      如果一列出现在columns中，这一列一定要调用setObject(index, obj);
-                      否则，这一列一定不能调用setObject.
-                    */
-					record.setObject(0, i);
-					record.setObject(1, "name0");
-
-					/*
-					 * 如果有脏数据，写入失败的报错很难定位具体行.
-					 * 此时可以启用RecordChecker做事前校验，找到有问题的数据.
-					 * RecordChecker会对写入性能造成一定影响，非排查环节不建议开启.
-					 * */
-					//RecordChecker.check(record);
-    
-                    /*
-                    putRecord既将record发送给hologres引擎,并立即返回，
-                    引擎会在第一时间尝试写入存储，普遍状态下数据会在5-20ms后可查.
-                    当RecordOutputStream的close方法执行完成并且没有任何错误抛出，意味着所有数据均已写入完成可以查询.
-                    */
-					ros.putRecord(record);
-				}
-			}
-
-			System.out.println("rows:" + os.getResult());
-		}
-	}
+        /*
+         *putRecord既将record发送给hologres引擎,并立即返回，
+         *引擎会在第一时间尝试写入存储，普遍状态下数据会在5-20ms后可查.
+         *当CopyInWrapper的close方法执行完成并且没有任何错误抛出，意味着所有数据均已写入完成可以查询.
+         */
+        copyIn.putRecord(put.getRecord());
+      }
+      // 程序结束之前需要调用close, 保证数据完全写入； demo使用了try-with-resources，无需手动close
+      // copyIn.close();
+    }
+  }
 }
 ```
 
 ### fixed copy写入分区表
-fixed copy写入分区表仅可写入分区子表，暂不支持写入分区主表.
+Hologres 3.1版本起,fixed copy支持写入分区父表.
 
 ## 数据查询
 ### 基于完整主键查询
@@ -386,6 +390,61 @@ try (HoloClient client = new HoloClient(config)) {
     } catch (HoloClientException e) {
     }
 }   
+```
+
+## 批量读取
+Holo-Client 2.5.8 版本开始支持批量读取, 通过copy方式读取arrow数据,并转换为Record,同时可以选择是否启用压缩
+
+### copy批量读取
+
+```java
+import com.alibaba.hologres.client.copy.CopyFormat;
+import com.alibaba.hologres.client.copy.out.CopyOutWrapper;
+import com.alibaba.hologres.client.model.Record;
+
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+
+public class CopyOutDemo {
+  public static void main(String[] args) throws Exception {
+    //注意,jdbcurl里需要是jdbc:hologres
+    String jdbcUrl = "jdbc:hologres://host:port/db";
+    String username = "";
+    String password = "";
+
+  /*
+  CREATE TABLE copy_demo (id INT NOT NULL, name TEXT NOT NULL, address TEXT, PRIMARY KEY(id));
+  * */
+    String tableName = "copy_demo";
+
+    // 支持写入部分列, 列在List里的顺序一定要和建表保持一致.
+    List<String> columns = new ArrayList<>();
+    columns.add("id");
+    columns.add("name");
+    try (Connection conn = DriverManager.getConnection(jdbcUrl, username, password);
+         CopyOutWrapper copyOut =
+                 new CopyOutWrapper(
+                         conn,
+                         tableName,
+                         columns,
+                         CopyFormat.ARROW_LZ4, /* Copy Out 支持arrow以及arrow_lz4两种格式.*/
+                         Collections.emptyList(), /* Copy Out 支持设置shard list， 这样可以启动多个线程并发读取不同的shard；不设置时读取整表.*/
+                         "where id >= 0", /* Copy Out 支持设置filter字符串.*/
+                         1024 * 1024 * 10 // maxCellBufferSize,需要保证能放下一行数据，否则会读取失败.
+                 )) {
+      while (copyOut.hasNextBatch()) {
+        List<Record> records = copyOut.getRecords();
+        for (Record record : records) {
+          //handle record
+        }
+      }
+    }
+  }
+}
 ```
 
 ## 消费Binlog
@@ -527,14 +586,13 @@ holoConfig.setUseFixedFe(true);
 holoConfig.setBinlogReadBatchSize(128);
 // 分区表订阅模式, STATIC表示消费指定的分区，且消费过程中无法调整
 holoConfig.setBinlogPartitionSubscribeMode(BinlogPartitionSubscribeMode.STATIC);
-// 仅消费kind2和kind3这两个分区
-holoConfig.setPartitionValuesToSubscribe(new String[]{"kind2", "kind3"});
 holoConfig.setBinlogHeartBeatIntervalMs(1000L);
 HoloClient client = new HoloClient(holoConfig);
 
 // 消费binlog的请求
 // Subscribe有StartTimeBuilder和OffsetBuilder两种，此处以前者为例
 Subscribe subscribe = Subscribe.newStartTimeBuilder(tableName)
+        .addPartitionValuesToSubscribe(new String[]{"kind2", "kind3"}) // 仅消费kind2和kind3这两个分区
         .setBinlogReadStartTime("2021-01-01 12:00:00")
         .build();
 // 创建binlog reader
@@ -771,36 +829,38 @@ unnest格式相比multi values有如下优点:
 
 #### 通用配置
 
-| 参数名                          | 默认值     | 说明                                                                                                                                                                                       | 引入版本  | 
-|------------------------------|---------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------|
-| dynamicPartition             | false   | 若为true，当分区不存在时自动创建分区                                                                                                                                                                     | 1.2.3 |
-| useFixedFe                   | false   | 当hologres引擎版本>=1.3，开启FixedFe后，Get/Put将不消耗连接数（beta功能），连接池大小为writeThreadSize和readThreadSize                                                                                                | 2.2.0 |
-| connectionSizeWhenUseFixedFe | 1       | 仅useFixedFe=true时生效，表示除了Get/Put之外的调用使用的连接池大小                                                                                                                                             | 2.2.0 |
+| 参数名                          | 默认值     | 说明                                                                                                                                                                                   | 引入版本  | 
+|------------------------------|---------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------|
+| dynamicPartition             | false   | 若为true，当分区不存在时自动创建分区                                                                                                                                                                 | 1.2.3 |
+| useFixedFe                   | false   | 当hologres引擎版本>=1.3，开启FixedFe后，Get/Put将不消耗连接数（beta功能），连接池大小为writeThreadSize和readThreadSize                                                                                            | 2.2.0 |
+| connectionSizeWhenUseFixedFe | 1       | 仅useFixedFe=true时生效，表示除了Get/Put之外的调用使用的连接池大小                                                                                                                                         | 2.2.0 |
 | sslMode                      | disable | 是否启动传输加密，详见[Hologres启用SSL传输加密](https://help.aliyun.com/zh/hologres/user-guide/ssl-encrypted-transmission)。取值为disable、require、verify-ca、verify-full，后两种需要通过sslRootCertLocation参数配置CA证书的路径 | 2.3.0 |
-| sslRootCertLocation          | 无       | sslMode=verify-ca或verify-full时必填，CA证书的路径                                                                                                                                                 | 2.3.0 |
+| sslRootCertLocation          | 无       | sslMode=verify-ca或verify-full时必填，CA证书的路径                                                                                                                                             | 2.3.0 |
+| useAkv4                      | true    | 启用Akv4认证                                                                                                                                                                             | 2.3.0 |
+| region                       | 无       | 启用Akv4认证需要设置Region,默认会尝试解析endpoint获取,如果使用ip地址等无法解析,需要手动指定                                                                                                                            | 2.3.0 |
 
 #### 写入配置
-| 参数名                                   | 默认值                        | 说明                                                                                                                                                               | 引入版本     | 
-|---------------------------------------|----------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------|
-| writeThreadSize                       | 1                          | 处理HoloClient.put方法请求的最大连接数                                                                                                                                       |
-| [writeMode](#writeMode)               | INSERT_OR_REPLACE          | 当INSERT目标表为有主键的表时采用不同策略<br>INSERT_OR_IGNORE 当主键冲突时，不写入<br>INSERT_OR_UPDATE 当主键冲突时，更新相应列<br>INSERT_OR_REPLACE当主键冲突时，更新所有列                                         | 1.2.3    |
-| writeBatchSize                        | 512                        | 每个写入线程的最大批次大小，在经过WriteMode合并后的Put数量达到writeBatchSize时进行一次批量提交                                                                                                     | 1.2.3    |
-| writeBatchByteSize                    | 2097152（2 * 1024 * 1024）   | 每个写入线程的最大批次bytes大小，单位为Byte，默认2MB，<br>在经过WriteMode合并后的Put数据字节数达到writeBatchByteSize时进行一次批量提交                                                                       | 1.2.3    |
-| writeBatchTotalByteSize               | 20971520（20 * 1024 * 1024） | 所有表最大批次bytes大小，单位为Byte，默认20MB，在经过WriteMode合并后的Put数据字节数达到writeBatchByteSize时进行一次批量提交                                                                              | 1.2.8.1  |
-| writeMaxIntervalMs                    | 10000                      | 距离上次提交超过writeMaxIntervalMs会触发一次批量提交                                                                                                                              | 1.2.4    |
-| writerShardCountResizeIntervalMs      | 30s                        | 主动调用flush时，触发resize，两次resize间隔不短于writerShardCountResizeIntervalMs                                                                                                | 1.2.10.1 |
-| inputNumberAsEpochMsForDatetimeColumn | false                      | 当Number写入Date/timestamp/timestamptz列时，若为true，将number视作ApochMs                                                                                                    | 1.2.5    |
-| inputStringAsEpochMsForDatetimeColumn | false                      | 当String写入Date/timestamp/timestamptz列时，若为true，将String视作ApochMs                                                                                                    | 1.2.6    |
-| removeU0000InTextColumnValue          | true                       | 当写入Text/Varchar列时，若为true，剔除字符串中的\u0000                                                                                                                           | 1.2.10.1 |
-| enableDefaultForNotNullColumn         | true                       | 启用时，not null且未在表上设置default的字段传入null时，将以默认值写入. String 默认“”,Number 默认0,Date/timestamp/timestamptz 默认1970-01-01 00:00:00                                            | 1.2.6    |
-| defaultTimeStampText                  | null                       | enableDefaultForNotNullColumn=true时，Date/timestamp/timestamptz的默认值                                                                                               | 1.2.6    |
+| 参数名                                   | 默认值                        | 说明                                                                                                                                                              | 引入版本     | 
+|---------------------------------------|----------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------|----------|
+| writeThreadSize                       | 1                          | 处理HoloClient.put方法请求的最大连接数                                                                                                                                      |
+| [onConflictAction](#onConflictAction)               | INSERT_OR_REPLACE          | 当INSERT目标表为有主键的表时采用不同策略<br>INSERT_OR_IGNORE 当主键冲突时，不写入<br>INSERT_OR_UPDATE 当主键冲突时，更新相应列<br>INSERT_OR_REPLACE当主键冲突时，更新所有列 (2.5.6及之前版本,此参数名为WriteMode)            | 1.2.3    |
+| writeBatchSize                        | 512                        | 每个写入线程的最大批次大小，在经过WriteMode合并后的Put数量达到writeBatchSize时进行一次批量提交                                                                                                    | 1.2.3    |
+| writeBatchByteSize                    | 2097152（2 * 1024 * 1024）   | 每个写入线程的最大批次bytes大小，单位为Byte，默认2MB，<br>在经过WriteMode合并后的Put数据字节数达到writeBatchByteSize时进行一次批量提交                                                                      | 1.2.3    |
+| writeBatchTotalByteSize               | 20971520（20 * 1024 * 1024） | 所有表最大批次bytes大小，单位为Byte，默认20MB，在经过WriteMode合并后的Put数据字节数达到writeBatchByteSize时进行一次批量提交                                                                             | 1.2.8.1  |
+| writeMaxIntervalMs                    | 10000                      | 距离上次提交超过writeMaxIntervalMs会触发一次批量提交                                                                                                                             | 1.2.4    |
+| writerShardCountResizeIntervalMs      | 30s                        | 主动调用flush时，触发resize，两次resize间隔不短于writerShardCountResizeIntervalMs                                                                                               | 1.2.10.1 |
+| inputNumberAsEpochMsForDatetimeColumn | false                      | 当Number写入Date/timestamp/timestamptz列时，若为true，将number视作ApochMs                                                                                                   | 1.2.5    |
+| inputStringAsEpochMsForDatetimeColumn | false                      | 当String写入Date/timestamp/timestamptz列时，若为true，将String视作ApochMs                                                                                                   | 1.2.6    |
+| removeU0000InTextColumnValue          | true                       | 当写入Text/Varchar列时，若为true，剔除字符串中的\u0000                                                                                                                          | 1.2.10.1 |
+| enableDefaultForNotNullColumn         | true                       | 启用时，not null且未在表上设置default的字段传入null时，将以默认值写入. String 默认“”,Number 默认0,Date/timestamp/timestamptz 默认1970-01-01 00:00:00                                           | 1.2.6    |
+| defaultTimeStampText                  | null                       | enableDefaultForNotNullColumn=true时，Date/timestamp/timestamptz的默认值                                                                                              | 1.2.6    |
 | useLegacyPutHandler                   | false                      | true时，写入sql格式为insert into xxx(c0,c1,...) values (?,?,...),... on conflict; false时优先使用sql格式为insert into xxx(c0,c1,...) select unnest(?),unnest(?),... on conflict | 2.0.1    |
-| maxRowsPerSql                         | Integer.MAX_VALUE          | useLegacyPutHandler=false，且通过unnest形式写入时，每条sql的最大行数                                                                                                              | 2.0.1    |
-| maxBytesPerSql                        | Long.MAX_VALUE             | useLegacyPutHandler=false，且通过unnest形式写入时，每条sql的最大字节数                                                                                                             | 2.0.1    |
-| enableAffectedRows                    | false                      | 开启时 若用户用holoclient.sql执行statement.executeUpdate将会返回正确的affectrow计数，但对于行存表进行holoclient.put会有性能下降                                                                   | 2.2.5    |
-| enableGenerateBinlog                  | true                       | 关闭时，通过当前holo-client写入的数据不会生成binlog                                                                                                                               | 2.2.11   |
-| enableDeduplication                   | true                       | 写入时是否对攒批数据做去重，设置为false表示不会去重，如果数据重复非常严重，性能最差相当于writeBatchSize设置为1的逐条写入.                                                                                          | 2.3.0    |
-| enableAggressive                      | false                      | 写入激进模式，开启后如果连接空闲，不等攒批满就会触发flush，在流量小时可以降低写入延迟.                                                                                                                   | 2.4.0    |
+| maxRowsPerSql                         | Integer.MAX_VALUE          | useLegacyPutHandler=false，且通过unnest形式写入时，每条sql的最大行数                                                                                                             | 2.0.1    |
+| maxBytesPerSql                        | Long.MAX_VALUE             | useLegacyPutHandler=false，且通过unnest形式写入时，每条sql的最大字节数                                                                                                            | 2.0.1    |
+| enableAffectedRows                    | false                      | 开启时 若用户用holoclient.sql执行statement.executeUpdate将会返回正确的affectrow计数，但对于行存表进行holoclient.put会有性能下降                                                                  | 2.2.5    |
+| enableGenerateBinlog                  | true                       | 关闭时，通过当前holo-client写入的数据不会生成binlog                                                                                                                              | 2.2.11   |
+| enableDeduplication                   | true                       | 写入时是否对攒批数据做去重，设置为false表示不会去重，如果数据重复非常严重，性能最差相当于writeBatchSize设置为1的逐条写入.                                                                                         | 2.3.0    |
+| enableAggressive                      | false                      | 写入激进模式，开启后如果连接空闲，不等攒批满就会触发flush，在流量小时可以降低写入延迟.                                                                                                                  | 2.4.0    |
 
 #### 查询配置
 | 参数名 | 默认值 | 说明 |引入版本| 
@@ -841,7 +901,7 @@ unnest格式相比multi values有如下优点:
 3. 考虑 jdbc 模式消费 binlog 存在连接数的限制，消费分区父表需要使用 jdbc_fixed 模式，要求 Hologres 实例版本大于等于 2.1.27。
 
 ### 参数详解
-#### writeMode
+#### onConflictAction
 - INSERT_OR_INGORE
 ```sql
 -- 当表有PK列时，等价生成如下sql

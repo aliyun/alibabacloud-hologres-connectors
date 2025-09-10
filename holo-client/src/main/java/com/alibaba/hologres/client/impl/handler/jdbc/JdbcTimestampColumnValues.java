@@ -12,91 +12,90 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.OffsetDateTime;
 
-/**
- * timestamp列存类.
- */
+/** timestamp列存类. */
 public class JdbcTimestampColumnValues extends JdbcColumnValues {
 
-	String[] array;
-	HoloConfig config;
-	public JdbcTimestampColumnValues(TimestampUtils timestampUtils, int rowCount, HoloConfig config) {
-		super(timestampUtils, rowCount);
-		array = new String[rowCount];
-		this.config = config;
-	}
+    String[] array;
+    HoloConfig config;
 
-	@Override
-	public void doSet(int row, Object in) throws SQLException {
-		if (in instanceof String && config.isInputStringAsEpochMsForDatetimeColumn()) {
-			Long value = null;
-			try {
-				value = Long.parseLong(String.valueOf(in));
-			} catch (Exception ignore) {
-				value = null;
-			}
-			if (value != null) {
-				setTimestamp(row, new java.sql.Timestamp(value));
-				return;
-			}
-		}
-		if (in instanceof Number && config.isInputNumberAsEpochMsForDatetimeColumn()) {
-			setTimestamp(row, new java.sql.Timestamp(((Number) in).longValue()));
-		} else if (in instanceof String && "0000-00-00 00:00:00".equals(in)) {
-			setTimestamp(row, new java.sql.Timestamp(0L));
-		} else if (in instanceof java.sql.Timestamp) {
-			setTimestamp(row, (java.sql.Timestamp) in);
-		} else {
-			java.sql.Timestamp tmpts;
-			if (in instanceof java.util.Date) {
-				tmpts = new java.sql.Timestamp(((java.util.Date) in).getTime());
-				//#if mvn.project.property.postgresql.jdbc.spec >= "JDBC4.2"
-			} else if (in instanceof java.time.LocalDateTime) {
-				setTimestamp(row, (java.time.LocalDateTime) in);
-				return;
-				//#endif
-			} else if (in instanceof OffsetDateTime) {
+    public JdbcTimestampColumnValues(
+            TimestampUtils timestampUtils, int rowCount, HoloConfig config) {
+        super(timestampUtils, rowCount);
+        array = new String[rowCount];
+        this.config = config;
+    }
 
-				return;
-			} else {
-				tmpts = timestampUtils.toTimestamp(getDefaultCalendar(), in.toString());
-			}
-			setTimestamp(row, tmpts);
-		}
-	}
+    @Override
+    public void doSet(int row, Object in) throws SQLException {
+        if (in instanceof String && config.isInputStringAsEpochMsForDatetimeColumn()) {
+            Long value = null;
+            try {
+                value = Long.parseLong(String.valueOf(in));
+            } catch (Exception ignore) {
+                value = null;
+            }
+            if (value != null) {
+                setTimestamp(row, new java.sql.Timestamp(value));
+                return;
+            }
+        }
+        if (in instanceof Number && config.isInputNumberAsEpochMsForDatetimeColumn()) {
+            setTimestamp(row, new java.sql.Timestamp(((Number) in).longValue()));
+        } else if (in instanceof String && "0000-00-00 00:00:00".equals(in)) {
+            setTimestamp(row, new java.sql.Timestamp(0L));
+        } else if (in instanceof java.sql.Timestamp) {
+            setTimestamp(row, (java.sql.Timestamp) in);
+        } else {
+            java.sql.Timestamp tmpts;
+            if (in instanceof java.util.Date) {
+                tmpts = new java.sql.Timestamp(((java.util.Date) in).getTime());
+                // #if mvn.project.property.postgresql.jdbc.spec >= "JDBC4.2"
+            } else if (in instanceof java.time.LocalDateTime) {
+                setTimestamp(row, (java.time.LocalDateTime) in);
+                return;
+                // #endif
+            } else if (in instanceof OffsetDateTime) {
 
-	private void setTimestamp(int row, java.time.OffsetDateTime offsetDateTime)
-			throws SQLException {
-		array[row] = timestampUtils.toString(offsetDateTime);
-	}
+                return;
+            } else {
+                tmpts = timestampUtils.toTimestamp(getDefaultCalendar(), in.toString());
+            }
+            setTimestamp(row, tmpts);
+        }
+    }
 
-	private void setTimestamp(int row, java.time.LocalDateTime localDateTime)
-			throws SQLException {
-		array[row] = timestampUtils.toString(localDateTime);
-	}
+    private void setTimestamp(int row, java.time.OffsetDateTime offsetDateTime)
+            throws SQLException {
+        array[row] = timestampUtils.toString(offsetDateTime);
+    }
 
-	public void setTimestamp(int row, Timestamp x) throws SQLException {
-		setTimestamp(row, x, null);
-	}
+    private void setTimestamp(int row, java.time.LocalDateTime localDateTime) throws SQLException {
+        array[row] = timestampUtils.toString(localDateTime);
+    }
 
-	public void setTimestamp(int row, Timestamp t, java.util.Calendar cal) throws SQLException {
-		if (t == null) {
-			return;
-		}
+    public void setTimestamp(int row, Timestamp x) throws SQLException {
+        setTimestamp(row, x, null);
+    }
 
-		if (t instanceof PGTimestamp) {
-			PGTimestamp pgTimestamp = (PGTimestamp) t;
-			if (pgTimestamp.getCalendar() != null) {
-				cal = pgTimestamp.getCalendar();
-			}
-		}
-		if (cal == null) {
-			cal = getDefaultCalendar();
-		}
-		array[row] = timestampUtils.toString(cal, t);
-	}
+    public void setTimestamp(int row, Timestamp t, java.util.Calendar cal) throws SQLException {
+        if (t == null) {
+            return;
+        }
 
-	@Override
-	public Object[] getArray() {
-		return array;
-	}
+        if (t instanceof PGTimestamp) {
+            PGTimestamp pgTimestamp = (PGTimestamp) t;
+            if (pgTimestamp.getCalendar() != null) {
+                cal = pgTimestamp.getCalendar();
+            }
+        }
+        if (cal == null) {
+            cal = getDefaultCalendar();
+        }
+        array[row] = timestampUtils.toString(cal, t);
+    }
+
+    @Override
+    public Object[] getArray() {
+        return array;
+    }
 }

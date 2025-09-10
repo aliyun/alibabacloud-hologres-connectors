@@ -4,23 +4,21 @@
 
 package com.alibaba.hologres.client;
 
-/**
- * EqualsFilter.
- */
+/** EqualsFilter. */
 public class EqualsFilter implements Filter {
-	int index;
-	Object obj;
+    int index;
+    Object obj;
 
-	public EqualsFilter(int index, Object obj) {
-		this.index = index;
-		this.obj = obj;
-	}
+    public EqualsFilter(int index, Object obj) {
+        this.index = index;
+        this.obj = obj;
+    }
 
-	public int getIndex() {
-		return index;
-	}
+    public int getIndex() {
+        return index;
+    }
 
-	public Object getObj() {
-		return obj;
-	}
+    public Object getObj() {
+        return obj;
+    }
 }

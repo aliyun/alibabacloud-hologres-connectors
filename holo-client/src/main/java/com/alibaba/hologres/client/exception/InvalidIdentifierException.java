@@ -4,23 +4,19 @@
 
 package com.alibaba.hologres.client.exception;
 
-/**
- * TableName不合法时的异常.
- */
+/** TableName不合法时的异常. */
 public class InvalidIdentifierException extends RuntimeException {
-	public InvalidIdentifierException() {
-	}
+    public InvalidIdentifierException() {}
 
-	public InvalidIdentifierException(String message) {
-		super(message);
-	}
+    public InvalidIdentifierException(String message) {
+        super(message);
+    }
 
-	public InvalidIdentifierException(String message, Throwable cause) {
-		super(message, cause);
-	}
+    public InvalidIdentifierException(String message, Throwable cause) {
+        super(message, cause);
+    }
 
-	public InvalidIdentifierException(Throwable cause) {
-		super(cause);
-	}
+    public InvalidIdentifierException(Throwable cause) {
+        super(cause);
+    }
 }
-

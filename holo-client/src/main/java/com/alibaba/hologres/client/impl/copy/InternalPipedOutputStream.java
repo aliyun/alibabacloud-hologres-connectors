@@ -14,11 +14,9 @@ import java.io.PipedOutputStream;
  */
 public class InternalPipedOutputStream extends PipedOutputStream {
 
-	public InternalPipedOutputStream(PipedInputStream snk) throws IOException {
-		super(snk);
-	}
+    public InternalPipedOutputStream(PipedInputStream snk) throws IOException {
+        super(snk);
+    }
 
-	public InternalPipedOutputStream() {
-	}
-
+    public InternalPipedOutputStream() {}
 }

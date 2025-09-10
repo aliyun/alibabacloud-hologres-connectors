@@ -17,38 +17,38 @@ import java.util.concurrent.Semaphore;
  * @param <T> t
  */
 public abstract class AbstractAction<T> {
-	CompletableFuture<T> future;
+    CompletableFuture<T> future;
 
-	Semaphore semaphore;
+    Semaphore semaphore;
 
-	public AbstractAction() {
-		this.future = new CompletableFuture<>();
-	}
+    public AbstractAction() {
+        this.future = new CompletableFuture<>();
+    }
 
-	public CompletableFuture<T> getFuture() {
-		return future;
-	}
+    public CompletableFuture<T> getFuture() {
+        return future;
+    }
 
-	public T getResult() throws HoloClientException {
-		try {
-			return future.get();
-		} catch (InterruptedException e) {
-			throw new HoloClientException(ExceptionCode.INTERNAL_ERROR, "interrupt", e);
-		} catch (ExecutionException e) {
-			Throwable cause = e.getCause();
-			if (cause instanceof HoloClientException) {
-				throw (HoloClientException) cause;
-			} else {
-				throw new HoloClientException(ExceptionCode.INTERNAL_ERROR, "", cause);
-			}
-		}
-	}
+    public T getResult() throws HoloClientException {
+        try {
+            return future.get();
+        } catch (InterruptedException e) {
+            throw new HoloClientException(ExceptionCode.INTERNAL_ERROR, "interrupt", e);
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof HoloClientException) {
+                throw (HoloClientException) cause;
+            } else {
+                throw new HoloClientException(ExceptionCode.INTERNAL_ERROR, "", cause);
+            }
+        }
+    }
 
-	public Semaphore getSemaphore() {
-		return semaphore;
-	}
+    public Semaphore getSemaphore() {
+        return semaphore;
+    }
 
-	public void setSemaphore(Semaphore semaphore) {
-		this.semaphore = semaphore;
-	}
+    public void setSemaphore(Semaphore semaphore) {
+        this.semaphore = semaphore;
+    }
 }

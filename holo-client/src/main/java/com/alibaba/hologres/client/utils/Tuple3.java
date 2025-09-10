@@ -33,9 +33,9 @@ public class Tuple3<L, M, R> {
             return false;
         }
         Tuple3<?, ?, ?> tuple = (Tuple3<?, ?, ?>) o;
-        return Objects.equals(l, tuple.l) &&
-            Objects.equals(m, tuple.m) &&
-            Objects.equals(r, tuple.r);
+        return Objects.equals(l, tuple.l)
+                && Objects.equals(m, tuple.m)
+                && Objects.equals(r, tuple.r);
     }
 
     @Override

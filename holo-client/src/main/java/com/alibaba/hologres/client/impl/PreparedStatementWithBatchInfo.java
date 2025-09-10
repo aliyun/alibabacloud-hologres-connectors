@@ -9,39 +9,39 @@ import com.alibaba.hologres.client.utils.Tuple;
 
 import java.sql.PreparedStatement;
 
-/**
- * preparedStatement，是否需要batchExecute.
- */
+/** preparedStatement，是否需要batchExecute. */
 public class PreparedStatementWithBatchInfo extends Tuple<PreparedStatement, Boolean> {
-	long byteSize;
-	int batchCount;
-	Put.MutationType type;
-	public PreparedStatementWithBatchInfo(PreparedStatement preparedStatement, Boolean isBatch, Put.MutationType type) {
-		super(preparedStatement, isBatch);
-		this.type = type;
-	}
+    long byteSize;
+    int batchCount;
+    Put.MutationType type;
 
-	public Put.MutationType getType() {
-		return type;
-	}
+    public PreparedStatementWithBatchInfo(
+            PreparedStatement preparedStatement, Boolean isBatch, Put.MutationType type) {
+        super(preparedStatement, isBatch);
+        this.type = type;
+    }
 
-	public void setType(Put.MutationType type) {
-		this.type = type;
-	}
+    public Put.MutationType getType() {
+        return type;
+    }
 
-	public int getBatchCount() {
-		return batchCount;
-	}
+    public void setType(Put.MutationType type) {
+        this.type = type;
+    }
 
-	public void setBatchCount(int batchCount) {
-		this.batchCount = batchCount;
-	}
+    public int getBatchCount() {
+        return batchCount;
+    }
 
-	public long getByteSize() {
-		return byteSize;
-	}
+    public void setBatchCount(int batchCount) {
+        this.batchCount = batchCount;
+    }
 
-	public void setByteSize(long byteSize) {
-		this.byteSize = byteSize;
-	}
+    public long getByteSize() {
+        return byteSize;
+    }
+
+    public void setByteSize(long byteSize) {
+        this.byteSize = byteSize;
+    }
 }

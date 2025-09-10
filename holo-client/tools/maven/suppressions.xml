@@ -36,7 +36,9 @@ under the License.
 			checks="[a-zA-Z0-9]*"/>
 	<suppress files="org[\\/]apache[\\/]beam[\\/]runners[\\/]fnexecution[\\/]environment.*.java"
 	          checks="[a-zA-Z0-9]*"/>
-
+	<!-- Have to use io.netty.buffer.ArrowBuf directly -->
+	<suppress files="ArrowArrayAccessor.java"
+			  checks="IllegalImport"/>
 	<!-- Python streaming API follows python naming conventions -->
 	<suppress
 			files="org[\\/]apache[\\/]flink[\\/]streaming[\\/]python[\\/]api[\\/].*.java"

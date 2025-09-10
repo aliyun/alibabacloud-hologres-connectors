@@ -13,5 +13,5 @@ import java.sql.SQLException;
  * @param <O> 输出
  */
 public interface FunctionWithSQLException<I, O> {
-	O apply(I input) throws SQLException;
+    O apply(I input) throws SQLException;
 }

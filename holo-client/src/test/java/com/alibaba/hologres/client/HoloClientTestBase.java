@@ -30,158 +30,182 @@ import java.util.Properties;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
-/**
- * 测试基类.
- */
+/** 测试基类. */
 public class HoloClientTestBase {
-	public static final Logger LOG = LoggerFactory.getLogger(HoloClientTestBase.class);
-	protected static Properties properties;
-	protected static HoloVersion holoVersion = new HoloVersion(0, 0, 0);
+    public static final Logger LOG = LoggerFactory.getLogger(HoloClientTestBase.class);
+    protected static Properties properties;
+    protected static HoloVersion holoVersion = new HoloVersion(0, 0, 0);
 
-	public static int getShardCount(HoloClient client, TableSchema schema) throws HoloClientException {
-		return get(client.sql(conn -> {
-			int shardCount = -1;
-			try (PreparedStatement ps = conn.prepareStatement("select g.property_value from hologres.hg_table_properties t,hologres.hg_table_group_properties g\n" +
-					"where t.property_key='table_group' and g.property_key='shard_count' and table_namespace=? and table_name=? and t.property_value = g.tablegroup_name")) {
-				ps.setObject(1, schema.getTableNameObj().getSchemaName());
-				ps.setObject(2, schema.getTableNameObj().getTableName());
-				try (ResultSet rs = ps.executeQuery()) {
-					if (rs.next()) {
-						shardCount = rs.getInt(1);
-					} else {
-						throw new SQLException("table " + schema.getTableNameObj().getFullName() + " not exists");
-					}
-				}
-			}
-			return shardCount;
-		}));
-	}
+    public static int getShardCount(HoloClient client, TableSchema schema)
+            throws HoloClientException {
+        return get(
+                client.sql(
+                        conn -> {
+                            int shardCount = -1;
+                            try (PreparedStatement ps =
+                                    conn.prepareStatement(
+                                            "select g.property_value from hologres.hg_table_properties t,hologres.hg_table_group_properties g\n"
+                                                    + "where t.property_key='table_group' and g.property_key='shard_count' and table_namespace=? and table_name=? and t.property_value = g.tablegroup_name")) {
+                                ps.setObject(1, schema.getTableNameObj().getSchemaName());
+                                ps.setObject(2, schema.getTableNameObj().getTableName());
+                                try (ResultSet rs = ps.executeQuery()) {
+                                    if (rs.next()) {
+                                        shardCount = rs.getInt(1);
+                                    } else {
+                                        throw new SQLException(
+                                                "table "
+                                                        + schema.getTableNameObj().getFullName()
+                                                        + " not exists");
+                                    }
+                                }
+                            }
+                            return shardCount;
+                        }));
+    }
 
-	private static <T> T get(CompletableFuture<T> future) throws HoloClientException {
-		try {
-			return future.get();
-		} catch (InterruptedException e) {
-			throw new HoloClientException(ExceptionCode.INTERNAL_ERROR, "interrupt", e);
-		} catch (ExecutionException e) {
-			Throwable cause = e.getCause();
-			if (cause instanceof HoloClientException) {
-				throw (HoloClientException) cause;
-			} else {
-				throw new HoloClientException(ExceptionCode.INTERNAL_ERROR, "", cause);
-			}
-		}
-	}
+    private static <T> T get(CompletableFuture<T> future) throws HoloClientException {
+        try {
+            return future.get();
+        } catch (InterruptedException e) {
+            throw new HoloClientException(ExceptionCode.INTERNAL_ERROR, "interrupt", e);
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof HoloClientException) {
+                throw (HoloClientException) cause;
+            } else {
+                throw new HoloClientException(ExceptionCode.INTERNAL_ERROR, "", cause);
+            }
+        }
+    }
 
-	/**
-	 * url=jdbc:postgres://.....
-	 * user=
-	 * password=
-	 */
-	@BeforeTest
-	public static void loadProperties() throws Exception {
-		Class.forName("org.postgresql.Driver");
-		properties = new Properties();
+    /** url=jdbc:postgres://..... user= password= */
+    @BeforeTest
+    public static void loadProperties() throws Exception {
+        Class.forName("org.postgresql.Driver");
+        properties = new Properties();
 
-		File file = new File("endpoint3.properties");
-		if (file.exists()) {
-			try (InputStream is = new FileInputStream(file)) {
-				properties.load(is);
-			}
-		} else {
-			String temp = System.getenv("holo_client_test_url");
-			if (temp == null) {
-				properties = null;
-				return;
-			}
-			properties.setProperty("url", temp);
+        File file = new File("endpoint3.properties");
+        if (file.exists()) {
+            try (InputStream is = new FileInputStream(file)) {
+                properties.load(is);
+            }
+        } else {
+            String temp = System.getenv("holo_client_test_url");
+            if (temp == null) {
+                properties = null;
+                return;
+            }
+            properties.setProperty("url", temp);
 
-			temp = System.getenv("holo_client_test_user");
-			if (temp == null) {
-				properties = null;
-				return;
-			}
-			properties.setProperty("user", temp);
+            temp = System.getenv("holo_client_test_user");
+            if (temp == null) {
+                properties = null;
+                return;
+            }
+            properties.setProperty("user", temp);
 
-			temp = System.getenv("holo_client_test_password");
-			if (temp == null) {
-				properties = null;
-				return;
-			}
-			properties.setProperty("password", temp);
-		}
+            temp = System.getenv("holo_client_test_password");
+            if (temp == null) {
+                properties = null;
+                return;
+            }
+            properties.setProperty("password", temp);
+        }
 
-		holoVersion = ConnectionUtil.getHoloVersion(buildConnection());
-	}
+        holoVersion = ConnectionUtil.getHoloVersion(buildConnection());
+    }
 
-	@BeforeMethod
-	public void before() throws Exception {
-		doBefore();
-	}
+    @BeforeMethod
+    public void before() throws Exception {
+        doBefore();
+    }
 
-	protected void doBefore() throws Exception {
+    protected void doBefore() throws Exception {}
 
-	}
+    @AfterMethod
+    public void after() throws Exception {
+        doAfter();
+    }
 
-	@AfterMethod
-	public void after() throws Exception {
-		doAfter();
-	}
+    protected void doAfter() throws Exception {}
 
-	protected void doAfter() throws Exception {
-	}
+    protected void execute(Connection conn, String[] sqls) throws SQLException {
+        for (String sql : sqls) {
+            try (Statement stat = conn.createStatement()) {
+                LOG.info("try execute {}", sql);
+                stat.execute(sql);
+            }
+        }
+    }
 
-	protected void execute(Connection conn, String[] sqls) throws SQLException {
-		for (String sql : sqls) {
-			try (Statement stat = conn.createStatement()) {
-				LOG.info("try execute {}", sql);
-				stat.execute(sql);
-			}
-		}
-	}
+    protected void tryExecute(Connection conn, String[] sqls) {
+        for (String sql : sqls) {
+            try (Statement stat = conn.createStatement()) {
+                LOG.info("try execute {}", sql);
+                stat.execute(sql);
+            } catch (SQLException e) {
+                LOG.info("sql " + sql + " execute failed because: " + e.getMessage());
+            }
+        }
+    }
 
-	protected void tryExecute(Connection conn, String[] sqls) {
-		for (String sql : sqls) {
-			try (Statement stat = conn.createStatement()) {
-				LOG.info("try execute {}", sql);
-				stat.execute(sql);
-			} catch (SQLException e) {
-				LOG.info("sql " + sql  + " execute failed because: " + e.getMessage());
-			}
-		}
-	}
+    protected static Connection buildConnection() throws SQLException {
+        return buildConnection(false);
+    }
 
-	protected static Connection buildConnection() throws SQLException {
-		return buildConnection(false);
-	}
+    protected static Connection buildConnection(boolean fixed) throws SQLException {
+        if (fixed) {
+            properties.setProperty(PGProperty.OPTIONS.getName(), "type=fixed");
+        } else {
+            properties.remove(PGProperty.OPTIONS.getName());
+        }
+        return DriverManager.getConnection(properties.getProperty("url"), properties);
+    }
 
-	protected static Connection buildConnection(boolean fixed) throws SQLException {
-		if (fixed) {
-			properties.setProperty(PGProperty.OPTIONS.getName(), "type=fixed");
-		} else {
-			properties.remove(PGProperty.OPTIONS.getName());
-		}
-		return DriverManager.getConnection(properties.getProperty("url"), properties);
-	}
+    protected HoloConfig buildConfig() {
+        return buildConfig(false);
+    }
 
-	protected HoloConfig buildConfig() {
-		HoloConfig config = new HoloConfig();
-		config.setJdbcUrl(properties.getProperty("url"));
-		config.setUsername(properties.getProperty("user"));
-		config.setPassword(properties.getProperty("password"));
-		config.setRefreshMetaAfterConnectionCreated(true);
-		// config.setUseFixedFe(true);
-		return config;
-	}
+    protected HoloConfig buildConfig(boolean fixed) {
+        HoloConfig config = new HoloConfig();
+        config.setJdbcUrl(properties.getProperty("url"));
+        config.setUsername(properties.getProperty("user"));
+        config.setPassword(properties.getProperty("password"));
+        if (properties.getProperty("region") != null) {
+            config.setRegion(properties.getProperty("region"));
+        }
+        config.setRefreshMetaAfterConnectionCreated(true);
+        config.setUseAKv4(false);
+        // enable direct connection 目前仅进行直连的尝试,无法直连回退到通过vip连接
+        config.setEnableDirectConnection(true);
+        config.setUseFixedFe(fixed);
+        return config;
+    }
 
-	// 包含异常信息的异常断言
-	public static void assertThrowsWithMessage(Class<? extends Throwable> expectedClass, String expectedMessage, Assert.ThrowingRunnable runnable) {
-		try {
-			runnable.run();
-			Assert.fail(String.format("Expected %s to be thrown, but nothing was thrown", expectedClass.getSimpleName()));
-		} catch (Throwable actualException) {
-			actualException.printStackTrace();
-			Assert.assertEquals(actualException.getClass(), expectedClass, String.format("Expected %s to be thrown, but %s was thrown", expectedClass.getSimpleName(), actualException.getClass()));
-			Assert.assertTrue(actualException.getMessage().contains(expectedMessage), String.format("Expected %s to be thrown, but %s was thrown", expectedMessage, actualException.getMessage()));
-		}
-	}
+    // 包含异常信息的异常断言
+    public static void assertThrowsWithMessage(
+            Class<? extends Throwable> expectedClass,
+            String expectedMessage,
+            Assert.ThrowingRunnable runnable) {
+        try {
+            runnable.run();
+            Assert.fail(
+                    String.format(
+                            "Expected %s to be thrown, but nothing was thrown",
+                            expectedClass.getSimpleName()));
+        } catch (Throwable actualException) {
+            actualException.printStackTrace();
+            Assert.assertEquals(
+                    actualException.getClass(),
+                    expectedClass,
+                    String.format(
+                            "Expected %s to be thrown, but %s was thrown",
+                            expectedClass.getSimpleName(), actualException.getClass()));
+            Assert.assertTrue(
+                    actualException.getMessage().contains(expectedMessage),
+                    String.format(
+                            "Expected %s to be thrown, but %s was thrown",
+                            expectedMessage, actualException.getMessage()));
+        }
+    }
 }
