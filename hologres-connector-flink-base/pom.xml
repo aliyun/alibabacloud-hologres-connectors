@@ -8,22 +8,20 @@
     <parent>
         <groupId>com.alibaba.hologres</groupId>
         <artifactId>hologres-connector-parent</artifactId>
-        <version>1.5.6-SNAPSHOT</version>
+        <version>1.6.0-SNAPSHOT</version>
     </parent>
 
     <artifactId>hologres-connector-flink-base</artifactId>
-    <name>hologres-connector-flink-base</name>
 
     <properties>
         <flink.version>${flinkVersion}</flink.version>
-        <flink.vvr.version>${flinkVvrVersion}</flink.vvr.version>
     </properties>
 
     <dependencies>
         <dependency>
-            <groupId>com.alibaba.ververica</groupId>
-            <artifactId>ververica-connector-common</artifactId>
-            <version>${flink.vvr.version}</version>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-connector-base</artifactId>
+            <version>${flink.version}</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
@@ -78,24 +76,48 @@
             <artifactId>junit</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <version>2.28.2</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.powermock</groupId>
+            <artifactId>powermock-module-junit4</artifactId>
+            <version>2.0.9</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>javassist</groupId>
+                    <artifactId>javassist</artifactId>
+                </exclusion>
+            </exclusions>
+            <type>jar</type>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.powermock</groupId>
+            <artifactId>powermock-api-mockito2</artifactId>
+            <version>2.0.9</version>
+            <type>jar</type>
+            <scope>test</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.mockito</groupId>
+                    <artifactId>mockito-core</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
     </dependencies>
 
     <profiles>
         <profile>
-            <id>flink-1.15</id>
+            <id>flink-1.19</id>
             <activation>
                 <activeByDefault>true</activeByDefault>
             </activation>
             <properties>
-                <flinkVvrVersion>1.15-vvr-6.0.7-1</flinkVvrVersion>
-                <flinkVersion>1.15.4</flinkVersion>
-            </properties>
-        </profile>
-        <profile>
-            <id>flink-1.17</id>
-            <properties>
-                <flinkVvrVersion>1.17-vvr-8.0.4-1</flinkVvrVersion>
-                <flinkVersion>1.17.2</flinkVersion>
+                <flinkVersion>1.19.2</flinkVersion>
             </properties>
         </profile>
     </profiles>
