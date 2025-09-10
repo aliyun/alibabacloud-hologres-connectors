@@ -77,7 +77,7 @@ typing==3.7.4.3
 typing-inspect==0.9.0
 typing_extensions==4.12.2
 tzdata==2025.1
-urllib3==2.3.0
+urllib3==2.5.0
 uuid==1.30
 xxhash==3.5.0
 yarl==1.18.3
