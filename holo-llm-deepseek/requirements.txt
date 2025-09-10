@@ -70,7 +70,7 @@ sympy==1.13.1
 tenacity==9.0.0
 threadpoolctl==3.5.0
 tokenizers==0.21.0
-torch==2.6.0
+torch==2.8.0
 tqdm==4.67.1
 transformers==4.48.3
 typing==3.7.4.3
