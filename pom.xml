@@ -6,12 +6,12 @@
 
     <groupId>com.alibaba.hologres</groupId>
     <artifactId>hologres-connector-parent</artifactId>
-    <version>1.5.6-SNAPSHOT</version>
+    <version>1.6.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <properties>
-        <hologres.client.version>2.6.7</hologres.client.version>
-        <java.version>1.8</java.version>
+        <hologres.client.version>2.6.10</hologres.client.version>
+        <java.version>11</java.version>
         <maven.compiler.source>${java.version}</maven.compiler.source>
         <maven.compiler.target>${java.version}</maven.compiler.target>
         <spotless.version>2.27.1</spotless.version>
@@ -45,8 +45,7 @@
 
     <modules>
         <module>hologres-connector-flink-base</module>
-        <module>hologres-connector-flink-1.15</module>
-        <module>hologres-connector-flink-1.17</module>
+        <module>hologres-connector-flink-1.19</module>
         <module>hologres-connector-spark-base</module>
         <module>hologres-connector-spark-3.x</module>
         <module>hologres-connector-hive-base</module>

@@ -16,7 +16,7 @@
 <dependency>
     <groupId>com.alibaba.hologres</groupId>
     <artifactId>hologres-connector-kafka</artifactId>
-    <version>1.5.6</version>
+    <version>1.6.0</version>
     <classifier>jar-with-dependencies</classifier>
 </dependency>
 ```
@@ -589,8 +589,6 @@ curl -s -X POST -H 'Content-Type: application/json' --data @holo-sink.json http:
 | connection.retrySleepStepMs | 10000 | 否 | 每次重试的等待时间=retrySleepInitMs+retry*retrySleepStepMs |
 | connection.connectionMaxIdleMs | 60000 | 否 | 写入线程和点查线程数据库连接的最大Idle时间，超过连接将被释放 |
 | connection.fixedConnectionMode| false|   否| 写入和点查不占用连接数（beta功能，需要connector版本>=1.2.0，hologres引擎版本>=1.3）|
-| connection.enableAkv4| false|   否| 默认值为false, 表示不启用akv4认证|
-| connection.akv4Region| false|   否| 无默认值, 在启用akv4认证时,需要根据实例所在的region设置,例如cn-beijing |
 | initial_timestamp | -1 | 否 | 从某个时间点开始消费kafka数据写入hologres |
 | dirty_data_strategy | EXCEPTION | 否 | 脏数据处理策略，只对空数据或者schema错误的脏数据有效，不能处理格式错误的数据（input_format错误，乱码等）<br>EXCEPTION: 脏数据抛出异常 <br>SKIP: 跳过脏数据，打印warn日志<br>SKIP_ONCE: 跳过特定的一条脏数据，详见dirty_data_to_skip_once参数 |
 | dirty_data_to_skip_once | `null,-1,-1` | 否 | 在dirty_data_strategy=SKIP_ONCE 时生效，由三个部分组成，分别是需要跳过的脏数据对应的topic，partition，offset，通过`,`隔开 |

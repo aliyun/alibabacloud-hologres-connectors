@@ -59,10 +59,13 @@ Connectors for Hologres
 * [hologres-connector-flink-1.14](https://github.com/aliyun/alibabacloud-hologres-connectors/tree/flink-1.13/1.14/hologres-connector-flink-1.14)<br/>
   依赖hologres-connector-flink-base，实现了Flink 1.14版本的Connector
 
-* [hologres-connector-flink-1.15](./hologres-connector-flink-1.15)<br/>
+* [hologres-connector-flink-1.15](https://github.com/aliyun/alibabacloud-hologres-connectors/tree/flink-1.15/1.17/hologres-connector-flink-1.15)<br/>
   依赖hologres-connector-flink-base，实现了Flink 1.15版本的Connector
 
-* [hologres-connector-flink-1.17](./hologres-connector-flink-1.17)<br/>
+* [hologres-connector-flink-1.17](https://github.com/aliyun/alibabacloud-hologres-connectors/tree/flink-1.15/1.17/hologres-connector-flink-1.17)<br/>
+  依赖hologres-connector-flink-base，实现了Flink 1.17版本的Connector<br/><br/>
+
+* [hologres-connector-flink-1.19](./hologres-connector-flink-1.19)<br/>
   依赖hologres-connector-flink-base，实现了Flink 1.17版本的Connector<br/><br/>
 
 * [hologres-connector-hive-base](./hologres-connector-hive-base)
@@ -79,7 +82,7 @@ Connectors for Hologres
 * [hologres-connector-spark-base](./hologres-connector-spark-base)
 
     该模块实现了Hologres Spark Connector的通用核心代码
-* [hologres-connector-spark-2.x](./hologres-connector-spark-2.x)
+* [hologres-connector-spark-2.x](https://github.com/aliyun/alibabacloud-hologres-connectors/tree/spark-2.x/hologres-connector-spark-2.x)
 
     依赖hologres-connector-spark-base，实现了Spark2.x版本的Connector
 * [hologres-connector-spark-3.x](./hologres-connector-spark-3.x)
@@ -103,8 +106,8 @@ Connectors for Hologres
 ```xml
 <dependency>
     <groupId>com.alibaba.hologres</groupId>
-    <artifactId>hologres-connector-flink-1.17</artifactId>
-    <version>1.4.2</version>
+    <artifactId>hologres-connector-flink-1.19</artifactId>
+    <version>1.6.0</version>
     <classifier>jar-with-dependencies</classifier>
 </dependency>
 ```
