@@ -15,7 +15,6 @@
 
 package com.alibaba.hologres.spark.source.copy
 
-import com.alibaba.hologres.client.auth.AKv4AuthenticationPlugin
 import com.alibaba.hologres.client.copy.out.arrow.ArrowReader
 import com.alibaba.hologres.client.impl.util.ConnectionUtil
 import com.alibaba.hologres.client.model.TableSchema

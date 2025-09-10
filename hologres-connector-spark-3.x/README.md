@@ -21,7 +21,7 @@ mvn clean install -N
 
 
   ```
-  mvn install -pl hologres-connector-spark-base clean package -DskipTests -Pscala-2.12 -Pspark-3
+  mvn install package -pl hologres-connector-spark-base -DskipTests -Pscala-2.12 -Pspark-3
   ```
 
 打包结果名称为 hologres-connector-spark-3.x-1.6.0-SNAPSHOT-jar-with-dependencies.jar
@@ -29,7 +29,7 @@ mvn clean install -N
 #### build jar
 
   ```
-  mvn -pl hologres-connector-spark-3.x clean package -DskipTests
+  mvn package -pl hologres-connector-spark-3.x -DskipTests
   ```
 ## 下载Release包
 
@@ -39,7 +39,7 @@ mvn clean install -N
 <dependency>
     <groupId>com.alibaba.hologres</groupId>
     <artifactId>hologres-connector-spark-3.x</artifactId>
-    <version>1.5.6</version>
+    <version>1.6.0</version>
     <classifier>jar-with-dependencies</classifier>
 </dependency>
 ```
