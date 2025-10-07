@@ -28,7 +28,7 @@ jsonpointer==3.0.0
 langchain==0.3.18
 langchain-community==0.3.17
 langchain-core==0.3.35
-langchain-text-splitters==0.3.6
+langchain-text-splitters==1.0.0a1
 langsmith==0.3.8
 MarkupSafe==3.0.2
 marshmallow==3.26.1
