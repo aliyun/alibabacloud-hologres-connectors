@@ -80,9 +80,17 @@ class HoloTableBatchScan(hologresConfigs: HologresConfigs,
                          pushedLimit: Int) extends Scan with Batch with PartitionReaderFactory {
   @transient private val logger = new LoggerWrapper(getClass)
 
-  @transient val holoClient = new HoloClient(hologresConfigs.holoConfig)
-  val holoSchema: TableSchema = holoClient.getTableSchema(hologresConfigs.table)
+  val holoSchema: TableSchema = {
+    val holoClient = new HoloClient(hologresConfigs.holoConfig)
+    try {
+      holoClient.getTableSchema(hologresConfigs.table)
+    } finally {
+      holoClient.close()
+    }
+  }
+
   private lazy val inputPartitions: Array[HoloInputPartition] = {
+    val holoClient = new HoloClient(hologresConfigs.holoConfig)
     var shardCount: Int = -1
     try {
       shardCount = getShardCount(holoClient, holoSchema)
