@@ -106,4 +106,42 @@ class SparkHoloTableCatalogSuite extends SparkHoloSuiteBase {
     testUtils.dropTable(table)
   }
 
+
+  test("Holo Table Catalog write insert or update with v1 write Test") {
+    spark.conf.set("spark.sql.catalog.hologres_external", "com.alibaba.hologres.spark3.HoloTableCatalog")
+    spark.conf.set("spark.sql.catalog.hologres_external.username", testUtils.username)
+    spark.conf.set("spark.sql.catalog.hologres_external.password", testUtils.password)
+    spark.conf.set("spark.sql.catalog.hologres_external.jdbcurl", testUtils.jdbcUrl)
+    spark.conf.set("spark.sql.catalog.hologres_external.read.max_task_count", 20)
+    spark.conf.set("spark.sql.catalog.hologres_external.read.mode", "bulk_read")
+    spark.conf.set("spark.sql.catalog.hologres_external.write.on_conflict_action", "INSERT_OR_UPDATE")
+    spark.sql("use hologres_external")
+
+    val ddl = "create table TABLE_NAME (" +
+      "    pk int primary key," +
+      "    c1 int," +
+      "    c2 int," +
+      "    c3 int);"
+    val table = "table_for_holo_test_" + randomSuffix
+    testUtils.dropTable(table)
+    testUtils.createTable(ddl, table, hasPk = true)
+
+    spark.sql(s"insert into $table select 1 as pk, 1 as c1, 1 as c2, 1 as c3")
+    checkAnswer(
+      spark.sql(s"select * from $table"),
+      Seq(
+        Row(1, 1, 1, 1),
+      )
+    )
+
+    spark.sql(s"insert into $table select 1 as pk, 2 as c2")
+    checkAnswer(
+      spark.sql(s"select * from $table"),
+      Seq(
+        Row(1, 1, 2, 1),
+      )
+    )
+
+    testUtils.dropTable(table)
+  }
 }

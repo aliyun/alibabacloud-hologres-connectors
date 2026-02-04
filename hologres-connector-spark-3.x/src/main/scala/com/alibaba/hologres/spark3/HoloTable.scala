@@ -65,11 +65,11 @@ class HoloTable(
   ).asJava
 
   override def newWriteBuilder(info: LogicalWriteInfo): WriteBuilder = {
-    // 检查plan中的schema是否与sparkSchema一致, plan中的schema只需要检查字段数量和类型
-    SparkHoloUtil.checkSparkTableSchema(optimizeConfigs, sparkSchema, info.schema())
     if (tableType() == HoloTableType.TABLE_V1) {
       new HoloWriterBuilderV1(optimizeConfigs, sparkSchema)
     } else {
+      // 检查plan中的schema是否与sparkSchema一致, plan中的schema只需要检查字段数量和类型
+      SparkHoloUtil.checkSparkTableSchema(optimizeConfigs, sparkSchema, info.schema())
       new HoloWriterBuilder(optimizeConfigs, sparkSchema)
     }
   }

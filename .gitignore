@@ -27,3 +27,4 @@ tools/releasing/release
 tools/japicmp-output
 user-local.properties
 image-building-target/
+.java-version
