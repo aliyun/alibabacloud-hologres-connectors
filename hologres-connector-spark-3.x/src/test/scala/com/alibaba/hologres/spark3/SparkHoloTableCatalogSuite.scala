@@ -106,4 +106,48 @@ class SparkHoloTableCatalogSuite extends SparkHoloSuiteBase {
     testUtils.dropTable(table)
   }
 
+
+  test("Holo Table Catalog partial columns write with v1 and v2 Test") {
+    val ddl = "create table TABLE_NAME (pk int primary key, c1 int, c2 int);"
+    val table = "table_for_holo_test_" + randomSuffix
+    testUtils.dropTable(table)
+    testUtils.createTable(ddl, table, hasPk = true)
+
+    // 1. 全列写入
+    spark.conf.set("spark.sql.catalog.hologres_full", "com.alibaba.hologres.spark3.HoloTableCatalog")
+    spark.conf.set("spark.sql.catalog.hologres_full.username", testUtils.username)
+    spark.conf.set("spark.sql.catalog.hologres_full.password", testUtils.password)
+    spark.conf.set("spark.sql.catalog.hologres_full.jdbcurl", testUtils.jdbcUrl)
+    spark.sql(s"insert into hologres_full.public.$table select 1 as pk, 1 as c1, 1 as c2")
+    checkAnswer(spark.sql(s"select * from hologres_full.public.$table"), Seq(Row(1, 1, 1)))
+
+    // 2. V2 部分列写入 -> 报错
+    spark.conf.set("spark.sql.catalog.hologres_v2", "com.alibaba.hologres.spark3.HoloTableCatalog")
+    spark.conf.set("spark.sql.catalog.hologres_v2.username", testUtils.username)
+    spark.conf.set("spark.sql.catalog.hologres_v2.password", testUtils.password)
+    spark.conf.set("spark.sql.catalog.hologres_v2.jdbcurl", testUtils.jdbcUrl)
+    spark.conf.set("spark.sql.catalog.hologres_v2.write.mode", "insert")
+    spark.conf.set("spark.sql.catalog.hologres_v2.write.on_conflict_action", "INSERT_OR_UPDATE")
+    spark.conf.set("spark.sql.catalog.hologres_v2.write.use_v1_write", "false")
+    val ex = intercept[Exception] {
+      spark.sql(s"insert into hologres_v2.public.$table select 1 as pk, 10 as c1")
+    }
+    assert(ex.getMessage.contains("schema length not match"))
+
+    // 2. V1 部分列写入 -> 成功，部分列更新 pk=1 的 c1
+    spark.conf.set("spark.sql.catalog.hologres_v1", "com.alibaba.hologres.spark3.HoloTableCatalog")
+    spark.conf.set("spark.sql.catalog.hologres_v1.username", testUtils.username)
+    spark.conf.set("spark.sql.catalog.hologres_v1.password", testUtils.password)
+    spark.conf.set("spark.sql.catalog.hologres_v1.jdbcurl", testUtils.jdbcUrl)
+    spark.conf.set("spark.sql.catalog.hologres_v1.write.mode", "insert")
+    spark.conf.set("spark.sql.catalog.hologres_v1.write.on_conflict_action", "INSERT_OR_UPDATE")
+    spark.conf.set("spark.sql.catalog.hologres_v1.write.use_v1_write", "true")
+    spark.sql(s"insert into hologres_v1.public.$table select 1 as pk, 10 as c1")
+    checkAnswer(
+      spark.sql(s"select * from hologres_v1.public.$table"),
+      Seq(Row(1, 10, 1))
+    )
+
+    testUtils.dropTable(table)
+  }
 }

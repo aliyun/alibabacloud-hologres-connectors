@@ -101,6 +101,7 @@ class HologresConfigs(sourceOptions: Map[String, String]) extends Serializable {
   val writeStrictDataTypeCheck: Boolean = sourceOptions.getOrElse("write.strict_datatype_check", "false").toBoolean
   val disableRightJoinInCopy: Boolean = sourceOptions.getOrElse("write.copy.disable_right_join", "false").toBoolean
   val overWriteDropForce: Boolean = sourceOptions.getOrElse("write.overwrite_drop_force", "true").toBoolean
+  val useV1Write: Boolean = sourceOptions.getOrElse("write.use_v1_write", "false").toBoolean
 
   // -------------------------------------read----------------------------------------
   private val readModeStr: String = sourceOptions.getOrElse("read.mode", "auto").toLowerCase

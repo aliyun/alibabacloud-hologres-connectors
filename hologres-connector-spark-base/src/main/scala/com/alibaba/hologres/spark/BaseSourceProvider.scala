@@ -28,6 +28,7 @@ class BaseSourceProvider() {
   val WRITE_ENABLE_STRICT_DATATYPE_CHECK = "write.strict_datatype_check"
   val WRITE_ON_CONFLICT_ACTION = "write.on_conflict_action"
   val WRITE_OVERWRITE_DROP_FORCE = "write.overwrite_drop_force"
+  val WRITE_USE_V1_WRITE = "write.use_v1_write"
   // write insert
   val WRITE_INSERT_BATCH_SIZE = "write.insert.batch_size"
   val WRITE_INSERT_BATCH_BYTE_SIZE = "write.insert.batch_byte_size"
