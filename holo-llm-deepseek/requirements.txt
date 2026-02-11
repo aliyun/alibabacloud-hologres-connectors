@@ -42,7 +42,7 @@ numpy==1.26.4
 orjson==3.10.15
 packaging==24.2
 pandas==2.2.3
-pillow==11.1.0
+pillow==12.1.1
 propcache==0.2.1
 psycopg2==2.9.10
 psycopg2-binary==2.9.10
