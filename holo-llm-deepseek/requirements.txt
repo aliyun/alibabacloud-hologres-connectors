@@ -39,7 +39,7 @@ multiprocess==0.70.16
 mypy-extensions==1.0.0
 networkx==3.4.2
 numpy==1.26.4
-orjson==3.10.15
+orjson==3.11.6
 packaging==24.2
 pandas==2.2.3
 pillow==11.1.0
