@@ -50,7 +50,7 @@ class HologresRelation(hologresConfigs: HologresConfigs,
                        sparkSchema: StructType,
                        is_overwrite: Boolean)(@transient val sparkSession: SparkSession) extends BaseRelation with InsertableRelation {
   override def insert(data: DataFrame, overwrite: Boolean): Unit = {
-    RepartitionUtil.reShuffleThenWrite(data, hologresConfigs, saveMode = if (is_overwrite) SaveMode.Overwrite else SaveMode.Append)
+    RepartitionUtil.v1Write(data, hologresConfigs, saveMode = if (is_overwrite) SaveMode.Overwrite else SaveMode.Append)
   }
 
   override def sqlContext: SQLContext = sparkSession.sqlContext

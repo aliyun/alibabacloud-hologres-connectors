@@ -60,7 +60,7 @@ class SourceProvider extends DataSourceRegister
 
   override def createRelation(sqlContext: SQLContext, mode: SaveMode, parameters: Map[String, String], data: DataFrame): BaseRelation = {
     val hologresConfigs = new HologresConfigs(parameters)
-    RepartitionUtil.reShuffleThenWrite(data, hologresConfigs, saveMode = mode)
+    RepartitionUtil.v1Write(data, hologresConfigs, saveMode = mode)
     new HologresRelation(hologresConfigs, data.schema, mode == SaveMode.Overwrite)(sqlContext.sparkSession)
   }
 }
