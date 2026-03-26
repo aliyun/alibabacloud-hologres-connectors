@@ -57,7 +57,6 @@ object RepartitionUtil {
       .option("connection_max_idle_ms", hologresConfigs.holoConfig.getConnectionMaxIdleMs)
       .option("fixed_connection_mode", hologresConfigs.holoConfig.isUseFixedFe)
       .option("direct_connect", hologresConfigs.directConnect)
-      .option("retry_count", hologresConfigs.holoConfig.getRetryCount)
       .option("write.mode", hologresConfigs.writeMode.toString)
       .option("write.on_conflict_action", hologresConfigs.onConflictAction.name())
       .option("write.copy.max_buffer_size", hologresConfigs.writeCopyMaxBufferSize)
@@ -66,6 +65,13 @@ object RepartitionUtil {
       .option("write.copy.dirty_data_check", hologresConfigs.writeCopyDirtyDataCheck)
       .option("write.strict_datatype_check", hologresConfigs.writeStrictDataTypeCheck)
       .option("write.remove_u0000", hologresConfigs.writeRemoveU0000)
+      .option("write.insert.dynamic_partition", hologresConfigs.holoConfig.isDynamicPartition)
+      .option("write.insert.batch_size", hologresConfigs.holoConfig.getWriteBatchSize)
+      .option("write.insert.batch_byte_size", hologresConfigs.holoConfig.getWriteBatchByteSize)
+      .option("write.insert.max_interval_ms", hologresConfigs.holoConfig.getWriteMaxIntervalMs)
+      .option("write.insert.thread_size", hologresConfigs.holoConfig.getWriteThreadSize)
+      .option("write.insert.use_legacy_put_handler", hologresConfigs.holoConfig.isUseLegacyPutHandler)
+      .option("write.overwrite_drop_force", hologresConfigs.overWriteDropForce)
 
     if (hologresConfigs.needReshuffle) {
       writer.option("write.reshuffle_by_holo_distribution_key", "true")
