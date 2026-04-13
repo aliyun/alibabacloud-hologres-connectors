@@ -16,19 +16,7 @@ object SparkHoloUtil {
 
   // 检查schema是否匹配, 其实是根据holo表或者查询的query生成一个默认的spark schema, 和传入的spark schema进行比较,
   // 传入的spark schema必须是holo表或者查询的query生成的spark schema的一部分
-  def checkSparkTableSchema(hologresConfigs: HologresConfigs, sparkSchema: StructType, mockHoloSchemaForQuery: TableSchema = null): Unit = {
-
-    var holoSchema: TableSchema = null
-    if (hologresConfigs.isTableSource && holoSchema == null) {
-      @transient val holoClient = new HoloClient(hologresConfigs.holoConfig)
-      try {
-        holoSchema = holoClient.getTableSchema(hologresConfigs.table)
-      } finally {
-        holoClient.close()
-      }
-    } else {
-      holoSchema = mockHoloSchemaForQuery
-    }
+  def checkSparkTableSchema(hologresConfigs: HologresConfigs, sparkSchema: StructType, holoSchema: TableSchema): Unit = {
     logger.info("spark schema: " + sparkSchema.toDDL)
     logger.info("holo schema: " + holoSchema)
     sparkSchema.fields.foreach(column => {
@@ -86,18 +74,7 @@ object SparkHoloUtil {
   }
 
   // 如果未传入spark的DDL，则根据holo表或者查询的query推断一个默认的spark schema
-  def inferSparkTableSchema(hologresConfigs: HologresConfigs, mockHoloSchemaForQuery: TableSchema = null): StructType = {
-    var holoSchema: TableSchema = null
-    if (hologresConfigs.isTableSource && holoSchema == null) {
-      @transient val holoClient = new HoloClient(hologresConfigs.holoConfig)
-      try {
-        holoSchema = holoClient.getTableSchema(hologresConfigs.table)
-      } finally {
-        holoClient.close()
-      }
-    } else {
-      holoSchema = mockHoloSchemaForQuery
-    }
+  def inferSparkTableSchema(holoSchema: TableSchema = null): StructType = {
     val fields = ArrayBuffer[StructField]()
     holoSchema.getColumnSchema.foreach(column => {
       fields += StructField(column.getName, getSparkDataType(column))
@@ -106,11 +83,43 @@ object SparkHoloUtil {
     StructType(fields)
   }
 
-  def mockHoloSchemaForQuery(hologresConfigs: HologresConfigs): TableSchema = {
+  /**
+   * 三种情况:
+   *  1. table参数传入holo的内表,直接返回相应的holo-client TableSchema
+   *     2. table参数传入holo的view, mock一个对应的holo schema
+   *     3. query参数传入的sql, mock一个对应的holo schema
+   */
+  def getHoloSchema(hologresConfigs: HologresConfigs): (TableSchema, String) = {
+    var holoSchema: TableSchema = null
+    var sourceType = "TABLE"
+    var tableName: TableName = null
+    var query = ""
+    if (hologresConfigs.isTableConfigured) {
+      @transient val holoClient = new HoloClient(hologresConfigs.holoConfig)
+      try {
+        holoSchema = holoClient.getTableSchema(hologresConfigs.table)
+      } catch {
+        case e: Exception =>
+          logger.warn("get holo schema failed because:", e)
+      } finally {
+        holoClient.close()
+      }
+      if (holoSchema != null) {
+        return (holoSchema, sourceType)
+      } else {
+        query = "select * from " + hologresConfigs.table
+        sourceType = "VIEW"
+        tableName = TableName.valueOf(hologresConfigs.table)
+      }
+    } else {
+      query = hologresConfigs.query
+      sourceType = "QUERY"
+      tableName = TableName.quoteValueOf("", s"(${hologresConfigs.query})")
+    }
     @transient val conn = JDBCUtil.createConnection(hologresConfigs)
     try {
       var holoSchema: TableSchema = null
-      val metadata = conn.prepareStatement(hologresConfigs.query).getMetaData
+      val metadata = conn.prepareStatement(query).getMetaData
       val columnCount = metadata.getColumnCount
       // 如果通过query查询holo,这里mock一个holo schema
       val mockSchemaBuilder: TableSchema.Builder = new TableSchema.Builder()
@@ -127,13 +136,13 @@ object SparkHoloUtil {
         }
         mockSchemaBuilder.addColumn(column)
       }
-      mockSchemaBuilder.setTableName(TableName.quoteValueOf("", s"mock_table_from_query(${hologresConfigs.query})"))
+      mockSchemaBuilder.setTableName(tableName)
       holoSchema = mockSchemaBuilder.build()
       holoSchema.calculateProperties()
-      holoSchema
+      (holoSchema, sourceType)
     } catch {
       case e: Exception =>
-        throw new IllegalArgumentException(String.format("could not get metadata for query [%s]", hologresConfigs.query), e)
+        throw new IllegalArgumentException(String.format("could not get metadata for query [%s]", query), e)
     } finally {
       conn.close()
     }
@@ -203,10 +212,14 @@ object SparkHoloUtil {
     }
   }
 
-  def chooseBestMode(sparkSchema: StructType, hologresConfigs: HologresConfigs): HologresConfigs = {
+  def chooseBestMode(sparkSchema: StructType, holoSchema: TableSchema, hologresConfigs: HologresConfigs): HologresConfigs = {
+    if (hologresConfigs.sourceType.equals("QUERY")) {
+      hologresConfigs.readMode = "select"
+      logger.info(s"query source only support select mode")
+      return hologresConfigs
+    }
     val holoClient: HoloClient = new HoloClient(hologresConfigs.holoConfig)
     try {
-      val holoSchema = holoClient.getTableSchema(TableName.valueOf(hologresConfigs.table))
       var holoVersion: HoloVersion = null
       try holoVersion = holoClient.sql[HoloVersion](getHoloVersion).get()
       catch {
@@ -217,6 +230,27 @@ object SparkHoloUtil {
         holoVersion.getMajorVersion.toString, holoVersion.getMinorVersion.toString, holoVersion.getFixVersion.toString)
       logger.info(s"holo version: ${holoVersion}")
 
+      // 尝试直连，无法直连则各个tasks内不需要进行尝试
+      if (hologresConfigs.directConnect) {
+        hologresConfigs.directConnect = JDBCUtil.couldDirectConnect(hologresConfigs)
+      }
+
+      // choose best read mode
+      if ("auto" == hologresConfigs.readMode) {
+        val supportCompressed = holoVersion.compareTo(new HoloVersion(3, 0, 24)) >= 0
+        if (supportCompressed) {
+          hologresConfigs.readMode = "bulk_read_compressed"
+        } else {
+          hologresConfigs.readMode = "bulk_read"
+        }
+        logger.info(s"choose best read mode: ${hologresConfigs.readMode}")
+      }
+
+      if (hologresConfigs.sourceType.equals("VIEW")) {
+        return hologresConfigs
+      }
+
+      val supportStage = holoVersion.compareTo(new HoloVersion(4, 1, 0)) >= 0
       // 2.2.25之后支持全字段时的bulk_load_onc_conflict, 3.1.0之后支持部分字段的bulk_load_on_conflict
       val supportBulkLoadOnConflict = holoSchema.getPrimaryKeys.length > 0 &&
         ((holoVersion.compareTo(new HoloVersion(2, 2, 25)) > 0 && sparkSchema.fields.length == holoSchema.getColumnSchema.length)
@@ -249,32 +283,6 @@ object SparkHoloUtil {
         }
       }
 
-      // choose best read mode
-      if ("auto" == hologresConfigs.readMode) {
-        val supportCompressed = holoVersion.compareTo(new HoloVersion(3, 0, 24)) >= 0
-        var hasJsonBType = false
-        sparkSchema.fields.foreach(column => {
-          if (holoSchema.getColumnIndex(column.name) == null) {
-            throw new IllegalArgumentException(String.format("column %s does not exist in hologres table %s", column.name, holoSchema.getTableName))
-          }
-          val holoColumn = holoSchema.getColumn(holoSchema.getColumnIndex(column.name))
-          if (holoColumn.getTypeName == "jsonb") {
-            hasJsonBType = true
-          }
-        })
-        if (hasJsonBType) {
-          hologresConfigs.readMode = "select"
-        } else if (supportCompressed) {
-          hologresConfigs.readMode = "bulk_read_compressed"
-        } else {
-          hologresConfigs.readMode = "bulk_read"
-        }
-        logger.info(s"choose best read mode: ${hologresConfigs.readMode}")
-      }
-      // 尝试直连，无法直连则各个tasks内不需要进行尝试
-      if (hologresConfigs.directConnect) {
-        hologresConfigs.directConnect = JDBCUtil.couldDirectConnect(hologresConfigs)
-      }
       hologresConfigs
     } finally {
       if (holoClient != null) {
@@ -282,4 +290,5 @@ object SparkHoloUtil {
       }
     }
   }
+
 }

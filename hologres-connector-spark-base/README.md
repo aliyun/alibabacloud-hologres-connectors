@@ -8,10 +8,10 @@
 
 - 支持版本如下表
 
-|   参数    |                    支持版本                    |
-|:-------:|:------------------------------------------:|
+|   参数    |            支持版本            |
+|:-------:|:--------------------------:|
 | scala版本 | scala-2.12 <br> scala-2.13 |
-| spark版本 |            spark-2 <br> spark-3            |
+| spark版本 |    spark-2 <br> spark-3    |
 
 例如使用的是scala2.12编译的spark3.3，可以使用如下命令：
 
@@ -19,4 +19,4 @@
 mvn install package -pl hologres-connector-spark-base  -DskipTests -Pscala-2.12 -Pspark-3
 ```
 
-打包结果名称为 hologres-connector-spark-base_2.12_spark3-1.6.0-SNAPSHOT.jar
+打包结果名称为 hologres-connector-spark-base_2.12_spark3-1.6.2-SNAPSHOT.jar

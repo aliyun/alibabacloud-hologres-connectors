@@ -8,8 +8,9 @@ import org.apache.spark.sql.connector.read.PartitionReader
 import org.apache.spark.sql.types.StructType
 
 class HoloPartitionReader(hologresConfigs: HologresConfigs,
-                          query: String,
+                          query_options: String,
                           holoSchema: TableSchema,
-                          sparkSchema: StructType
+                          sparkSchema: StructType,
+                          targetShards: Array[Int] = null
                          )
-  extends BaseHoloPartitionReader(hologresConfigs, query, holoSchema, sparkSchema) with PartitionReader[InternalRow]
+  extends BaseHoloPartitionReader(hologresConfigs, query_options, holoSchema, sparkSchema, targetShards) with PartitionReader[InternalRow]

@@ -15,15 +15,15 @@
 
 package com.alibaba.hologres.spark.source.copy.arrow
 
-import com.alibaba.hologres.client.copy.out.arrow.accessor.{AbstractArrowVectorAccessor, BaseArrowArrayAccessor}
+import com.alibaba.hologres.client.copy.out.arrow.accessor.BaseArrowArrayAccessor
 import com.alibaba.hologres.org.apache.arrow.vector.complex.ListVector
 import org.apache.spark.sql.catalyst.util.ArrayData
 import org.apache.spark.unsafe.types.UTF8String
 
 import java.sql.Types
 
-class SparkArrowArrayAccessor(vector: ListVector, elementTyp: Int, elementAccessor: AbstractArrowVectorAccessor)
-  extends BaseArrowArrayAccessor(vector, elementTyp, elementAccessor) {
+class SparkArrowArrayAccessor(vector: ListVector, elementTyp: Int)
+  extends BaseArrowArrayAccessor(vector, elementTyp) {
 
   override def get(rowId: Int): AnyRef = {
     if (isNullAt(rowId)) return null

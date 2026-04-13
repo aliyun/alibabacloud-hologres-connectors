@@ -5,6 +5,7 @@ import com.alibaba.hologres.spark.BaseSourceProvider
 import com.alibaba.hologres.spark.config.HologresConfigs
 import com.alibaba.hologres.spark.utils.{RepartitionUtil, SparkHoloUtil}
 import com.alibaba.hologres.spark3.sink.HologresRelation
+import org.apache.spark.SparkContext
 import org.apache.spark.sql.connector.catalog.{Table, TableProvider}
 import org.apache.spark.sql.connector.expressions.Transform
 import org.apache.spark.sql.sources._
@@ -21,39 +22,47 @@ class SourceProvider extends DataSourceRegister
 
   private var sparkSchema: StructType = _
   private var inferredSchema: Boolean = false
-  // 如果通过query查询holo, mock一个holo schema一路传下去, 直接查询holo不需要使用
-  private var mockHoloSchemaForQuery: TableSchema = _
+  // holo表的schema,如果是通过query或者view查询holo, 也需要mock一个holo schema
+  private var holoSchema: TableSchema = _
+  private var sourceType: String = "TABLE"
+  var sparkAppName: String = SparkContext.getOrCreate().appName
+  if (sparkAppName == null || "".eq(sparkAppName)) {
+    sparkAppName = "default"
+  }
+  var sparkAppId: String = SparkContext.getOrCreate().applicationId
+  if (sparkAppId == null) {
+    sparkAppId = ""
+  }
 
   override def shortName(): String = "hologres"
 
+  /**
+   * 用户不指定spark schema, 通过holo表的schema推断
+   */
   override def inferSchema(options: CaseInsensitiveStringMap): StructType = {
-    val hologresConfigs: HologresConfigs = new HologresConfigs(options.asScala.toMap)
+    val hologresConfigs: HologresConfigs = new HologresConfigs(options.asScala.toMap, sparkAppName, sparkAppId)
     inferredSchema = true
-    if (hologresConfigs.isTableSource) {
-      sparkSchema = SparkHoloUtil.inferSparkTableSchema(hologresConfigs)
-    } else {
-      mockHoloSchemaForQuery = SparkHoloUtil.mockHoloSchemaForQuery(hologresConfigs)
-      sparkSchema = SparkHoloUtil.inferSparkTableSchema(hologresConfigs, mockHoloSchemaForQuery)
-    }
+    val tuple2 = SparkHoloUtil.getHoloSchema(hologresConfigs)
+    holoSchema = tuple2._1
+    sourceType = tuple2._2
+    sparkSchema = SparkHoloUtil.inferSparkTableSchema(holoSchema)
     sparkSchema
   }
 
   override def getTable(sparkSchema: StructType, transforms: Array[Transform], properties: util.Map[String, String]): Table = {
     this.sparkSchema = sparkSchema
     val opts = properties.asScala.toMap
-    val hologresConfigs = new HologresConfigs(opts)
-    if (hologresConfigs.isTableSource) {
-      if (!inferredSchema) {
-        SparkHoloUtil.checkSparkTableSchema(hologresConfigs, sparkSchema)
-      }
-      new HoloTable(sparkSchema, hologresConfigs)
-    } else {
-      mockHoloSchemaForQuery = SparkHoloUtil.mockHoloSchemaForQuery(hologresConfigs)
-      if (!inferredSchema) {
-        SparkHoloUtil.checkSparkTableSchema(hologresConfigs, sparkSchema, mockHoloSchemaForQuery)
-      }
-      new HoloTable(sparkSchema, hologresConfigs, mockHoloSchemaForQuery)
+    val hologresConfigs = new HologresConfigs(opts, sparkAppName, sparkAppId)
+    if (holoSchema == null) {
+      val tuple2 = SparkHoloUtil.getHoloSchema(hologresConfigs)
+      holoSchema = tuple2._1
+      sourceType = tuple2._2
     }
+    hologresConfigs.sourceType = sourceType
+    if (!inferredSchema) {
+      SparkHoloUtil.checkSparkTableSchema(hologresConfigs, sparkSchema, holoSchema)
+    }
+    new HoloTable(sparkSchema, hologresConfigs, holoSchema)
   }
 
   override def supportsExternalMetadata = true

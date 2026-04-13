@@ -165,4 +165,22 @@ class SparkHoloTestUtils {
       }
     }
   }
+
+  @throws[SQLException]
+  def executeSql(sql: String): Unit = {
+    try {
+      val connection = DriverManager.getConnection(jdbcUrl, username, password)
+      val statement = connection.createStatement
+      try statement.execute(sql)
+      finally {
+        if (statement != null) statement.close()
+        if (connection != null) connection.close()
+      }
+    } catch {
+      case ex: SQLException => {
+        println("Can't execute statement " + sql + " because " + ex.getMessage)
+        throw ex
+      }
+    }
+  }
 }

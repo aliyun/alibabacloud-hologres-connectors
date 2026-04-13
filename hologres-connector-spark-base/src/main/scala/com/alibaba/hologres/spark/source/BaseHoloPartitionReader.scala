@@ -12,9 +12,10 @@ import org.apache.spark.sql.types.StructType
 import java.sql.{PreparedStatement, ResultSet, SQLException}
 
 class BaseHoloPartitionReader(hologresConfigs: HologresConfigs,
-                              query: String,
+                              query_options: String,
                               holoSchema: TableSchema,
-                              sparkSchema: StructType) {
+                              sparkSchema: StructType,
+                              targetShards: Array[Int] = null) {
   private val logger = new LoggerWrapper(getClass)
   logger.setSparkAppName(hologresConfigs.sparkAppName)
   logger.setSparkAppId(hologresConfigs.sparkAppId)
@@ -35,6 +36,13 @@ class BaseHoloPartitionReader(hologresConfigs: HologresConfigs,
   init()
 
   def init(): Unit = {
+    var query: String = ""
+    if (hologresConfigs.sourceType.equals("QUERY")) {
+      query = JDBCUtil.getSimpleSelectFromQuery(hologresConfigs.query, sparkSchema.fields.map(_.name))
+    } else {
+      query = JDBCUtil.getSimpleSelectFromTable(hologresConfigs.table, sparkSchema.fields.map(_.name))
+    }
+    query = s"$query $query_options"
     logger.info(s"the bulk read query: $query")
     logger.info(s"the sparkSchema: $sparkSchema")
 
@@ -46,6 +54,10 @@ class BaseHoloPartitionReader(hologresConfigs: HologresConfigs,
       JDBCUtil.executeSql(conn, "set hg_computing_resource = 'serverless'")
       JDBCUtil.executeSql(conn, s"SET hg_experimental_serverless_computing_query_priority = ${hologresConfigs.serverlessComputingQueryPriority}")
       JDBCUtil.executeSql(conn, s"SET hg_experimental_serverless_computing_required_cores = 5")
+    }
+    // 仅读取指定的shard
+    if (targetShards != null && targetShards.length > 0) {
+      JDBCUtil.executeSql(conn, s"SET hg_experimental_target_shard_list = '${targetShards.mkString(",")}'")
     }
 
     statement = conn.prepareStatement(query, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)

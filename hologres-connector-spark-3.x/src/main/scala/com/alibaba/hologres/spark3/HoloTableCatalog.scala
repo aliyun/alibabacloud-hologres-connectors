@@ -61,8 +61,9 @@ class HoloTableCatalog extends TableCatalog with SupportsNamespaces with Logging
       case _ =>
         specialTableConfigs.table = TableName.quoteValueOf(currentHoloSchema, ident.name()).getFullName
     }
-    val sparkSchema = SparkHoloUtil.inferSparkTableSchema(specialTableConfigs)
-    new HoloTable(sparkSchema, specialTableConfigs)
+    val holoSchema = SparkHoloUtil.getHoloSchema(specialTableConfigs)._1
+    val sparkSchema = SparkHoloUtil.inferSparkTableSchema(holoSchema)
+    new HoloTable(sparkSchema, specialTableConfigs, holoSchema)
   }
 
   override def createTable(ident: Identifier, schema: StructType, partitions: Array[Transform], properties: java.util.Map[String, String]): Table = {

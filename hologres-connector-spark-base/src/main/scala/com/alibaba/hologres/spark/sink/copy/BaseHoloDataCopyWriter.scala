@@ -1,22 +1,22 @@
 package com.alibaba.hologres.spark.sink.copy
 
 import com.alibaba.hologres.client.Put
-import com.alibaba.hologres.client.copy._
-import com.alibaba.hologres.client.copy.in._
+import com.alibaba.hologres.client.copy.in.CopyInWrapper
+import com.alibaba.hologres.client.copy.{CopyFormat, CopyMode}
 import com.alibaba.hologres.client.exception.{HoloClientException, HoloClientWithDetailsException}
-import com.alibaba.hologres.client.model.OnConflictAction.{INSERT_OR_IGNORE, INSERT_OR_UPDATE}
 import com.alibaba.hologres.client.model.{Record, TableSchema}
-import com.alibaba.hologres.client.utils.RecordChecker
-import com.alibaba.hologres.org.postgresql.core.BaseConnection
+import com.alibaba.hologres.client.utils.{RateLimiter, RecordChecker}
 import com.alibaba.hologres.spark.config.HologresConfigs
 import com.alibaba.hologres.spark.exception.SparkHoloException
 import com.alibaba.hologres.spark.sink._
-import com.alibaba.hologres.spark.utils.LoggerWrapper
+import com.alibaba.hologres.spark.utils.{JDBCUtil, LoggerWrapper}
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.types._
 
 import java.io.IOException
+import java.sql.{Connection, SQLException}
+import scala.collection.JavaConverters.seqAsJavaListConverter
 
 /** BaseHoloJdbcDataWriter. */
 abstract class BaseHoloDataCopyWriter(
@@ -31,9 +31,27 @@ abstract class BaseHoloDataCopyWriter(
   logger.setSparkTaskId(taskId)
   logger.setHoloTableName(hologresConfigs.table)
 
-  private val copyContext: CopyContext = new CopyContext
-  copyContext.init(hologresConfigs, targetShardList)
-  private val copyFormat: CopyFormat = if (hologresConfigs.writeCopyFormat == "binary") CopyFormat.BINARY else CopyFormat.CSV
+  private val copyMode: CopyMode = hologresConfigs.writeMode match {
+    case mode: CopyMode => mode
+    case _ => CopyMode.STREAM
+  }
+  private val copyFormat: CopyFormat = if (hologresConfigs.writeCopyFormat == "binary" && copyMode == CopyMode.STREAM) CopyFormat.BINARY else CopyFormat.CSV
+  private val conn = initConnection(hologresConfigs, targetShardList)
+  private val copyInWrapper: CopyInWrapper = new CopyInWrapper(
+    conn,
+    holoSchema,
+    sparkSchema.fields.map(_.name).toList.asJava,
+    copyFormat,
+    hologresConfigs.writeMode match {
+      case mode: CopyMode => mode
+      case _ => CopyMode.STREAM
+    },
+    hologresConfigs.onConflictAction,
+    hologresConfigs.writeCopyMaxBufferSize
+  )
+  if(hologresConfigs.holoConfig.getWriteRps() > 0) {
+    copyInWrapper.setRateLimiter(new RateLimiter(hologresConfigs.holoConfig.getWriteRps()))
+  }
 
   private val recordLength: Int = sparkSchema.fields.length
   private val columnIdToHoloId: Array[Int] = new Array[Int](recordLength)
@@ -53,9 +71,7 @@ abstract class BaseHoloDataCopyWriter(
 
   def commit(): Null = {
     logger.debug("Commit....")
-    try {
-      if (copyContext.os != null) copyContext.os.close()
-    } finally copyContext.os = null
+    copyInWrapper.flush()
     null
   }
 
@@ -79,28 +95,7 @@ abstract class BaseHoloDataCopyWriter(
         }
       }
 
-      // create copyContext in the first time
-      if (copyContext.os == null) {
-        val schema = record.getSchema
-        copyContext.schema = schema
-        val copyMode: CopyMode = hologresConfigs.writeMode match {
-          case mode: CopyMode => mode
-          case _ => CopyMode.STREAM
-        }
-        val sql = CopyUtil.buildCopyInSql(record, copyFormat, if (hologresConfigs.onConflictAction eq INSERT_OR_IGNORE) INSERT_OR_IGNORE else INSERT_OR_UPDATE,
-          copyMode)
-        logger.info(s"copyMode ${copyMode.name()}, copy sql :$sql")
-        val in = copyContext.manager.copyIn(sql)
-        copyContext.os = if (copyMode == CopyMode.STREAM && copyFormat == CopyFormat.BINARY) {
-          new RecordBinaryOutputStream(new CopyInOutputStream(in), schema, copyContext.pgConn.unwrap(classOf[BaseConnection]),
-            hologresConfigs.writeCopyMaxBufferSize)
-        } else {
-          new RecordTextOutputStream(new CopyInOutputStream(in), schema, copyContext.pgConn.unwrap(classOf[BaseConnection]),
-            hologresConfigs.writeCopyMaxBufferSize)
-        }
-      }
-
-      copyContext.os.putRecord(record)
+      copyInWrapper.putRecord(record)
     } catch {
       case e: HoloClientWithDetailsException =>
         var i = 0
@@ -144,16 +139,73 @@ abstract class BaseHoloDataCopyWriter(
   }
 
   protected def close(): Unit = {
-    if (copyContext.os != null) {
-      try copyContext.os.close()
+    if (copyInWrapper != null) {
+      try copyInWrapper.close()
       catch {
         case e: IOException =>
-          logger.warn("close fail", e)
+          logger.warn("close copyInWrapper fail", e)
           throw new IOException(e)
-      } finally copyContext.os = null
+      }
     }
-    copyContext.close()
+    if (conn != null) {
+      try conn.close()
+      catch {
+        case e: IOException =>
+          logger.warn("close connection fail", e)
+          throw new IOException(e)
+      }
+    }
     logger.debug("Close....")
+  }
+
+  def initConnection(configs: HologresConfigs, targetShards: String = ""): Connection = {
+    try {
+      val conn = JDBCUtil.createConnection(configs)
+
+      // 不抛出异常: copy不需要返回影响行数所以默认关闭,但此guc仅部分版本支持,而且设置失败不影响程序运行
+      JDBCUtil.executeSql(conn, "SET hg_experimental_enable_fixed_dispatcher_affected_rows = off", ignoreException = true)
+      JDBCUtil.executeSql(conn, "SET hg_experimental_parallel_copy_scale = 1", ignoreException = true)
+      JDBCUtil.executeSql(conn, s"set statement_timeout = '${configs.statementTimeout}s'")
+      // server less computing
+      if (configs.enableServerlessComputing) {
+        if (configs.writeMode == CopyMode.STREAM) {
+          // stream mode 不支持serverless
+          if (conn != null) {
+            try conn.close()
+            catch {
+              case _: SQLException => // ignore
+            }
+          }
+          throw new RuntimeException("STREAM copyMode is not supported use serverless computing now.")
+        }
+        JDBCUtil.executeSql(conn, "set hg_computing_resource = 'serverless'")
+        JDBCUtil.executeSql(conn, s"SET hg_experimental_serverless_computing_query_priority = ${configs.serverlessComputingQueryPriority}")
+        JDBCUtil.executeSql(conn, s"SET hg_experimental_serverless_computing_required_cores = 5")
+      }
+      if (configs.reshuffleByHoloDistributionKey && targetShards != "") {
+        JDBCUtil.executeSql(conn, s"set hg_experimental_target_shard_list = '$targetShards'")
+      }
+      if (configs.writeMode == CopyMode.BULK_LOAD_ON_CONFLICT) {
+        JDBCUtil.executeSql(conn, "set hg_experimental_copy_enable_on_conflict = on;", ignoreException = true)
+        JDBCUtil.executeSql(conn, "set hg_experimental_affect_row_multiple_times_keep_last = on;")
+      }
+      if (configs.disableRightJoinInCopy && configs.writeMode == CopyMode.BULK_LOAD_ON_CONFLICT) {
+        JDBCUtil.executeSql(conn, "set hg_experimental_disable_right_join_in_copy = on;", ignoreException = true)
+      }
+
+      logger.info("Connection created and GUCs set successfully")
+      conn
+    } catch {
+      case e: SQLException =>
+        if (null != conn) {
+          try {
+            conn.close()
+          } catch {
+            case _: SQLException =>
+          }
+        }
+        throw new RuntimeException(e)
+    }
   }
 
 }

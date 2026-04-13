@@ -2,10 +2,12 @@ package com.alibaba.hologres.spark3.sink
 
 import com.alibaba.hologres.client.Command.getShardCount
 import com.alibaba.hologres.client.HoloClient
+import com.alibaba.hologres.client.copy.CopyMode
 import com.alibaba.hologres.client.model.{TableName, TableSchema}
 import com.alibaba.hologres.spark.config.HologresConfigs
+import com.alibaba.hologres.spark.sink.copy.StageWriterCommitMessage
 import com.alibaba.hologres.spark.utils.{JDBCUtil, LoggerWrapper}
-import com.alibaba.hologres.spark3.sink.copy.HoloDataCopyWriter
+import com.alibaba.hologres.spark3.sink.copy.{HoloDataCopyWriter, HoloDataStageWriter}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.connector.write._
 import org.apache.spark.sql.sources.Filter
@@ -13,6 +15,7 @@ import org.apache.spark.sql.types.StructType
 
 import java.io.IOException
 import java.time.LocalDateTime
+import scala.collection.JavaConverters.seqAsJavaListConverter
 import scala.collection.mutable.ListBuffer
 
 /** HoloWriterBuilder. */
@@ -44,15 +47,37 @@ class HoloBatchWriter(
 
   private var partitionInfo: (String, String) = _
   logger.info("HoloBatchWriter begin: " + LocalDateTime.now())
+  private val columnNames: Array[String] = {
+    val columnNames = new Array[String](sparkSchema.fields.length)
+    for (i <- sparkSchema.fields.indices) {
+      columnNames(i) = sparkSchema.fields.apply(i).name
+    }
+    columnNames
+  }
+  private var holoSchema : TableSchema = null
 
-  if (is_overwrite) {
+  if (is_overwrite && "stage" != hologresConfigs.writeMode) {
     hologresConfigs.tempTableForOverwrite = JDBCUtil.generateTempTableNameForOverwrite(hologresConfigs)
     JDBCUtil.createTempTableForOverWrite(hologresConfigs)
   }
 
   override def commit(messages: Array[WriterCommitMessage]): Unit = {
     logger.info("HoloBatchWriter commit: " + LocalDateTime.now())
-    if (is_overwrite) {
+    if ("stage" == hologresConfigs.writeMode) {
+      val commitStages = new Array[String](messages.length)
+      for (i <- messages.indices) {
+        messages(i) match {
+          case message: StageWriterCommitMessage =>
+            commitStages(i) = message.stageName
+        }
+      }
+      if (hologresConfigs.copyStageOnly) {
+        return
+      }
+      JDBCUtil.insertFromStages(hologresConfigs, holoSchema, columnNames.toList.asJava,
+        commitStages.toList.asJava, hologresConfigs.holoConfig.getOnConflictAction, is_overwrite)
+      JDBCUtil.dropStages(hologresConfigs, commitStages)
+    } else if (is_overwrite) {
       if (partitionInfo.eq(null)) {
         JDBCUtil.renameTempTableForOverWrite(hologresConfigs)
       } else {
@@ -72,13 +97,13 @@ class HoloBatchWriter(
     val numPartitions = physicalWriteInfo.numPartitions()
     val holoClient: HoloClient = new HoloClient(hologresConfigs.holoConfig)
     try {
-      var holoSchema = holoClient.getTableSchema(TableName.valueOf(hologresConfigs.table))
+      holoSchema = holoClient.getTableSchema(TableName.valueOf(hologresConfigs.table))
       if (holoSchema.isPartitionParentTable && is_overwrite) {
         throw new IOException("Partition parent table can not be insert overwrite now.")
       }
       partitionInfo = JDBCUtil.getChildTablePartitionInfo(hologresConfigs)
 
-      if (is_overwrite) {
+      if (is_overwrite && "stage" != hologresConfigs.writeMode) {
         // insert overwrite 会先写在一张临时表中，写入成功时替换原表。
         holoSchema = holoClient.getTableSchema(TableName.valueOf(hologresConfigs.tempTableForOverwrite))
       }
@@ -115,14 +140,19 @@ case class HoloWriterFactory(
   override def createWriter(
                              partitionId: Int,
                              taskId: Long): DataWriter[InternalRow] = {
-    if ("insert" != hologresConfigs.writeMode) {
-      if (hologresConfigs.reshuffleByHoloDistributionKey) {
-        new HoloDataCopyWriter(hologresConfigs, sparkSchema, holoSchema, getTargetShardList(partitionId), taskId.toString)
-      } else {
-        new HoloDataCopyWriter(hologresConfigs, sparkSchema, holoSchema, taskId = taskId.toString)
-      }
-    } else {
-      new HoloDataWriter(hologresConfigs, sparkSchema, holoSchema)
+    hologresConfigs.writeMode match {
+      case "stage" =>
+        val stageName: String = holoSchema.getTableName + "_spark_job_" + hologresConfigs.sparkAppId + "_task_" + taskId
+        JDBCUtil.createStage(hologresConfigs, stageName)
+        new HoloDataStageWriter(hologresConfigs, sparkSchema, holoSchema, stageName, taskId = taskId.toString)
+      case "insert" =>
+        new HoloDataWriter(hologresConfigs, sparkSchema, holoSchema)
+      case "stream" | "bulk_load" | "bulk_load_on_conflict" | CopyMode.STREAM | CopyMode.BULK_LOAD | CopyMode.BULK_LOAD_ON_CONFLICT =>
+        if (hologresConfigs.reshuffleByHoloDistributionKey) {
+          new HoloDataCopyWriter(hologresConfigs, sparkSchema, holoSchema, getTargetShardList(partitionId), taskId.toString)
+        } else {
+          new HoloDataCopyWriter(hologresConfigs, sparkSchema, holoSchema, taskId = taskId.toString)
+        }
     }
   }
 }

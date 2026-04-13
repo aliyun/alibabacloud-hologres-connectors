@@ -85,7 +85,7 @@ object RepartitionUtil {
                          writeMode: String = "bulk_load", onConflictAction: String = "insertOrReplace",
                          maxBufferSize: Int = 50 * 1024 * 1024, saveMode: SaveMode = SaveMode.Append,
                          directConnect: Boolean = false, enableServerlessComputing: Boolean = false): Unit = {
-    val hologresConfigs:HologresConfigs = new HologresConfigs(Map(
+    val hologresConfigs: HologresConfigs = new HologresConfigs(Map(
       "username" -> username,
       "password" -> password,
       "jdbcurl" -> url,

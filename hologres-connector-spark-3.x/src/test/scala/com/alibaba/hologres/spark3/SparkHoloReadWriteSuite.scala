@@ -4,9 +4,12 @@ import com.alibaba.hologres.spark.utils.RepartitionUtil
 import com.alibaba.hologres.spark.{ReadType, WriteType}
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.{Row, SaveMode}
+import org.junit.runner.RunWith
+import org.scalatest.junit.JUnitRunner
 
 import java.sql.{Date, Timestamp}
 
+@RunWith(classOf[JUnitRunner])
 class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
 
   def dataTypeTest(readType: ReadType.Value, writeType: WriteType.Value, querySource: Boolean = false,
@@ -34,13 +37,13 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
 
     val data = Seq(
       Row(0L, 1.shortValue(), -7L, 100, "phone1", BigDecimal(1234.567891234), false, 199.35, 6.7F, Timestamp.valueOf("2021-01-01 00:00:00.123"),
-        Timestamp.valueOf("2021-01-01 00:00:00.456"), Date.valueOf("2021-01-01"), byteArray,
+        Timestamp.valueOf("2021-01-01 00:00:00.456"), Date.valueOf("1900-01-01"), byteArray,
         intArray, longArray, floatArray, doubleArray, booleanArray, stringArray, json, jsonb, roaringBitmap),
       Row(1L, 2.shortValue(), 6L, -10, "phone2", BigDecimal(1234.56), true, 188.45, 7.8F, Timestamp.valueOf("2021-01-01 12:00:00.123"),
         Timestamp.valueOf("2021-01-01 00:00:00.456"), Date.valueOf("1971-01-01"), byteArray,
         intArray, longArray, floatArray, doubleArray, booleanArray, stringArray, json, jsonb, roaringBitmap),
       Row(2L, 3.shortValue(), 1L, 10, "phone3\"", BigDecimal(1234.56), true, 111.45, 8.9F, Timestamp.valueOf("2020-02-29 16:12:33.123"),
-        Timestamp.valueOf("2021-01-01 00:00:00.456"), Date.valueOf("2020-07-23"), byteArray,
+        Timestamp.valueOf("2021-01-01 00:00:00.456"), Date.valueOf("3999-07-23"), byteArray,
         intArray, longArray, floatArray, doubleArray, booleanArray, stringArray, json, jsonb, roaringBitmap),
       Row(3L, null, null, null, null, null, null, null, null, null, null, null,
         null, null, null, null, null, null, null, null, null, null, null, null)
@@ -102,14 +105,14 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
     log.info("fixed_copy then select, and use a query source.")
     dataTypeTest(ReadType.SELECT, WriteType.STREAM, querySource = true)
 
-    log.info("fixed_copy then copy out with arrow format, not support jsonb now.")
-    dataTypeTest(ReadType.BULK_READ, WriteType.STREAM, skipJsonb = true)
+    log.info("fixed_copy then copy out with arrow format.")
+    dataTypeTest(ReadType.BULK_READ, WriteType.STREAM)
 
     log.info("fixed_copy then copy out with arrow format, use a query source, not support jsonb now.")
     dataTypeTest(ReadType.BULK_READ, WriteType.STREAM, querySource = true, skipJsonb = true)
 
     log.info("auto write then auto read, not support jsonb now.")
-    dataTypeTest(ReadType.AUTO, WriteType.AUTO, skipJsonb = true)
+    dataTypeTest(ReadType.AUTO, WriteType.AUTO)
 
     log.info("insert then select.")
     dataTypeTest(ReadType.SELECT, WriteType.INSERT, useAkv4 = true)
@@ -119,6 +122,8 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
 
     log.info("bulk_load then select.")
     dataTypeTest(ReadType.SELECT, WriteType.BULK_LOAD, useAkv4 = true)
+    log.info("insert from stage then select.")
+    dataTypeTest(ReadType.SELECT, WriteType.STAGE, useAkv4 = false)
   }
 
   def partialInsertTest(copyMode: String, optionsMap: Map[String, String] = Map.empty): Unit = {
@@ -194,11 +199,22 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
 
   test("update part fields and read test bulk load.") {
     partialInsertTest("bulk_load_on_conflict")
-    partialInsertTest("bulk_load_on_conflict", Map{SourceProvider.WRITE_COPY_DISABLE_RIGHT_JOIN -> true.toString})
+    partialInsertTest("bulk_load_on_conflict", Map {
+      SourceProvider.WRITE_COPY_DISABLE_RIGHT_JOIN -> true.toString
+    })
+  }
+
+  test("update part fields and read test stage.") {
+    partialInsertTest("stage")
   }
 
   test("SaveMode = overwrite.") {
-    val table = "table_for_holo_test_" + randomSuffix
+    overwrite("bulk_load")
+    overwrite("stage")
+  }
+
+  def overwrite(copyMode: String) {
+    val table = "table_for_holo_test_" + copyMode + randomSuffix
     testUtils.dropTable(table)
     testUtils.createTable(defaultCreateHoloTableDDL, table, hasPk = false)
 
@@ -242,7 +258,7 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
       .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
       .option(SourceProvider.TABLE, table)
       .option(SourceProvider.WRITE_ON_CONFLICT_ACTION, "insertOrUpdate")
-      .option(SourceProvider.WRITE_MODE, "bulk_load")
+      .option(SourceProvider.WRITE_MODE, copyMode)
       .option(SourceProvider.WRITE_COPY_DIRTY_DATA_CHECK, "true")
       .mode(SaveMode.Overwrite)
       .save()
@@ -259,7 +275,7 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
       .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
       .option(SourceProvider.TABLE, table)
       .option(SourceProvider.WRITE_ON_CONFLICT_ACTION, "insertOrUpdate")
-      .option(SourceProvider.WRITE_MODE, "bulk_load")
+      .option(SourceProvider.WRITE_MODE, copyMode)
       .option(SourceProvider.WRITE_COPY_DIRTY_DATA_CHECK, "true")
       .mode(SaveMode.Overwrite)
       .save()
@@ -860,5 +876,44 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
           throw new RuntimeException(e)
         }
     }
+  }
+
+  test("write with rate limit.") {
+    val table = "table_for_holo_test_" + randomSuffix
+    testUtils.dropTable(table)
+    testUtils.createTable(defaultCreateHoloTableDDL, table)
+
+    // Generate 10000 rows with pk only
+    val data = (0 until 100).map(i => Row(i.toLong))
+
+    val newSchema = StructType(Array(
+      StructField("pk", LongType)
+    ))
+
+    val df = spark.createDataFrame(
+      spark.sparkContext.parallelize(data),
+      newSchema
+    )
+
+    for (write_mode <- Seq("auto", "stream", "bulk_load_on_conflict", "insert", "stage")) {
+      val startTime = System.currentTimeMillis()
+      df.coalesce(1).write
+        .format("hologres")
+        .option(SourceProvider.USERNAME, testUtils.username)
+        .option(SourceProvider.PASSWORD, testUtils.password)
+        .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
+        .option(SourceProvider.TABLE, table)
+        .option(SourceProvider.WRITE_MODE, write_mode)
+        .option(SourceProvider.WRITE_ON_CONFLICT_ACTION, "insertOrUpdate")
+        .option(SourceProvider.WRITE_COPY_DIRTY_DATA_CHECK, "true")
+        .option(SourceProvider.WRITE_RPS_LIMIT, 10)
+        .mode(SaveMode.Append)
+        .save()
+      val elapsed = System.currentTimeMillis() - startTime
+      // 100 rows at 10 rps should take ~10 seconds
+      assert(elapsed >= 8000, s"Rate limit not working, elapsed: ${elapsed}ms")
+    }
+
+    testUtils.dropTable(table)
   }
 }

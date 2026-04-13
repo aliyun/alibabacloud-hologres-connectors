@@ -1,7 +1,10 @@
 package com.alibaba.hologres.spark3
 
 import org.apache.spark.sql.Row
+import org.junit.runner.RunWith
+import org.scalatest.junit.JUnitRunner
 
+@RunWith(classOf[JUnitRunner])
 class SparkHoloTableCatalogSuite extends SparkHoloSuiteBase {
 
   test("Holo Table Catalog Test") {
@@ -83,7 +86,7 @@ class SparkHoloTableCatalogSuite extends SparkHoloSuiteBase {
       case e: Exception =>
         assert(e.getMessage.contains("schema length not match"))
     }
-   // fields type not match
+    // fields type not match
     try {
       spark.sql(s"insert into $table select cast(1 as long), cast(100.123456 as decimal(38,6)), cast(100.123456 as decimal(38,6));")
     } catch {

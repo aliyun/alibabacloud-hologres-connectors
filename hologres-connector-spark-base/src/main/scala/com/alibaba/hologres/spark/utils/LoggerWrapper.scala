@@ -2,7 +2,7 @@ package com.alibaba.hologres.spark.utils
 
 import org.slf4j.{Logger, LoggerFactory}
 
-class LoggerWrapper(clazz: Class[_]) {
+class LoggerWrapper(clazz: Class[_]) extends Serializable {
   val logger: Logger = LoggerFactory.getLogger(clazz)
 
   private var sparkAppName: String = ""

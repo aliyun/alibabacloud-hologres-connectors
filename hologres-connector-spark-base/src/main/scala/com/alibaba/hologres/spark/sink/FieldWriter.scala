@@ -65,7 +65,7 @@ class StringFieldWriter(removeU0000: Boolean) extends FieldWriter {
 
 class DateFieldWriter extends FieldWriter {
   override def writeValue(row: InternalRow, idx: Int): Date = {
-    Date.valueOf(LocalDate.ofEpochDay(row.getLong(idx)))
+    Date.valueOf(LocalDate.ofEpochDay(row.getInt(idx)))
   }
 }
 

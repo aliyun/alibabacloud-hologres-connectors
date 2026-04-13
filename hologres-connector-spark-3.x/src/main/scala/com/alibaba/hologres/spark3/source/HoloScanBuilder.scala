@@ -1,10 +1,10 @@
 package com.alibaba.hologres.spark3.source
 
-import com.alibaba.hologres.client.Command.getShardCount
-import com.alibaba.hologres.client.HoloClient
+
 import com.alibaba.hologres.client.model.TableSchema
 import com.alibaba.hologres.spark.config.HologresConfigs
-import com.alibaba.hologres.spark.utils.{JDBCUtil, LoggerWrapper}
+import com.alibaba.hologres.spark.source.{HoloInputPartitionSplitByPartition, HoloInputPartitionSplitByRange, HoloInputPartitionSplitByShard}
+import com.alibaba.hologres.spark.utils.{LoggerWrapper, PartitionSplitUtils}
 import com.alibaba.hologres.spark3.source.copy.HoloCopyPartitionReader
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.connector.expressions.filter.Predicate
@@ -13,11 +13,13 @@ import org.apache.spark.sql.execution.datasources.PartitioningUtils
 import org.apache.spark.sql.jdbc.JdbcDialects
 import org.apache.spark.sql.types.StructType
 
+import scala.collection.mutable.ArrayBuffer
+
 
 /** HoloScanBuilder. */
 class HoloScanBuilder(hologresConfigs: HologresConfigs,
                       sparkSchema: StructType,
-                      mockHoloSchemaForQuery: TableSchema = null)
+                      holoSchema: TableSchema)
   extends ScanBuilder
     with SupportsPushDownV2Filters
     with SupportsPushDownLimit
@@ -33,10 +35,10 @@ class HoloScanBuilder(hologresConfigs: HologresConfigs,
   private var finalSchema = sparkSchema
 
   override def build(): Scan = {
-    if (hologresConfigs.isTableSource) {
-      new HoloTableBatchScan(hologresConfigs, finalSchema, pushedPredicate, pushedLimit)
+    if (hologresConfigs.sourceType.equals("QUERY")) {
+      new HoloQueryBatchScan(hologresConfigs, finalSchema, holoSchema)
     } else {
-      new HoloQueryBatchScan(hologresConfigs, finalSchema, mockHoloSchemaForQuery)
+      new HoloTableBatchScan(hologresConfigs, finalSchema, holoSchema, pushedPredicate, pushedLimit)
     }
   }
 
@@ -76,67 +78,63 @@ class HoloScanBuilder(hologresConfigs: HologresConfigs,
 
 class HoloTableBatchScan(hologresConfigs: HologresConfigs,
                          sparkSchema: StructType,
+                         holoSchema: TableSchema,
                          pushedPredicates: Array[Predicate],
                          pushedLimit: Int) extends Scan with Batch with PartitionReaderFactory {
   @transient private val logger = new LoggerWrapper(getClass)
 
-  val holoSchema: TableSchema = {
-    val holoClient = new HoloClient(hologresConfigs.holoConfig)
-    try {
-      holoClient.getTableSchema(hologresConfigs.table)
-    } finally {
-      holoClient.close()
-    }
-  }
-
-  private lazy val inputPartitions: Array[HoloInputPartition] = {
-    val holoClient = new HoloClient(hologresConfigs.holoConfig)
-    var shardCount: Int = -1
-    try {
-      shardCount = getShardCount(holoClient, holoSchema)
-    } finally {
-      holoClient.close()
-    }
-    val numSplits = math.min(hologresConfigs.readMaxTaskCount, shardCount)
-    logger.info(s"split reading hologres table ${hologresConfigs.table} to $numSplits partition")
-
-    val size = shardCount / numSplits
-    var remain = shardCount % numSplits
-
-    val inputPartitions = new Array[HoloInputPartition](numSplits)
-    var start = 0
-    for (i <- 0 until numSplits) {
-      var end = 0
-      if (remain > 0) {
-        end = start + size + 1
-        remain -= 1
-      }
-      else end = start + size
-      inputPartitions(i) = new HoloInputPartition(start, end)
-      start = end
-    }
-    inputPartitions
-  }
+  private lazy val inputPartitions: Array[InputPartition] =
+    PartitionSplitUtils.planInputPartitions(hologresConfigs, holoSchema)
 
   def readSchema: StructType = sparkSchema
 
   override def toBatch: Batch = this
 
-  override def planInputPartitions(): Array[InputPartition] = inputPartitions.toArray
+  override def planInputPartitions(): Array[InputPartition] = {
+    logger.info(s"split reading hologres table ${hologresConfigs.table} to ${inputPartitions.length} partition")
+    for (i <- inputPartitions.indices) {
+      logger.info(s"partition $i: ${inputPartitions(i)}")
+    }
+    inputPartitions
+  }
 
   override def createReaderFactory: PartitionReaderFactory = this
 
   override def createReader(inputPartition: InputPartition): PartitionReader[InternalRow] = {
-    val queryTemplate: String = JDBCUtil.getSimpleSelectFromTable(holoSchema.getTableNameObj.getFullName, sparkSchema.fields.map(_.name))
-    val shardIdRange = inputPartition.asInstanceOf[HoloInputPartition].shardIdRange
     var filters: String = pushedPredicates.flatMap(JdbcDialects.get("jdbc:postgresql").compileExpression(_)).map(p => s"($p)").mkString(" AND ")
     filters = if (filters.nonEmpty) s" AND $filters" else ""
     val limit: String = if (pushedLimit > 0) s" LIMIT $pushedLimit" else ""
-    val query: String = s"$queryTemplate WHERE hg_shard_id >= ${shardIdRange._1} AND hg_shard_id < ${shardIdRange._2} $filters $limit"
+    var query_options = ""
+    val targetShards: ArrayBuffer[Int] = ArrayBuffer[Int]()
+
+    inputPartition match {
+      case shardPartition: HoloInputPartitionSplitByShard =>
+        query_options = s"where true $filters $limit"
+        for (i <- shardPartition.start until shardPartition.end) {
+          targetShards.append(i)
+        }
+      case rangePartition: HoloInputPartitionSplitByRange =>
+        val conditions = scala.collection.mutable.ListBuffer[String]()
+        if (rangePartition.lowerBound != null) {
+          conditions += s"${rangePartition.splitColumn} >= '${rangePartition.lowerBound}'::${rangePartition.columnType}"
+        }
+        if (rangePartition.upperBound != null) {
+          conditions += s"${rangePartition.splitColumn} < '${rangePartition.upperBound}'::${rangePartition.columnType}"
+        }
+        val whereClause = if (conditions.nonEmpty) {
+          conditions.mkString(" AND ")
+        } else {
+          "1=1" // 全表扫描（兜底，理论上不会触发）
+        }
+        query_options = s"where $whereClause $filters $limit"
+      case partitionPartition: HoloInputPartitionSplitByPartition =>
+        val partitionValuesStr = partitionPartition.partitionValues.map(p => s"'$p'").mkString(",")
+        query_options = s"where ${partitionPartition.partitionColumn} IN ($partitionValuesStr) $filters $limit"
+    }
     if (hologresConfigs.readMode == "select") {
-      new HoloPartitionReader(hologresConfigs, query, holoSchema, sparkSchema)
+      new HoloPartitionReader(hologresConfigs, query_options, holoSchema, sparkSchema, targetShards.toArray)
     } else {
-      new HoloCopyPartitionReader(hologresConfigs, query, holoSchema, sparkSchema)
+      new HoloCopyPartitionReader(hologresConfigs, query_options, holoSchema, sparkSchema, targetShards.toArray)
     }
   }
 }
@@ -152,8 +150,8 @@ class HoloQueryBatchScan(hologresConfigs: HologresConfigs,
   override def toBatch: Batch = this
 
   override def planInputPartitions(): Array[InputPartition] = {
-    val inputPartitions = new Array[HoloInputPartition](1)
-    inputPartitions(0) = new HoloInputPartition(-1, -1)
+    val inputPartitions = new Array[HoloInputPartitionSplitByShard](1)
+    inputPartitions(0) = new HoloInputPartitionSplitByShard(-1, -1)
     logger.info("split reading hologres only one partition because it's a query source")
     inputPartitions.toArray
   }
@@ -161,11 +159,10 @@ class HoloQueryBatchScan(hologresConfigs: HologresConfigs,
   override def createReaderFactory(): PartitionReaderFactory = this
 
   override def createReader(partition: InputPartition): PartitionReader[InternalRow] = {
-    val query: String = JDBCUtil.getSimpleSelectFromQuery(hologresConfigs.query, sparkSchema.fields.map(_.name))
     if (hologresConfigs.readMode == "bulk_read") {
-      new HoloCopyPartitionReader(hologresConfigs, query, mockHoloSchema, sparkSchema)
+      new HoloCopyPartitionReader(hologresConfigs, "", mockHoloSchema, sparkSchema)
     } else {
-      new HoloPartitionReader(hologresConfigs, query, mockHoloSchema, sparkSchema)
+      new HoloPartitionReader(hologresConfigs, "", mockHoloSchema, sparkSchema)
     }
   }
 }

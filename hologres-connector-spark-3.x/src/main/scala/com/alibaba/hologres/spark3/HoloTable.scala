@@ -17,7 +17,7 @@ import scala.collection.JavaConverters._
 class HoloTable(
                  sparkSchema: StructType,
                  hologresConfigs: HologresConfigs,
-                 mockHoloSchemaForQuery: TableSchema = null) extends SupportsWrite with SupportsRead {
+                 holoSchema: TableSchema) extends SupportsWrite with SupportsRead {
   private val logger = new LoggerWrapper(getClass)
   logger.setSparkAppName(hologresConfigs.sparkAppName)
   logger.setSparkAppId(hologresConfigs.sparkAppId)
@@ -38,14 +38,16 @@ class HoloTable(
 
 
   object HoloTableType extends Enumeration {
-    val TABLE_V1, TABLE_V2, QUERY = Value
+    val TABLE_V1, TABLE_V2, QUERY, VIEW = Value
   }
 
   def tableType(): HoloTableType.Value = {
-    if (mockHoloSchemaForQuery != null) {
+    optimizeConfigs = SparkHoloUtil.chooseBestMode(sparkSchema, holoSchema, hologresConfigs)
+    if (hologresConfigs.sourceType.equals("QUERY")) {
       HoloTableType.QUERY
+    } else if (hologresConfigs.sourceType.equals("VIEW")) {
+      HoloTableType.VIEW
     } else {
-      optimizeConfigs = SparkHoloUtil.chooseBestMode(sparkSchema, hologresConfigs)
       if (optimizeConfigs.needReshuffle || optimizeConfigs.useV1Write) {
         HoloTableType.TABLE_V1
       } else {
@@ -75,10 +77,6 @@ class HoloTable(
   }
 
   override def newScanBuilder(caseInsensitiveStringMap: CaseInsensitiveStringMap): ScanBuilder = {
-    if (tableType() != HoloTableType.QUERY) {
-      new HoloScanBuilder(optimizeConfigs, sparkSchema)
-    } else {
-      new HoloScanBuilder(optimizeConfigs, sparkSchema, mockHoloSchemaForQuery)
-    }
+    new HoloScanBuilder(optimizeConfigs, sparkSchema, holoSchema)
   }
 }

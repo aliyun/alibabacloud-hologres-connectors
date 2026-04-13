@@ -6,10 +6,9 @@ import com.alibaba.hologres.client.model.OnConflictAction
 import com.alibaba.hologres.spark.ConfigUtils
 import com.alibaba.hologres.spark.utils.JDBCUtil
 import com.alibaba.hologres.spark.utils.JDBCUtil._
-import org.apache.spark.SparkContext
 
 /** Hologres config parameters process. */
-class HologresConfigs(sourceOptions: Map[String, String]) extends Serializable {
+class HologresConfigs(sourceOptions: Map[String, String], val sparkAppName: String = "default", val sparkAppId: String = "") extends Serializable {
   private val allConfigNames = ConfigUtils.getAllConfigNames
   sourceOptions.foreach(key => {
     if (!allConfigNames.contains(key._1)) {
@@ -44,10 +43,10 @@ class HologresConfigs(sourceOptions: Map[String, String]) extends Serializable {
     holoConfig.setJdbcUrl(jdbcUrl)
   }
 
-  // when read from holo, could choose set query or table
+  // when read from holo, could choose set query or table(view)
   val query: String = sourceOptions.getOrElse("read.query", "")
   var table: String = sourceOptions.getOrElse("table", "")
-  lazy val isTableSource: Boolean = {
+  lazy val isTableConfigured: Boolean = {
     if ((query == null || query.isEmpty) && (table == null || table.isEmpty)) {
       throw new IllegalArgumentException("Missing necessary parameter 'table'. If table is not provided, please provide parameter 'query' for read.")
     }
@@ -56,8 +55,11 @@ class HologresConfigs(sourceOptions: Map[String, String]) extends Serializable {
     }
     table != null && table.nonEmpty
   }
+  // sourceType: TABLE,VIEW,QUERY
+  var sourceType: String = "TABLE"
   val enableServerlessComputing: Boolean = sourceOptions.getOrElse("enable_serverless_computing", "false").toBoolean
   val serverlessComputingQueryPriority: Int = sourceOptions.getOrElse("serverless_computing_query_priority", "3").toInt
+  val serverlessComputingRequiredCores: Int = sourceOptions.getOrElse("serverless_computing_required_cores", "0").toInt
   val statementTimeout: Int = sourceOptions.getOrElse("statement_timeout_seconds", "28800").toInt
   sourceOptions.get("retry_count").map(v => holoConfig.setRetryCount(v.toInt))
   sourceOptions.get("retry_sleep_init_ms").map(v => holoConfig.setRetrySleepInitMs(v.toLong))
@@ -75,6 +77,7 @@ class HologresConfigs(sourceOptions: Map[String, String]) extends Serializable {
     case "bulk_load" => CopyMode.BULK_LOAD
     case "bulk_load_on_conflict" => CopyMode.BULK_LOAD_ON_CONFLICT
     case "insert" => "insert"
+    case "stage" => "stage"
     case _ =>
       throw new IllegalArgumentException("Could not recognize write.mode " + writeModeStr)
   }
@@ -101,6 +104,13 @@ class HologresConfigs(sourceOptions: Map[String, String]) extends Serializable {
   val writeStrictDataTypeCheck: Boolean = sourceOptions.getOrElse("write.strict_datatype_check", "false").toBoolean
   val disableRightJoinInCopy: Boolean = sourceOptions.getOrElse("write.copy.disable_right_join", "false").toBoolean
   val overWriteDropForce: Boolean = sourceOptions.getOrElse("write.overwrite_drop_force", "true").toBoolean
+  val copyStageBatchSize: Int = sourceOptions.getOrElse("write.stage.batch_size", "8192").toInt
+  val copyStageFileSize: Int = sourceOptions.getOrElse("write.stage.file_size", "67108864").toInt
+  // 保留stage,不写入真正的表
+  val copyStageOnly: Boolean = sourceOptions.getOrElse("write.stage.only_stage", "false").toBoolean
+  // 仅only_stage时才可以设置ttl
+  val copyStageTtl: Int = sourceOptions.getOrElse("write.stage.ttl", "7200").toInt
+  sourceOptions.get("write.rps_limit").map(v => holoConfig.setWriteRps(v.toInt))
   val useV1Write: Boolean = sourceOptions.getOrElse("write.use_v1_write", "false").toBoolean
 
   // -------------------------------------read----------------------------------------
@@ -113,23 +123,20 @@ class HologresConfigs(sourceOptions: Map[String, String]) extends Serializable {
     case _ =>
       throw new IllegalArgumentException("Could not recognize read.mode " + readModeStr)
   }
-  val readMaxTaskCount: Int = sourceOptions.getOrElse("read.max_task_count", "80").toInt
   val readPushDownPredicate: Boolean = sourceOptions.getOrElse("read.push_down_predicate", "true").toBoolean
   val readPushDownLimit: Boolean = sourceOptions.getOrElse("read.push_down_limit", "true").toBoolean
   val readSelectBatchSize: Int = sourceOptions.getOrElse("read.select.batch_size", "256").toInt
   val readSelectTimeoutSeconds: Int = sourceOptions.getOrElse("read.select.timeout_seconds", "28800").toInt
   val readCopyMaxBufferSize: Int = sourceOptions.getOrElse("read.copy.max_buffer_size", "52428800").toInt
 
-  holoConfig.setInputNumberAsEpochMsForDatetimeColumn(true)
-  var sparkAppName: String = SparkContext.getOrCreate().appName
-  if (sparkAppName == null || "".eq(sparkAppName)) {
-    sparkAppName = "default"
-  }
-  var sparkAppId: String = SparkContext.getOrCreate().applicationId
-  if (sparkAppId == null) {
-    sparkAppId = ""
-  }
+  // -------------------------------------view split parameters----------------------------------------
+  val splitStrategy: String = sourceOptions.getOrElse("read.split.strategy", "shard")
+  val splitColumn: String = sourceOptions.getOrElse("read.split.column", "")
+  val splitLowerBound: String = sourceOptions.getOrElse("read.split.lower_bound", "")
+  val splitUpperBound: String = sourceOptions.getOrElse("read.split.upper_bound", "")
+  val numSplits: Int = sourceOptions.getOrElse("read.split.num", sourceOptions.getOrElse("read.max_task_count", "80")).toInt
 
+  holoConfig.setInputNumberAsEpochMsForDatetimeColumn(true)
   holoConfig.setAppName("hologres-connector-spark-" + sparkAppName)
 
   // -------------------------------------内部参数----------------------------------------
@@ -143,5 +150,5 @@ class HologresConfigs(sourceOptions: Map[String, String]) extends Serializable {
 
   var holoVersion: String = _
 
-  override def clone(): HologresConfigs = new HologresConfigs(sourceOptions)
+  override def clone(): HologresConfigs = new HologresConfigs(sourceOptions, sparkAppName, sparkAppId)
 }

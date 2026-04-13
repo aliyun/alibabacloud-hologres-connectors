@@ -6,7 +6,8 @@ object WriteType extends Enumeration {
   AUTO,
   INSERT, // insert
   STREAM, // fixed_copy
-  BULK_LOAD // bulk_load
+  BULK_LOAD, // bulk_load
+  STAGE //stage
   = Value
 }
 

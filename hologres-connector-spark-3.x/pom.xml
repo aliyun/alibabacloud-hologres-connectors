@@ -8,18 +8,18 @@
     <parent>
         <groupId>com.alibaba.hologres</groupId>
         <artifactId>hologres-connector-parent</artifactId>
-        <version>1.6.0-SNAPSHOT</version>
+        <version>1.6.2-SNAPSHOT</version>
     </parent>
 
     <artifactId>hologres-connector-spark-3.x</artifactId>
     <name>hologres-connector-spark-3.x</name>
 
     <properties>
-        <scala.version>2.12.15</scala.version>
+        <scala.version>2.12.21</scala.version>
         <scala.binary.version>2.12</scala.binary.version>
         <spark.version>3.3.1</spark.version>
         <spark.release.version>3</spark.release.version>
-        <scalatest.version>3.2.14</scalatest.version>
+        <scalatest.version>3.2.10</scalatest.version>
     </properties>
 
     <dependencies>
@@ -88,9 +88,27 @@
             <scope>test</scope>
         </dependency>
         <dependency>
+            <groupId>org.scalatest</groupId>
+            <artifactId>scalatest-junit_2.11</artifactId>
+            <version>3.0.0-SNAP13</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
             <version>42.3.10</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.13.2</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <version>5.12.0</version> <!-- 使用最新稳定版 -->
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -127,28 +145,43 @@
             </plugin>
 
             <plugin>
-                <groupId>org.scalatest</groupId>
-                <artifactId>scalatest-maven-plugin</artifactId>
-                <version>1.0</version>
-                <!-- Note config is repeated in surefire config -->
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.0.0-M9</version>
                 <configuration>
-                    <reportsDirectory>${project.build.directory}/surefire-reports</reportsDirectory>
-                    <junitxml>.</junitxml>
-                    <filereports>SparkTestSuite.txt</filereports>
+                    <argLine>
+                        -Xmx1024m -XX:PermSize=256m -XX:MaxPermSize=256m -Dfile.encoding=UTF-8 -Duser.timezone=UTC
+                    </argLine>
+                    <!-- 确保能发现 ScalaTest -->
+                    <includes>
+                        <include>**/*Spec.class</include>
+                        <include>**/*Suite.class</include>
+                        <include>**/*Test.class</include>
+                    </includes>
                     <systemProperties>
                         <java.awt.headless>true</java.awt.headless>
                         <spark.testing>1</spark.testing>
-                        <spark.ui.enabled>false</spark.ui.enabled>
-                        <spark.ui.showConsoleProgress>false</spark.ui.showConsoleProgress>
-                        <spark.driver.allowMultipleContexts>true</spark.driver.allowMultipleContexts>
                     </systemProperties>
-                    <argLine>-Duser.timezone=UTC</argLine>
                 </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
                 <executions>
+                    <!-- 准备 JaCoCo agent -->
                     <execution>
-                        <id>test</id>
+                        <id>prepare-agent</id>
                         <goals>
-                            <goal>test</goal>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <!-- 生成报告 -->
+                    <execution>
+                        <id>report</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>report</goal>
                         </goals>
                     </execution>
                 </executions>
@@ -195,7 +228,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
-                <version>3.2.4</version>
+                <version>3.5.0</version>
                 <executions>
                     <execution>
                         <phase>package</phase>
@@ -223,25 +256,6 @@
                                 </relocation>
                             </relocations>
                         </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-                <version>2.9</version>
-                <configuration>
-                    <argLine>
-                        -Xmx1024m -XX:PermSize=256m -XX:MaxPermSize=256m -Dfile.encoding=UTF-8
-                    </argLine>
-                    <forkMode>once</forkMode>
-                </configuration>
-                <executions>
-                    <execution>
-                        <id>default-test</id>
-                        <!-- Disable the default-test by putting it in phase none -->
-                        <phase>test</phase>
                     </execution>
                 </executions>
             </plugin>

@@ -57,12 +57,10 @@ object SparkArrowVectorAccessorUtil {
     case Types.DATE =>
       new SparkArrowDateDayAccessor(vector.asInstanceOf[DateDayVector])
     case Types.ARRAY =>
-      val elementAccessor: AbstractArrowVectorAccessor =
-        createArrayElementVectorAccessor(vector.asInstanceOf[ListVector].getDataVector, column.getArrayElementType);
-      new SparkArrowArrayAccessor(vector.asInstanceOf[ListVector], column.getArrayElementType, elementAccessor)
+      new SparkArrowArrayAccessor(vector.asInstanceOf[ListVector], column.getArrayElementType)
     case Types.OTHER =>
       if (column.getTypeName == "jsonb") {
-        throw new IllegalArgumentException(s"copy out with arrow format unsupported column type ${column.getTypeName} now.")
+        new SparkArrowStringAccessor(vector.asInstanceOf[VarCharVector])
       } else if (column.getTypeName == "roaringbitmap") {
         new BaseArrowVarBinaryAccessor(vector.asInstanceOf[VarBinaryVector])
       } else {

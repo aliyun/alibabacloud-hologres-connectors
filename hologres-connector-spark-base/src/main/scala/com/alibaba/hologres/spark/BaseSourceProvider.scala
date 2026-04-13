@@ -20,6 +20,7 @@ class BaseSourceProvider() {
   val STATEMENT_TIMEOUT_SECONDS = "statement_timeout_seconds"
   val ENABLE_SERVERLESS_COMPUTING = "enable_serverless_computing"
   val SERVERLESS_COMPUTING_QUERY_PRIORITY = "serverless_computing_query_priority"
+  val SERVERLESS_COMPUTING_REQUIRED_CORES = "serverless_computing_required_cores"
 
   // write
   val WRITE_MODE = "write.mode"
@@ -41,6 +42,11 @@ class BaseSourceProvider() {
   val WRITE_COPY_DIRTY_DATA_CHECK = "write.copy.dirty_data_check"
   val WRITE_COPY_MAX_BUFFER_SIZE = "write.copy.max_buffer_size"
   val WRITE_COPY_DISABLE_RIGHT_JOIN = "write.copy.disable_right_join"
+  val COPY_STAGE_BATCH_SIZE = "write.stage.batch_size"
+  val COPY_STAGE_FILE_SIZE = "write.stage.file_size"
+  val COPY_STAGE_ONLY = "write.stage.only_stage"
+  val COPY_STAGE_TTL = "write.stage.ttl"
+  val WRITE_RPS_LIMIT = "write.rps_limit"
 
   // read
   val READ_MODE = "read.mode"
@@ -53,6 +59,12 @@ class BaseSourceProvider() {
   val READ_SELECT_TIMEOUT_SECONDS = "read.select.timeout_seconds"
   // read copy
   val READ_COPY_MAX_BUFFER_SIZE = "read.copy.max_buffer_size"
+  // split strategy
+  val SPLIT_STRATEGY = "read.split.strategy"
+  val SPLIT_COLUMN = "read.split.column"
+  val SPLIT_LOWER_BOUND = "read.split.lower_bound"
+  val SPLIT_UPPER_BOUND = "read.split.upper_bound"
+  val NUM_SPLITS = "read.split.num"
 }
 
 object ConfigUtils {
