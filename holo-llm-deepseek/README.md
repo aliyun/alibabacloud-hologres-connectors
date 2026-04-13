@@ -1,4 +1,4 @@
-# Hologres+PAI+DeepSeek搭建企业专属问答知识库
+# 结合PAI-LLM、Hologres、LangChain搭建问答机器人
 - 上传用户本地知识库文件，基于coROM模型生成embedding
 - 生成embedding存储到Hologres，并用于后续向量检索
 - 输入用户问题，输出该问题的prompt，用于后续PAI-LLM部分生成答案
