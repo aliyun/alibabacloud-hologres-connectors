@@ -33,6 +33,7 @@ public class HologresJDBCWriter<T> extends HologresWriter<T> {
     private final HologresRecordConverter<T, Record> recordConverter;
     private final Map<RecordKey, Record> holdOnUpdateBeforeRecords;
     private boolean checkDirtyData;
+    private boolean isCheckAndPutRecord;
 
     public HologresJDBCWriter(
             HologresConnectionParam param,
@@ -43,6 +44,7 @@ public class HologresJDBCWriter<T> extends HologresWriter<T> {
         this.recordConverter = converter;
         this.holdOnUpdateBeforeRecords = new HashMap<>();
         this.checkDirtyData = param.isDirtyDataCheck();
+        this.isCheckAndPutRecord = param.getCheckColumn() != null;
     }
 
     public static HologresJDBCWriter<RowData> createTableWriter(
@@ -147,7 +149,7 @@ public class HologresJDBCWriter<T> extends HologresWriter<T> {
     }
 
     private void putRecord(Record jdbcRecord) throws HoloClientException {
-        if (param.getCheckAndPutCondition() != null) {
+        if (isCheckAndPutRecord) {
             CheckAndPutRecord checkAndPutRecord = (CheckAndPutRecord) jdbcRecord;
             clientProvider.getClient().checkAndPut(new CheckAndPut(checkAndPutRecord));
         } else {

@@ -18,7 +18,6 @@
 
 package com.alibaba.hologres.connector.flink.utils;
 
-import org.apache.flink.configuration.ReadableConfig;
 import org.apache.flink.table.expressions.CallExpression;
 import org.apache.flink.table.expressions.Expression;
 import org.apache.flink.table.expressions.ExpressionDefaultVisitor;
@@ -32,10 +31,7 @@ import org.apache.flink.table.types.logical.LogicalTypeRoot;
 
 import com.alibaba.hologres.client.model.HoloVersion;
 import com.alibaba.hologres.client.model.TableSchema;
-import com.alibaba.hologres.client.model.checkandput.CheckAndPutCondition;
-import com.alibaba.hologres.client.model.checkandput.CheckCompareOp;
 import com.alibaba.hologres.connector.flink.api.HologresTableSchema;
-import com.alibaba.hologres.connector.flink.config.HologresConfigs;
 import com.alibaba.hologres.connector.flink.config.JDBCOptions;
 import com.alibaba.hologres.connector.flink.config.WriteMode;
 
@@ -43,7 +39,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 
 /** HologresUtils. */
@@ -55,17 +50,6 @@ public class HologresUtils {
         } else {
             return in;
         }
-    }
-
-    public static CheckAndPutCondition getCheckAndPutCondition(ReadableConfig properties) {
-        String columnName = properties.get(HologresConfigs.CHECK_AND_PUT_COLUMN);
-        if (Objects.isNull(columnName)) {
-            return null;
-        }
-
-        String operator = properties.get(HologresConfigs.CHECK_AND_PUT_OPERATOR);
-        String nullAs = properties.get(HologresConfigs.CHECK_AND_PUT_NULL_AS);
-        return new CheckAndPutCondition(columnName, CheckCompareOp.valueOf(operator), null, nullAs);
     }
 
     public static WriteMode chooseBestWriteMode(

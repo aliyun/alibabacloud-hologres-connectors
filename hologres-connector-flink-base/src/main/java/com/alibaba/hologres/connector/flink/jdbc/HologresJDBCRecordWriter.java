@@ -5,7 +5,9 @@ import org.apache.flink.table.data.StringData;
 import org.apache.flink.table.data.TimestampData;
 
 import com.alibaba.hologres.client.model.Record;
+import com.alibaba.hologres.client.model.checkandput.CheckAndPutCondition;
 import com.alibaba.hologres.client.model.checkandput.CheckAndPutRecord;
+import com.alibaba.hologres.client.model.checkandput.CheckCompareOp;
 import com.alibaba.hologres.connector.flink.api.HologresTableSchema;
 import com.alibaba.hologres.connector.flink.api.table.RowDataWriter;
 import com.alibaba.hologres.connector.flink.config.HologresConnectionParam;
@@ -22,9 +24,12 @@ public class HologresJDBCRecordWriter implements RowDataWriter<Record> {
     private transient HologresTableSchema tableSchema;
     private final HologresConnectionParam param;
     private transient Record record;
+    private final boolean isCheckAndPutRecord;
+    private transient CheckAndPutCondition checkAndPutCondition;
 
     public HologresJDBCRecordWriter(HologresConnectionParam param) {
         this.param = param;
+        this.isCheckAndPutRecord = Objects.nonNull(param.getCheckColumn());
     }
 
     @Override
@@ -35,18 +40,25 @@ public class HologresJDBCRecordWriter implements RowDataWriter<Record> {
         if (tableSchema == null) {
             tableSchema = HologresTableSchema.get(param.getJdbcOptions());
         }
-        if (Objects.isNull(param.getCheckAndPutCondition())) {
-            this.record = new Record(tableSchema.get());
-        } else {
+        if (isCheckAndPutRecord) {
+            if (checkAndPutCondition == null) {
+                checkAndPutCondition =
+                        new CheckAndPutCondition(
+                                tableSchema.getColumn(param.getCheckColumn()),
+                                CheckCompareOp.valueOf(param.getCheckOperator()),
+                                null,
+                                param.getCheckNullAs());
+            }
             this.record =
-                    new CheckAndPutRecord(
-                            new Record(tableSchema.get()), param.getCheckAndPutCondition());
+                    new CheckAndPutRecord(new Record(tableSchema.get()), checkAndPutCondition);
+        } else {
+            this.record = new Record(tableSchema.get());
         }
     }
 
     @Override
     public void writeNull(int index) {
-        if (!param.isIgnoreNullWhenUpdate()) {
+        if (!param.isIgnoreNullWhenUpdate() || param.isIgnoreNullByExpr()) {
             this.record.setObject(index, null);
         }
     }

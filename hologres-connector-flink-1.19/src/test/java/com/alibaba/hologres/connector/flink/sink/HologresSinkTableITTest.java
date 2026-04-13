@@ -5,6 +5,8 @@ import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.table.api.EnvironmentSettings;
 import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
 
+import com.alibaba.hologres.client.Command;
+import com.alibaba.hologres.client.model.HoloVersion;
 import com.alibaba.hologres.connector.flink.HologresTestBase;
 import com.alibaba.hologres.connector.flink.config.WriteMode;
 import com.alibaba.hologres.connector.flink.utils.JDBCUtils;
@@ -582,6 +584,10 @@ public class HologresSinkTableITTest extends HologresTestBase {
         if (writeMode != WriteMode.INSERT) {
             return;
         }
+        HoloVersion holoVersion = Command.getHoloVersion(getHoloClient());
+        if (holoVersion.compareTo(new HoloVersion(4, 0, 0)) < 0) {
+            return;
+        }
         String sinkTableName = "\"TEST_sink_table_with_expression" + randomSuffix + "\"";
         String createTableSql =
                 "begin;\n"
@@ -608,7 +614,7 @@ public class HologresSinkTableITTest extends HologresTestBase {
                                 + "'connection.fixed'='%s',"
                                 + "'sink.write-mode'='%s',"
                                 + "'sink.on-conflict-action'='insertorupdate',"
-                                + "'sink.insert.conflict-update-set'='b=concat(old.b, excluded.b),\"C,C\"=excluded.\"C,C\"',"
+                                + "'sink.insert.conflict-update-set'='b=old.b || excluded.b,\"C,C\"=excluded.\"C,C\"',"
                                 + "'sink.insert.conflict-where'='excluded.\"C,C\" >= coalesce(old.\"C,C\",''2023-10-10 12:00:00''::timestamptz)',"
                                 + "'endpoint'='%s',"
                                 + "'dbName'='%s',"
@@ -661,6 +667,73 @@ public class HologresSinkTableITTest extends HologresTestBase {
                 },
                 "select hg_binlog_event_type,* from " + sinkTableName,
                 new String[] {"hg_binlog_event_type", "a", "b", "C,C"},
+                JDBCUtils.getDbUrl(endpoint, database),
+                username,
+                password,
+                10000);
+        dropTable(sinkTableName);
+    }
+
+    @Test
+    public void testSinkTableIgnoreNullWhenUpdate() throws Exception {
+        if (writeMode != WriteMode.INSERT) {
+            return;
+        }
+        String sinkTableName = "\"TEST_sink_table_ignore_null_when_update" + randomSuffix + "\"";
+        String createTableSql =
+                "begin;\n"
+                        + "CREATE TABLE TABLE_NAME (\n"
+                        + "a integer primary key,\n"
+                        + "b text,\n"
+                        + "\"C,C\" text,\n"
+                        + "d text\n"
+                        + ");\n"
+                        + "CALL set_table_property('TABLE_NAME', 'orientation', 'row');\n"
+                        + "CALL set_table_property('TABLE_NAME', 'binlog.level', 'replica');\n"
+                        + "commit;";
+        executeSql(createTableSql.replace("TABLE_NAME", sinkTableName), false);
+
+        tEnv.executeSql(
+                String.format(
+                        "create table sinkTable"
+                                + "("
+                                + "a int not null,"
+                                + "b STRING,"
+                                + "`C,C` STRING,"
+                                + "d STRING"
+                                + ") with ("
+                                + "'connector'='hologres',"
+                                + "'sink.insert.batch-size'='1',"
+                                + "'sink.ignore-null-when-update.enabled'='true',"
+                                + "'connection.fixed'='%s',"
+                                + "'sink.write-mode'='%s',"
+                                + "'sink.on-conflict-action'='insertorupdate',"
+                                + "'endpoint'='%s',"
+                                + "'dbName'='%s',"
+                                + "'tableName'='%s',"
+                                + "'userName'='%s',"
+                                + "'password'='%s'"
+                                + ")",
+                        fixedMode,
+                        writeMode,
+                        endpoint,
+                        database,
+                        sinkTableName,
+                        username,
+                        password));
+
+        String insertStatement =
+                "INSERT INTO %s "
+                        + " (a,b,`C,C`,d) values "
+                        + "(1, '2', cast(null as string), '4'),"
+                        + "(1, cast(null as string), '3', cast(null as string))";
+        tEnv.executeSql(String.format(insertStatement, "sinkTable")).await();
+        checkResultWithTimeout(
+                new String[] {
+                    "1,2,3,4",
+                },
+                "select * from " + sinkTableName,
+                new String[] {"a", "b", "C,C", "d"},
                 JDBCUtils.getDbUrl(endpoint, database),
                 username,
                 password,

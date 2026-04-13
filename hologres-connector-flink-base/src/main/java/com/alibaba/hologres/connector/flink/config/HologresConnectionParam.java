@@ -20,8 +20,8 @@ package com.alibaba.hologres.connector.flink.config;
 
 import org.apache.flink.configuration.ReadableConfig;
 
+import com.alibaba.hologres.client.model.HoloVersion;
 import com.alibaba.hologres.client.model.OnConflictAction;
-import com.alibaba.hologres.client.model.checkandput.CheckAndPutCondition;
 import com.alibaba.hologres.client.model.expression.Expression;
 import com.alibaba.hologres.connector.flink.utils.HologresUtils;
 import com.alibaba.hologres.connector.flink.utils.JDBCUtils;
@@ -58,6 +58,7 @@ public class HologresConnectionParam implements Serializable {
     private final boolean ignoreDelete;
     private final boolean createMissingPartTable;
     private final boolean ignoreNullWhenUpdate;
+    private final boolean ignoreNullByExpr;
     private final boolean enableRemoveU0000InText;
     private final boolean enableDeduplication;
     private final boolean enableAggressive;
@@ -70,8 +71,10 @@ public class HologresConnectionParam implements Serializable {
     private final boolean enableHoldOnUpdateBefore;
     private final boolean enableReshuffleByHolo;
     private final Boolean useLegacyPutHandler;
-    private final CheckAndPutCondition checkAndPutCondition;
-    private final Expression insertExpression;
+    private final String checkColumn;
+    private final String checkOperator;
+    private final String checkNullAs;
+    private Expression insertExpression;
     private final String copyWriteFormat;
     private final DirtyDataStrategy dirtyDataStrategy;
     private final boolean dirtyDataCheck;
@@ -85,6 +88,7 @@ public class HologresConnectionParam implements Serializable {
 
     public HologresConnectionParam(ReadableConfig properties) {
         this.options = JDBCUtils.getJDBCOptions(properties);
+        HoloVersion version = JDBCUtils.getHoloVersion(options);
         this.onConflictAction = getOnConflictActionInternal(properties);
 
         this.createMissingPartTable =
@@ -132,11 +136,17 @@ public class HologresConnectionParam implements Serializable {
         this.insertIfNotExists = properties.get(HologresConfigs.INSERT_IF_NOT_EXISTS);
         this.copyWriteFormat = properties.get(HologresConfigs.COPY_WRITE_FORMAT);
         this.directConnect = properties.get(HologresConfigs.CONNECTION_DIRECT);
-        this.checkAndPutCondition = HologresUtils.getCheckAndPutCondition(properties);
+        this.checkColumn = properties.get(HologresConfigs.CHECK_AND_PUT_COLUMN);
+        this.checkOperator = properties.get(HologresConfigs.CHECK_AND_PUT_OPERATOR);
+        this.checkNullAs = properties.get(HologresConfigs.CHECK_AND_PUT_NULL_AS);
         this.insertExpression =
                 new Expression(
                         properties.get(HologresConfigs.INSERT_CONFLICT_UPDATE_SET),
                         properties.get(HologresConfigs.INSERT_CONFLICT_WHERE));
+        this.ignoreNullByExpr =
+                Expression.isVersionSupport(version)
+                        && !this.insertExpression.hasExpr()
+                        && ignoreNullWhenUpdate;
         this.dirtyDataStrategy = properties.get(HologresConfigs.INSERT_DIRTY_DATA_STRATEGY);
         this.dirtyDataCheck = properties.get(HologresConfigs.ENABLE_DIRTY_DATA_CHECK);
         this.dataTypeTolerant =
@@ -347,12 +357,28 @@ public class HologresConnectionParam implements Serializable {
         return enableReshuffleByHolo;
     }
 
-    public CheckAndPutCondition getCheckAndPutCondition() {
-        return checkAndPutCondition;
+    public String getCheckColumn() {
+        return checkColumn;
+    }
+
+    public String getCheckOperator() {
+        return checkOperator;
+    }
+
+    public String getCheckNullAs() {
+        return checkNullAs;
     }
 
     public Expression getInsertExpression() {
         return insertExpression;
+    }
+
+    public void setInsertExpression(Expression insertExpression) {
+        this.insertExpression = insertExpression;
+    }
+
+    public boolean isIgnoreNullByExpr() {
+        return ignoreNullByExpr;
     }
 
     public boolean isEnableServerlessComputing() {
@@ -524,9 +550,21 @@ public class HologresConnectionParam implements Serializable {
                 .append(",\n");
 
         sb.append("\t")
-                .append("sink.check-and-put.condition")
+                .append(HologresConfigs.CHECK_AND_PUT_COLUMN)
                 .append("=")
-                .append(checkAndPutCondition)
+                .append(checkColumn)
+                .append(",\n");
+
+        sb.append("\t")
+                .append(HologresConfigs.CHECK_AND_PUT_OPERATOR)
+                .append("=")
+                .append(checkOperator)
+                .append(",\n");
+
+        sb.append("\t")
+                .append(HologresConfigs.CHECK_AND_PUT_NULL_AS)
+                .append("=")
+                .append(checkNullAs)
                 .append(",\n");
 
         sb.append("\t")

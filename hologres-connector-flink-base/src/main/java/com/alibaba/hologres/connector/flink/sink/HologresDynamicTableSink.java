@@ -11,6 +11,9 @@ import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.types.RowKind;
 
+import com.alibaba.hologres.client.model.Column;
+import com.alibaba.hologres.client.model.expression.Expression;
+import com.alibaba.hologres.client.utils.IdentifierUtil;
 import com.alibaba.hologres.connector.flink.api.HologresTableSchema;
 import com.alibaba.hologres.connector.flink.api.HologresWriter;
 import com.alibaba.hologres.connector.flink.config.DirtyDataStrategy;
@@ -92,6 +95,33 @@ public class HologresDynamicTableSink implements DynamicTableSink {
                 && !param.getDirtyDataStrategy().equals(DirtyDataStrategy.EXCEPTION)) {
             throw new UnsupportedOperationException(
                     "only support EXCEPTION dirty data strategy when copy mode is enabled");
+        }
+        if (param.getWriteMode() == WriteMode.INSERT && param.isIgnoreNullByExpr()) {
+            String[] targetFieldNames =
+                    SchemaUtil.getTargetFieldNames(tableSchema, targetColumnIndexs);
+            boolean isFirst = true;
+            StringBuilder sb = new StringBuilder();
+            for (String fieldName : targetFieldNames) {
+                Column column = hologresTableSchema.getColumn(fieldName);
+                if (column.getPrimaryKey()) {
+                    continue;
+                }
+                if (!isFirst) {
+                    sb.append(", ");
+                } else {
+                    isFirst = false;
+                }
+                String quotedColName = IdentifierUtil.quoteIdentifier(column.getName(), true);
+                sb.append(quotedColName)
+                        .append("=coalesce(excluded.")
+                        .append(quotedColName)
+                        .append(",")
+                        .append("old.")
+                        .append(quotedColName)
+                        .append(")");
+            }
+            Expression ignoreNullExpr = new Expression(sb.toString(), null);
+            param.setInsertExpression(ignoreNullExpr);
         }
         if (param.isUseSinkV2() || param.isEnableReshuffleByHolo()) {
             HologresSink<RowData> sink =
