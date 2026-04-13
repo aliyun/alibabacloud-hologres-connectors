@@ -111,6 +111,9 @@ Connectors for Hologres
 </dependency>
 ```
 
+# Release Note
+详见 [RELEASE_NOTE.md](./RELEASE_NOTE.md)
+
 # 下载
 也可以在 GitHub Releases 中可以下载最新SNAPSHOT版本已经编译好的jar包
 
