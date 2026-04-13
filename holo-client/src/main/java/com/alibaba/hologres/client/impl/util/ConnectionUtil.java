@@ -6,6 +6,7 @@ package com.alibaba.hologres.client.impl.util;
 
 import com.alibaba.hologres.client.auth.AKv4AuthenticationPlugin;
 import com.alibaba.hologres.client.model.Column;
+import com.alibaba.hologres.client.model.GlobalIndex;
 import com.alibaba.hologres.client.model.HoloVersion;
 import com.alibaba.hologres.client.model.Partition;
 import com.alibaba.hologres.client.model.TableName;
@@ -45,6 +46,8 @@ public class ConnectionUtil {
     static Pattern hgVersionPattern = Pattern.compile("Hologres ([^ -]*)");
     private static String optionProperty = "options=";
     private static String fixedOption = "type=fixed%20";
+    private static String TABLE_ID_KEY = "table_id";
+    private static String SCHEMA_VERSION_KEY = "schema_version";
 
     public static void refreshMeta(Connection conn, int timeout) throws SQLException {
         try (Statement stat = conn.createStatement()) {
@@ -80,13 +83,11 @@ public class ConnectionUtil {
             throws SQLException {
         if (version.compareTo(CHECK_TABLE_META_SUPPORTED_MIN_VERSION) >= 0) {
 
-            try (Statement stat = conn.createStatement()) {
+            try (PreparedStatement stat =
+                    conn.prepareStatement("select hologres.hg_internal_check_table_meta(?)")) {
                 stat.setQueryTimeout(timeout);
-                try (ResultSet rs =
-                        stat.executeQuery(
-                                "select hologres.hg_internal_check_table_meta('"
-                                        + fullName
-                                        + "')")) {
+                stat.setObject(1, fullName);
+                try (ResultSet rs = stat.executeQuery()) {
                     if (rs.next()) {
                         String msg = rs.getString(1);
                         boolean ok = "Check meta succeeded".equals(msg);
@@ -450,8 +451,45 @@ public class ConnectionUtil {
         }
     }
 
+    /** 获取表的元数据属性 */
+    public static Map<String, String> getTableProperties(Connection conn, TableName tableName)
+            throws SQLException {
+        String sql =
+                "select property_key,property_value from hologres.hg_table_properties where table_namespace=? and table_name=? and property_key in "
+                        + "('distribution_key','table_id','schema_version','orientation','clustering_key','segment_key','bitmap_columns','dictionary_encoding_columns','time_to_live_in_seconds','binlog.level', 'is_logical_partitioned_table')";
+        Map<String, String> properties = new HashMap<>();
+        try (PreparedStatement stat = conn.prepareStatement(sql)) {
+            stat.setString(1, tableName.getSchemaName());
+            stat.setString(2, tableName.getTableName());
+
+            try (ResultSet rs = stat.executeQuery()) {
+                while (rs.next()) {
+                    String propertyName = rs.getString(1);
+                    String propertyValue = rs.getString(2);
+                    properties.put(propertyName, propertyValue);
+                }
+            }
+        }
+
+        if (properties.isEmpty()) {
+            throw new SQLException("can not found table " + tableName.getFullName());
+        }
+        if (properties.get(TABLE_ID_KEY) == null) {
+            throw new SQLException("table " + tableName.getFullName() + " has no table_id");
+        }
+        if (properties.get(SCHEMA_VERSION_KEY) == null) {
+            throw new SQLException("table " + tableName.getFullName() + " has no schemaVersion");
+        }
+        return properties;
+    }
+
     public static TableSchema getTableSchema(Connection conn, TableName tableName)
             throws SQLException {
+        // 获取初始schema version
+        Map<String, String> properties = getTableProperties(conn, tableName);
+        String tableId = properties.get(TABLE_ID_KEY);
+        String schemaVersion = properties.get(SCHEMA_VERSION_KEY);
+
         // PgDatabaseMetaData只会在判断服务端版本大于等于pg12时才返回正确的generated column信息, 这里我们先自己查系统表获取
         Set<String> generatedColumns = new HashSet<>();
         HoloVersion holoVersion = getHoloVersion(conn);
@@ -485,6 +523,44 @@ public class ConnectionUtil {
                         }
                     }
                 }
+            }
+        }
+
+        List<TableName> globalIndexNames = null;
+        if (holoVersion.compareTo(new HoloVersion(4, 0, 0)) >= 0) {
+            StringBuilder sb = new StringBuilder();
+            sb.append("SELECT \n")
+                    .append("    n.nspname AS index_namespace,\n")
+                    .append("    i.relname AS index_name\n")
+                    .append("FROM \n")
+                    .append("    pg_class t\n")
+                    .append("JOIN \n")
+                    .append("    pg_index ix ON t.oid = ix.indrelid\n")
+                    .append("JOIN \n")
+                    .append("    pg_class i ON i.oid = ix.indexrelid\n")
+                    .append("JOIN \n")
+                    .append("    pg_am am ON am.oid = i.relam\n")
+                    .append("JOIN\n")
+                    .append("    pg_namespace n ON n.oid = t.relnamespace \n")
+                    .append("WHERE \n")
+                    .append("    t.relkind = 'r'\n")
+                    .append("    AND am.amname = 'globalindex'\n")
+                    .append("    AND t.oid = ?::regclass::oid order by i.oid;");
+            String globalIndexInfoSql = sb.toString();
+            try (PreparedStatement stat = conn.prepareStatement(globalIndexInfoSql)) {
+                stat.setString(1, tableName.getFullName());
+                try (ResultSet rs = stat.executeQuery()) {
+                    while (rs.next()) {
+                        if (globalIndexNames == null) {
+                            globalIndexNames = new ArrayList<>();
+                        }
+                        String indexSchemaName = rs.getString(1);
+                        String indexName = rs.getString(2);
+                        globalIndexNames.add(TableName.quoteValueOf(indexSchemaName, indexName));
+                    }
+                }
+            } catch (SQLException e) {
+                LOGGER.warn("get global index info failed", e);
             }
         }
 
@@ -529,41 +605,7 @@ public class ConnectionUtil {
             }
         }
 
-        String partitionColumnName = getPartitionColumnName(conn, tableName);
-
-        String sql =
-                "select property_key,property_value from hologres.hg_table_properties where table_namespace=? and table_name=? and property_key in "
-                        + "('distribution_key','table_id','schema_version','orientation','clustering_key','segment_key','bitmap_columns','dictionary_encoding_columns','time_to_live_in_seconds','binlog.level', 'is_logical_partitioned_table')";
-        String[] distributionKeys = null;
-        String tableId = null;
-        String schemaVersion = null;
-        Map<String, String> properties = new HashMap<>();
-        try (PreparedStatement stat = conn.prepareStatement(sql)) {
-            stat.setString(1, tableName.getSchemaName());
-            stat.setString(2, tableName.getTableName());
-
-            try (ResultSet rs = stat.executeQuery()) {
-                while (rs.next()) {
-                    String propertyName = rs.getString(1);
-                    String propertyValue = rs.getString(2);
-                    properties.put(propertyName, propertyValue);
-                }
-            }
-            tableId = properties.get("table_id");
-            schemaVersion = properties.get("schema_version");
-        }
-        if (properties.size() == 0) {
-            throw new SQLException("can not found table " + tableName.getFullName());
-        }
-        if (tableId == null) {
-            throw new SQLException("table " + tableName.getFullName() + " has no table_id");
-        }
-        if (schemaVersion == null) {
-            throw new SQLException("table " + tableName.getFullName() + " has no schemaVersion");
-        }
         TableSchema.Builder builder = new TableSchema.Builder(tableId, schemaVersion);
-
-        builder.setPartitionColumnName(partitionColumnName);
         builder.setColumns(columnList);
         builder.setTableName(tableName);
         builder.setNotExist(false);
@@ -605,6 +647,9 @@ public class ConnectionUtil {
                 default:
             }
         }
+        String partitionColumnName = getPartitionColumnName(conn, tableName);
+        builder.setPartitionColumnName(partitionColumnName);
+        String sql;
         if (partitionColumnName != null) {
             boolean supportTimeFormat = holoVersion.compareTo(new HoloVersion(3, 0, 12)) >= 0;
             if (supportTimeFormat) {
@@ -661,6 +706,50 @@ public class ConnectionUtil {
                 }
             }
         }
+
+        if (globalIndexNames != null) {
+            List<GlobalIndex> globalIndexs = new ArrayList<>();
+            sql =
+                    "SELECT a.attname FROM pg_catalog.pg_index i JOIN pg_catalog.pg_attribute a ON a.attrelid = i.indexrelid AND a.attnum > 0 AND NOT a.attisdropped AND a.attnum <= i.indnkeyatts WHERE i.indexrelid = ?::regclass::oid order by a.attnum;";
+            try (PreparedStatement stat = conn.prepareStatement(sql)) {
+                for (int i = 0; i < globalIndexNames.size(); ++i) {
+                    TableName globalIndexName = globalIndexNames.get(i);
+                    stat.setString(1, globalIndexName.getFullName());
+                    try (ResultSet rs = stat.executeQuery()) {
+                        List<String> globalIndexKey = new ArrayList<>();
+                        while (rs.next()) {
+                            String keyName = rs.getString(1);
+                            globalIndexKey.add(keyName);
+                        }
+                        GlobalIndex globalIndex =
+                                new GlobalIndex(
+                                        globalIndexName, globalIndexKey.toArray(new String[0]));
+                        globalIndexs.add(globalIndex);
+                    }
+                }
+            } catch (SQLException e) {
+                LOGGER.warn("get global index info failed", e);
+            }
+            if (!globalIndexs.isEmpty()) {
+                builder.setGlobalIndexs(globalIndexs.toArray(new GlobalIndex[globalIndexs.size()]));
+            }
+        }
+
+        // 结束时再次获取schema version进行比较
+        Map<String, String> finalProperties = getTableProperties(conn, tableName);
+        String finalTableId = finalProperties.get(TABLE_ID_KEY);
+        String finalSchemaVersion = finalProperties.get(SCHEMA_VERSION_KEY);
+
+        // 如果schema version发生变化，抛出异常让上层重试
+        if (!tableId.equals(finalTableId) || !schemaVersion.equals(finalSchemaVersion)) {
+            throw new SQLException(
+                    "Schema version changed during getTableSchema: from "
+                            + schemaVersion
+                            + " to "
+                            + finalSchemaVersion
+                            + ", need to retry");
+        }
+
         TableSchema tableSchema = builder.build();
         tableSchema.calculateProperties();
         return tableSchema;
@@ -738,6 +827,8 @@ public class ConnectionUtil {
         }
         String directConnectionJdbcUrl =
                 ConnectionUtil.replaceJdbcUrlEndpoint(originalJdbcUrl, addr + ":" + port);
+        // 直连不支持database@warehouse写法, 也不支持一些仅gateway支持的参数
+        directConnectionJdbcUrl = formatDirectConnectionJdbcUrl(directConnectionJdbcUrl);
         // 调整连接超时为1s, 快速验证当前环境是否支持直连, 不支持回退到使用vip
         PGProperty.CONNECT_TIMEOUT.set(tempInfo, 1);
         try (PgConnection ignored =
@@ -761,6 +852,35 @@ public class ConnectionUtil {
     public static String replaceJdbcUrlEndpoint(String originalUrl, String newEndpoint) {
         String replacement = "//" + newEndpoint + "/";
         return originalUrl.replaceFirst("//\\S+/", replacement);
+    }
+
+    public static String formatDirectConnectionJdbcUrl(String url) {
+        if (url == null || url.isEmpty()) {
+            return url;
+        }
+        int protocolEndIndex = url.indexOf("//");
+        if (protocolEndIndex == -1) {
+            return url;
+        }
+        int databaseStartIndex = url.indexOf("/", protocolEndIndex + 2);
+        if (databaseStartIndex == -1) {
+            return url;
+        }
+        // 提取 database 及之后的字符串
+        String databaseAndAfter = url.substring(databaseStartIndex + 1);
+        // 去掉?及之后的所有参数
+        int questionMarkIndex = databaseAndAfter.indexOf("?");
+        if (questionMarkIndex != -1) {
+            databaseAndAfter = databaseAndAfter.substring(0, questionMarkIndex);
+        }
+        // 去掉@及之后的所有内容
+        int atIndex = databaseAndAfter.indexOf("@");
+        if (atIndex != -1) {
+            databaseAndAfter = databaseAndAfter.substring(0, atIndex);
+        }
+
+        // 拼接处理后的 URL
+        return url.substring(0, databaseStartIndex + 1) + databaseAndAfter;
     }
 
     public static String generateFixedUrl(String url) {

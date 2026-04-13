@@ -1,5 +1,9 @@
 package com.alibaba.hologres.client.utils;
 
+import com.alibaba.hologres.client.exception.ExceptionCode;
+import com.alibaba.hologres.client.exception.HoloClientException;
+
+import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.Iterator;
 import java.util.concurrent.ThreadLocalRandom;
@@ -331,5 +335,27 @@ public class CommonUtil {
                             true)); // Assuming quoteIdentifier is a method in the same class
         }
         return builder.toString();
+    }
+
+    /**
+     * 检测是否为Shading环境.
+     *
+     * @return 是否为Shading环境
+     * @throws HoloClientException 如果检测失败
+     */
+    public static boolean detectShadingEnvironment() throws HoloClientException {
+        try {
+            DriverManager.getDrivers();
+            Class.forName("com.alibaba.hologres.org.postgresql.Driver");
+            return true;
+        } catch (Exception e) {
+            try {
+                DriverManager.getDrivers();
+                Class.forName("org.postgresql.Driver");
+                return false;
+            } catch (Exception e2) {
+                throw new HoloClientException(ExceptionCode.INTERNAL_ERROR, "load driver fail", e);
+            }
+        }
     }
 }

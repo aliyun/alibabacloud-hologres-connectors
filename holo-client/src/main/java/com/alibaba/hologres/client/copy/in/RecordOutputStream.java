@@ -37,7 +37,7 @@ public abstract class RecordOutputStream implements Closeable {
     }
 
     boolean closed = false;
-    ByteBuffer cellBuffer = ByteBuffer.allocate(10);
+    protected ByteBuffer cellBuffer = ByteBuffer.allocate(10);
     Record currentRecord = null;
     int currentColumnIndex;
 
@@ -73,7 +73,7 @@ public abstract class RecordOutputStream implements Closeable {
 
     protected abstract void fillByteBuffer(Record record) throws IOException;
 
-    private void mayIncBuffer(int size) throws IOException {
+    protected void mayIncBuffer(int size) throws IOException {
         if (cellBuffer.remaining() < size) {
             if (cellBuffer.position() + size < maxCellBufferSize) {
                 int target =

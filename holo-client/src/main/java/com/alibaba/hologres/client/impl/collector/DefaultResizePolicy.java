@@ -31,6 +31,7 @@ public class DefaultResizePolicy implements ResizePolicy {
             long currentNano) {
         int fullCount = stat.getFullBatchCount();
         int notFullCount = stat.getNotFullBatchCount();
+        int pkDuplicateCount = stat.getPkDuplicateBatchCount();
         // 最近1分钟，每1s花在write上的时间是多少ms，越大说明越饱和
         int load =
                 (int) Metrics.registry().meter(Metrics.METRICS_WRITE_COST_MS_ALL).getOneMinuteRate()
@@ -39,6 +40,9 @@ public class DefaultResizePolicy implements ResizePolicy {
         int maxSize = maxShardCount > 0 ? maxShardCount : workerCount * 2;
 
         int newSize = currentSize;
+        if (pkDuplicateCount > notFullCount + fullCount /*大部分是pk重复导致的，就不扩不缩*/) {
+            return newSize;
+        }
 
         if (fullCount == 0 /*压根没有攒够批的就缩*/) {
             newSize = currentSize > 1 ? currentSize / 2 : 1;

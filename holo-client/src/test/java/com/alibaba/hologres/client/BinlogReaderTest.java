@@ -564,7 +564,7 @@ public class BinlogReaderTest extends HoloClientTestBase {
             String createSql =
                     "create table "
                             + tableName
-                            + "(id int not null, amount decimal(12,2), t text, ts timestamptz, ba jsonb, t_a text[],i_a int[], primary key(id)) "
+                            + "(id int not null, f1 text, amount decimal(12,2), f2 text, t text, f3 text, ts timestamptz, f4 text, ba jsonb, f5 text, t_a text[],  f6 text, i_a int[], primary key(id)) "
                             + "with (binlog_level='replica', table_group='tg_3');\n";
             execute(conn, new String[] {dropSql});
             execute(conn, new String[] {"begin;", createSql, "commit;"});
@@ -614,14 +614,16 @@ public class BinlogReaderTest extends HoloClientTestBase {
                                         .setBinlogReadStartTime("2021-04-12 12:12:12")
                                         .setEnableCompression(true)
                                         .addProjectionColumnNamesToSubscribe(
-                                                new String[] {"i_a", "t", "id", "ba", "id"})
+                                                new String[] {
+                                                    "i_a", "f3", "t", "id", "f2", "ba", "id", "f1"
+                                                })
                                         .build());
 
                 long start = System.nanoTime();
                 int count = 0;
                 BinlogRecord record;
                 while ((record = reader.getBinlogRecord()) != null) {
-                    Assert.assertEquals(record.getBitSet().cardinality(), 4);
+                    Assert.assertEquals(record.getBitSet().cardinality(), 7);
                     int id = (int) record.getObject("id");
                     if (id == 2) {
                         Assert.assertNull(record.getObject("t"));
@@ -632,6 +634,9 @@ public class BinlogReaderTest extends HoloClientTestBase {
                     }
                     Assert.assertEquals(record.getObject("ba"), "{\"a\": \"" + id + "\"}");
                     Assert.assertEquals(record.getObject("i_a"), new int[] {1, 2, 3, 4, id});
+                    Assert.assertNull(record.getObject("f3"));
+                    Assert.assertNull(record.getObject("f2"));
+                    Assert.assertNull(record.getObject("f1"));
                     count++;
                     if (count == 1000) {
                         reader.cancel();

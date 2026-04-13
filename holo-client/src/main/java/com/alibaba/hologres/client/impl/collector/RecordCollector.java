@@ -166,51 +166,55 @@ public class RecordCollector {
         // 行数够多少条
         boolean isSizeEnough = size >= maxRecords;
         if (isSizeEnough) {
+            LOGGER.debug(
+                    "After LastCommit({}) maxBatchsize {} was reached",
+                    afterLastCommit,
+                    maxRecords);
             return BatchState.SizeEnough;
         }
         // 大小够多少条
         boolean isByteSizeEnough = byteSize >= maxByteSize;
         if (isByteSizeEnough) {
+            LOGGER.debug(
+                    "After LastCommit({}) maxByteSize {} was reached",
+                    afterLastCommit,
+                    maxByteSize);
             return BatchState.ByteSizeEnough;
         }
         boolean isTimeWaitEnough = startTimeMs > -1 && afterLastCommit >= maxWaitTime;
         if (isTimeWaitEnough) {
+            LOGGER.debug(
+                    "After LastCommit({}) maxWaitTime {} was reached",
+                    afterLastCommit,
+                    maxWaitTime);
             return BatchState.TimeWaitEnough;
         }
-        boolean isEarlyCommit = false;
         // 当已经凑够2的指数时
         if (size > 0 && (size & (size - 1)) == 0) {
             // 已经过去了maxWaitTime 40%的时间，统计上来说，不能再翻倍，那就提早commit
             boolean timeCondition = startTimeMs > -1 && afterLastCommit * 5 > maxWaitTime * 2;
             if (timeCondition) {
+                LOGGER.debug(
+                        "earlyCommit[timeCondition] afterLastCommit({}) > 40% maxWaitTime({})",
+                        afterLastCommit, maxWaitTime);
                 return BatchState.TimeCondition;
             }
             // 当前行数的数据已经超过40%maxByteSize，可能不能再翻倍，那就提早commit
             boolean byteSizeCondition = byteSize * 5 > maxByteSize * 2;
             if (byteSizeCondition) {
+                LOGGER.debug(
+                        "earlyCommit[byteSizeCondition] byteSize({}) > 40% maxByteSize({})",
+                        byteSize, maxByteSize);
                 return BatchState.ByteSizeCondition;
             }
             // 当当前的行数的数据超过1/4的剩余avaliable
             long availableByteSize = pool.getAvailableByteSize();
             boolean totalByteSizeCondition = byteSize * shardCount > availableByteSize;
             if (totalByteSizeCondition) {
+                LOGGER.debug(
+                        "earlyCommit[totalByteSizeCondition] afterLastCommit({}) > 40% availableByteSize({})",
+                        afterLastCommit, availableByteSize);
                 return BatchState.TotalByteSizeCondition;
-            }
-            isEarlyCommit = timeCondition || byteSizeCondition || totalByteSizeCondition;
-            if (isEarlyCommit) {
-                if (timeCondition) {
-                    LOGGER.debug(
-                            "table {} earlyCommit[timeCondition].afterLastCommit({}) > 40% maxWaitTime({})",
-                            afterLastCommit, maxWaitTime);
-                } else if (byteSizeCondition) {
-                    LOGGER.debug(
-                            "table {} earlyCommit[byteSizeCondition].byteSize({}) > 40% maxByteSize({})",
-                            byteSize, maxByteSize);
-                } else {
-                    LOGGER.debug(
-                            "table {} earlyCommit[totalByteSizeCondition].afterLastCommit({}) > 40% availableByteSize({})",
-                            afterLastCommit, maxWaitTime);
-                }
             }
         }
         return BatchState.NotEnough;

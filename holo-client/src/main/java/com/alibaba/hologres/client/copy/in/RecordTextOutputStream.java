@@ -45,7 +45,8 @@ public class RecordTextOutputStream extends RecordOutputStream {
                         stringWriter,
                         CSVFormat.POSTGRESQL_CSV
                                 .withEscape(ESCAPE)
-                                .withQuoteMode(QuoteMode.MINIMAL));
+                                .withQuoteMode(QuoteMode.MINIMAL)
+                                .withNullString(NULL));
     }
 
     @Override
@@ -61,7 +62,7 @@ public class RecordTextOutputStream extends RecordOutputStream {
             int type = column.getType();
             Object obj = record.getObject(i);
             if (obj == null) {
-                printer.print(NULL);
+                printer.print(null);
             } else {
                 try {
                     switch (type) {

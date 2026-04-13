@@ -10,6 +10,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
@@ -43,7 +44,23 @@ public class AutoPartitioningTest extends HoloClientTestBase {
         supportTimeZones.put("-07:00", "UTC+07:00");
 
         supportTimeZones.put("EAST+08", "UTC-08:00");
-        supportTimeZones.put("WAT+02abcdefg", "UTC-01:00");
+        // 根据当前时间是否处于夏令时/冬令时来动态设置WAT+02abcdefg时区的期望值
+        supportTimeZones.put("WAT+02abcdefg", isDaylightSavingTime() ? "UTC-01:00" : "UTC-02:00");
+    }
+
+    /**
+     * 判断当前时间是否处于夏令时 如果洛杉矶当前处于夏令时（PDT），则返回true，否则返回false（PST）
+     *
+     * @return true表示夏令时，false表示标准时间
+     */
+    private static boolean isDaylightSavingTime() {
+        ZoneId losAngelesZone = ZoneId.of("America/Los_Angeles");
+        ZonedDateTime now = ZonedDateTime.now(losAngelesZone);
+        // 获取洛杉矶当前的时区偏移量
+        ZoneOffset offset = now.getOffset();
+        // PDT (夏令时) 是 UTC-7，PST (标准时间) 是 UTC-8
+        // 如果偏移量是 UTC-7，则表示处于夏令时
+        return offset.equals(ZoneOffset.ofHours(-7));
     }
 
     @Test

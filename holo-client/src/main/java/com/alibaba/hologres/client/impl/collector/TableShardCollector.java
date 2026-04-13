@@ -66,7 +66,8 @@ public class TableShardCollector {
         // 与之前的TableSchema不一致时，先commit，再append
         if (buffer.size() > 0 && !Objects.equals(record.getSchema(), tableSchemaInBuffer)) {
             try {
-                flush(true, false, null);
+                LOGGER.debug("TableSchema changed, force flush");
+                flush(true, false, null, null);
             } catch (HoloClientException e) {
                 exception = e;
             }
@@ -81,7 +82,8 @@ public class TableShardCollector {
         }
         if (buffer.size() > 0 && !Objects.equals(exprHashCode, exprHashCodeBuffer)) {
             try {
-                flush(true, false, null);
+                LOGGER.debug("Expression changed, force flush!");
+                flush(true, false, null, null);
             } catch (HoloClientException e) {
                 exception = e;
             }
@@ -95,7 +97,9 @@ public class TableShardCollector {
         if (buffer.size() > 0
                 && !Objects.equals(checkAndPutCondition, checkAndPutConditionInBuffer)) {
             try {
-                flush(true, false, null);
+                LOGGER.debug("CheckCondition changed, force flush!");
+
+                flush(true, false, null, null);
             } catch (HoloClientException e) {
                 exception = e;
             }
@@ -105,7 +109,8 @@ public class TableShardCollector {
         if ((!enableDeduplication || checkAndPutCondition != null || exprHashCode != null)
                 && buffer.isKeyExists(new RecordKey(record))) {
             try {
-                flush(true, false, null);
+                LOGGER.debug("Primary key Duplicate, force flush!");
+                flush(true, false, null, BatchState.PKDuplicate);
             } catch (HoloClientException e) {
                 exception = e;
             }
@@ -268,7 +273,10 @@ public class TableShardCollector {
      * @throws HoloClientException 异常
      */
     public synchronized boolean flush(
-            boolean force, boolean async, AtomicInteger uncommittedActionCount)
+            boolean force,
+            boolean async,
+            AtomicInteger uncommittedActionCount,
+            BatchState batchState)
             throws HoloClientException {
         HoloClientWithDetailsException failedRecords = null;
 
@@ -287,7 +295,10 @@ public class TableShardCollector {
         boolean done = false;
         if (readableDone) {
             if (buffer.size > 0) {
-                BatchState state = force ? BatchState.Force : buffer.getBatchState();
+                BatchState state =
+                        (batchState != null)
+                                ? batchState
+                                : (force ? BatchState.Force : buffer.getBatchState());
                 if (state != BatchState.NotEnough) {
                     commit(state);
                 }

@@ -564,7 +564,7 @@ public class DataTypeTestUtil {
                         "numeric(6,5)",
                         (i, conn) -> new BigDecimal("12.5"),
                         null),
-                new TypeCaseData("decimal_inalid_type", "numeric(6,5)", (i, conn) -> "", null),
+                new TypeCaseData("decimal_invalid_type", "numeric(6,5)", (i, conn) -> "", null),
                 new TypeCaseData("bool_cannot_coerce", "bool", (i, conn) -> "abc", null),
                 new TypeCaseData("float4_number_format", "real", (i, conn) -> "abc", null),
                 new TypeCaseData("float8_number_format", "float8", (i, conn) -> "abc", null),

@@ -4,6 +4,7 @@ import com.alibaba.hologres.client.HoloClient;
 import com.alibaba.hologres.client.HoloClientTestBase;
 import com.alibaba.hologres.client.HoloConfig;
 import com.alibaba.hologres.client.impl.binlog.BinlogLevel;
+import com.alibaba.hologres.client.utils.IdentifierUtil;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -102,6 +103,7 @@ public class TableSchemaTest extends HoloClientTestBase {
 
             try {
                 TableSchema schema = client.getTableSchema(tableName, true);
+                Assert.assertNull(schema.getGlobalIndexs());
                 Assert.assertEquals(
                         schema.toString(),
                         String.format(
@@ -124,6 +126,128 @@ public class TableSchemaTest extends HoloClientTestBase {
                                         + "Column{name='t_a', typeName='_text'}, \n"
                                         + "Column{name='i_a', typeName='_int4'}]}",
                                 schema.getTableId(), schema.getSchemaVersion(), tableName));
+            } finally {
+                execute(conn, new String[] {dropSql});
+            }
+        }
+    }
+
+    @Test
+    public void testTableSchemaWithGlobalIndex() throws Exception {
+        if (properties == null) {
+            return;
+        }
+        HoloConfig config = buildConfig();
+        config.setOnConflictAction(OnConflictAction.INSERT_OR_REPLACE);
+        config.setWriteThreadSize(10);
+
+        try (Connection conn = buildConnection();
+                HoloClient client = new HoloClient(config)) {
+            String schemaName = genRandomStr(6);
+            String tableName = "holo_client_table_schema_with_global_index_" + genRandomStr(6);
+            String indexName1 = "idx1_" + genRandomStr(6);
+            String indexName2 = "idx2_" + genRandomStr(6);
+
+            String colName1 = "col1" + genRandomStr(6);
+            String colName2 = "col2";
+            String colName3 = "col3";
+
+            String dropSql =
+                    "drop table if exists "
+                            + TableName.quoteValueOf(schemaName, tableName).getFullName();
+            String createSchemaSql =
+                    "create schema if not exists " + IdentifierUtil.quoteIdentifier(schemaName);
+            String createSql =
+                    "create table "
+                            + TableName.quoteValueOf(schemaName, tableName).getFullName()
+                            + "(id int not null, "
+                            + IdentifierUtil.quoteIdentifier(colName1)
+                            + " int, "
+                            + colName2
+                            + " int, "
+                            + colName3
+                            + " int, primary key(id));\n ";
+            String createIndexSql1 =
+                    "create global index "
+                            + IdentifierUtil.quoteIdentifier(indexName1)
+                            + " on "
+                            + TableName.quoteValueOf(schemaName, tableName).getFullName()
+                            + "("
+                            + colName2
+                            + ", "
+                            + colName3
+                            + ") include ("
+                            + IdentifierUtil.quoteIdentifier(colName1)
+                            + ");\n";
+            String createIndexSql2 =
+                    "create global index "
+                            + IdentifierUtil.quoteIdentifier(indexName2)
+                            + " on "
+                            + TableName.quoteValueOf(schemaName, tableName).getFullName()
+                            + "("
+                            + IdentifierUtil.quoteIdentifier(colName1)
+                            + ", col2) include (col3) with (distribution_key=col2, clustering_key=col2);\n";
+            execute(
+                    conn,
+                    new String[] {
+                        dropSql,
+                        "begin;",
+                        createSchemaSql,
+                        createSql,
+                        createIndexSql1,
+                        createIndexSql2,
+                        "commit;"
+                    });
+
+            try {
+                TableSchema schema =
+                        client.getTableSchema(TableName.quoteValueOf(schemaName, tableName), true);
+                GlobalIndex[] globalIndexs = schema.getGlobalIndexs();
+                Assert.assertEquals(globalIndexs.length, 2);
+                Assert.assertEquals(
+                        globalIndexs[0].getIndexName(),
+                        TableName.quoteValueOf(schemaName, indexName1));
+                Assert.assertEquals(
+                        globalIndexs[1].getIndexName(),
+                        TableName.quoteValueOf(schemaName, indexName2));
+                Assert.assertEquals(
+                        globalIndexs[0].getIndexKeys(), new String[] {colName2, colName3});
+                Assert.assertEquals(
+                        globalIndexs[1].getIndexKeys(), new String[] {colName1, colName2});
+                Assert.assertEquals(
+                        schema.toString(),
+                        String.format(
+                                "TableSchema{\n"
+                                        + "tableId='%s', \n"
+                                        + "schemaVersion='%S', \n"
+                                        + "tableName=%s, \n"
+                                        + "distributionKeys=[id], \n"
+                                        + "clusteringKey=null, \n"
+                                        + "segmentKey=null, \n"
+                                        + "partitionInfo='null', \n"
+                                        + "orientation='column', \n"
+                                        + "binlogLevel=NONE, \n"
+                                        + "columns=[\n"
+                                        + "Column{name='id', typeName='int4', not null, primary key}, \n"
+                                        + "Column{name='"
+                                        + colName1
+                                        + "', typeName='int4'}, \n"
+                                        + "Column{name='col2', typeName='int4'}, \n"
+                                        + "Column{name='col3', typeName='int4'}], \n"
+                                        + "globalIndexInfo=[{"
+                                        + TableName.quoteValueOf(schemaName, indexName1)
+                                                .getFullName()
+                                        + ":[col2, col3]},\n"
+                                        + "{"
+                                        + TableName.quoteValueOf(schemaName, indexName2)
+                                                .getFullName()
+                                        + ":["
+                                        + colName1
+                                        + ", col2]}\n"
+                                        + "]}",
+                                schema.getTableId(),
+                                schema.getSchemaVersion(),
+                                TableName.quoteValueOf(schemaName, tableName).getFullName()));
             } finally {
                 execute(conn, new String[] {dropSql});
             }

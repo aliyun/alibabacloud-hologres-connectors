@@ -320,11 +320,11 @@ public class UnnestUpsertStatementBuilder extends UpsertStatementBuilder {
         Expression expression = null;
         if (re instanceof RecordWithExpression) {
             expression = ((RecordWithExpression) re).getExpression();
-            if (!Expression.isVersionSupport(version, Put.MutationType.INSERT)) {
+            if (!Expression.isVersionSupport(version)) {
                 throw new SQLException(
                         String.format(
                                 "Insert RecordWithExpression is supported after holo version %s",
-                                Expression.INSERT_SUPPORT_VERSION));
+                                Expression.SUPPORT_VERSION));
             }
         }
 

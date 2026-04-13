@@ -8,25 +8,15 @@ import java.util.Objects;
 /** CheckAndPutCondition. */
 public class CheckAndPutCondition implements Serializable {
 
-    private final String checkColumnName;
-    private Column checkColumn;
+    private final Column checkColumn;
     private Object checkValue;
     private CheckCompareOp checkOp;
     /** postgres中，null值和任何值比较返回都是false，因此如果我们希望更新原有的null，需要进行 coalesce(old.column1 nullValue). */
     private Object nullValue;
 
     public CheckAndPutCondition(
-            String checkColumnName, CheckCompareOp checkOp, Object checkValue, Object nullValue) {
-        this.checkColumnName = checkColumnName;
-        this.checkOp = checkOp;
-        this.checkValue = checkValue;
-        this.nullValue = nullValue;
-    }
-
-    public CheckAndPutCondition(
             Column checkColumn, CheckCompareOp checkOp, Object checkValue, Object nullValue) {
         this.checkColumn = checkColumn;
-        this.checkColumnName = checkColumn.getName();
         this.checkOp = checkOp;
         this.checkValue = checkValue;
         this.nullValue = nullValue;
@@ -48,10 +38,6 @@ public class CheckAndPutCondition implements Serializable {
         return checkColumn;
     }
 
-    public String getCheckColumnName() {
-        return checkColumnName;
-    }
-
     public CheckCompareOp getCheckOp() {
         return checkOp;
     }
@@ -62,10 +48,6 @@ public class CheckAndPutCondition implements Serializable {
 
     public void setCheckValue(Object checkValue) {
         this.checkValue = checkValue;
-    }
-
-    public void setCheckColumn(Column checkColumn) {
-        this.checkColumn = checkColumn;
     }
 
     /**

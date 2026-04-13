@@ -440,7 +440,8 @@ public class ExecutionPool implements Closeable {
             collector = clientMap.get(client);
             if (collector == null) {
                 LOGGER.info(
-                        "register client {}, client size {}->{}",
+                        "ExecutionPool[{}] register client {}, client size {}->{}",
+                        name,
                         client,
                         clientMap.size(),
                         clientMap.size() + 1);
@@ -470,7 +471,12 @@ public class ExecutionPool implements Closeable {
             if (oldSize > 0) {
                 clientMap.remove(client);
                 int newSize = clientMap.size();
-                LOGGER.info("unregister client {}, client size {}->{}", client, oldSize, newSize);
+                LOGGER.info(
+                        "ExecutionPool[{}] unregister client {}, client size {}->{}",
+                        name,
+                        client,
+                        oldSize,
+                        newSize);
                 if (newSize == 0) {
                     needClose = true;
                 }

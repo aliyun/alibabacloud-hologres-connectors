@@ -119,6 +119,9 @@ public class HoloConfig implements Serializable {
     /** 写入时是否生成binlog. boolean @HasGetter @HasSetter */
     boolean enableGenerateBinlog = true;
 
+    /** 关闭表达式guc * */
+    boolean disableExpressionGuc = false;
+
     /**
      * 写入时是否对攒批数据做去重. 设置为false表示不会去重，如果数据重复非常严重，性能最差相当于writeBatchSize设置为1的逐条写入.
      * boolean @HasGetter @HasSetter
@@ -138,6 +141,9 @@ public class HoloConfig implements Serializable {
      * 透出此参数主要为了测试,不建议调整,防止打印过多的日志.
      */
     long logSlowQueryIntervalSeconds = 60L;
+
+    /** 写入限流, 每秒最多写入的记录数. -1表示不限流. int @HasGetter @HasSetter */
+    int writeRps = -1;
 
     // --------------------------read conf-------------------------------------------------
     /** 最多一次将readBatchSize条Get请求合并提交，默认128. @HasGetter @HasSetter */
@@ -753,6 +759,14 @@ public class HoloConfig implements Serializable {
         this.enableGenerateBinlog = enableGenerateBinlog;
     }
 
+    public boolean isDisableExpressionGuc() {
+        return this.disableExpressionGuc;
+    }
+
+    public void setDisableExpressionGuc(boolean disableExpressionGuc) {
+        this.disableExpressionGuc = disableExpressionGuc;
+    }
+
     public void setSslMode(SSLMode sslMode) {
         this.sslMode = sslMode;
     }
@@ -807,6 +821,14 @@ public class HoloConfig implements Serializable {
 
     public void setLogSlowQueryIntervalSeconds(long logSlowQueryIntervalSeconds) {
         this.logSlowQueryIntervalSeconds = logSlowQueryIntervalSeconds;
+    }
+
+    public int getWriteRps() {
+        return writeRps;
+    }
+
+    public void setWriteRps(int writeRps) {
+        this.writeRps = writeRps;
     }
 
     public static String[] getPropertyKeys() {

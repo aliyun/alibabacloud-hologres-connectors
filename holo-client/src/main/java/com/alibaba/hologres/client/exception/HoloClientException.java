@@ -42,6 +42,8 @@ public class HoloClientException extends Exception {
                                 || (PSQLState.INVALID_PASSWORD.getState().equals(e.getSQLState())
                                         && e.getMessage().contains("Invalid expire_time"))))) {
             code = ExceptionCode.CONNECTION_ERROR;
+        } else if ("08P02".equals(/*IDLE_SESSION_TIMEOUT*/ e.getSQLState())) {
+            code = ExceptionCode.TIMEOUT;
         } else if (e.getMessage() != null
                 && e.getMessage().contains("not allowed in readonly mode")) {
             code = ExceptionCode.READ_ONLY;
@@ -77,6 +79,7 @@ public class HoloClientException extends Exception {
             } else if (PSQLState.SYNTAX_ERROR.getState().equals(state)) {
                 code = ExceptionCode.SYNTAX_ERROR;
             } else if (PSQLState.UNDEFINED_COLUMN.getState().equals(state)
+                    || "HG000".equals(/*HG_NEED_RETRY*/ state)
                     || (e.getMessage() != null
                             && (e.getMessage().contains("Invalid table id")
                                     || e.getMessage().contains("Refresh meta timeout")
@@ -84,8 +87,13 @@ public class HoloClientException extends Exception {
                                             .contains("mismatches the version of the table")
                                     || e.getMessage().contains("could not open relation with OID")
                                     || e.getMessage().contains("replay not finished yet")
+                                    || e.getMessage().contains("Table version mismatch")
                                     || e.getMessage()
                                             .contains("fail to execute query Table not found")
+                                    || e.getMessage().contains("Table not found, table id")
+                                    || e.getMessage()
+                                            .contains(
+                                                    "Schema version changed during getTableSchema")
                                     || e.getMessage().contains("Table not found, table id")))) {
                 // 维表查询过程中, 在transaction中对维表进行RENAME替换, 会报Table not found, table id
                 // 大量删分区的时, 查表分区是否存在 会报could not open relation with OID

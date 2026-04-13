@@ -1,15 +1,20 @@
 package org.postgresql.jdbc;
 
+import com.alibaba.hologres.client.utils.Tuple;
+
+import java.io.IOException;
 import java.sql.Date;
 import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
 import java.time.temporal.ChronoField;
+import java.util.TimeZone;
 import java.util.concurrent.TimeUnit;
 
 /** TimestampUtil. */
@@ -132,6 +137,31 @@ public class TimestampUtil {
             return new Date(((Number) obj).longValue());
         } else {
             throw new RuntimeException("unsupported type for date " + obj.getClass().getName());
+        }
+    }
+
+    public static Tuple<Long, Integer> timeToMicroOfDay(Object obj, String typeName)
+            throws IOException {
+        long tVal;
+        int timezone;
+        if (obj instanceof java.sql.Time) {
+            java.sql.Time timeObj = (java.sql.Time) obj;
+            LocalTime localTime = timeObj.toLocalTime();
+            long nanos = (timeObj.getTime() % 1000) * 1000000L;
+            localTime = localTime.plusNanos(nanos);
+            tVal = localTime.toNanoOfDay() / 1000;
+            timezone = timeObj.getTimezoneOffset() * 60;
+        } else if (obj instanceof java.time.LocalTime) {
+            java.time.LocalTime localTime = (java.time.LocalTime) obj;
+            tVal = localTime.toNanoOfDay() / 1000;
+            timezone = TimeZone.getDefault().getRawOffset() / -1000;
+        } else {
+            throw new IOException("unsupported class for time : " + obj.getClass().getName());
+        }
+        if (typeName.equals("time")) {
+            return new Tuple<>(tVal, 0);
+        } else {
+            return new Tuple<>(tVal, timezone);
         }
     }
 }

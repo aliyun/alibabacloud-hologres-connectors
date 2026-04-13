@@ -18,6 +18,7 @@ import java.math.RoundingMode;
 import java.nio.charset.Charset;
 import java.sql.Types;
 import java.time.LocalTime;
+import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
 /** shard相关的工具方法. */
@@ -112,19 +113,21 @@ public class ShardUtil {
                 return TimestampUtil.formatDateObject(obj).toLocalDate().toEpochDay();
             case Types.NUMERIC:
             case Types.DECIMAL:
-                // hologres 3.1版本支持decimal类型做分布键
-                BigInteger rescaled =
-                        ((BigDecimal) obj)
-                                .setScale(column.getScale(), RoundingMode.HALF_UP)
-                                .unscaledValue();
-                byte[] tmp = rescaled.toByteArray();
-                if (tmp.length > 16) {
-                    throw new NumberFormatException(obj + " is Too Large to Store!");
+                {
+                    // hologres 3.1版本支持decimal类型做分布键
+                    BigInteger rescaled =
+                            ((BigDecimal) obj)
+                                    .setScale(column.getScale(), RoundingMode.HALF_UP)
+                                    .unscaledValue();
+                    byte[] tmp = rescaled.toByteArray();
+                    if (tmp.length > 16) {
+                        throw new NumberFormatException(obj + " is Too Large to Store!");
+                    }
+                    ArrayUtil.reverse(tmp);
+                    byte[] result = new byte[16];
+                    System.arraycopy(tmp, 0, result, 0, tmp.length);
+                    return result;
                 }
-                ArrayUtil.reverse(tmp);
-                byte[] result = new byte[16];
-                System.arraycopy(tmp, 0, result, 0, tmp.length);
-                return result;
             case Types.TIME:
                 // hologres 3.1版本支持time类型做分布键, timetz不支持
                 if ("time".equals(column.getTypeName())) {
@@ -138,6 +141,23 @@ public class ShardUtil {
                         java.time.LocalTime localTime = (java.time.LocalTime) obj;
                         return localTime.toNanoOfDay() / 1000;
                     }
+                }
+            case Types.OTHER:
+                // hologres 3.2版本起支持uuid类型做分布键
+                if ("uuid".equals(column.getTypeName())) {
+                    UUID uuid = UUID.fromString(String.valueOf(obj));
+                    long msb = uuid.getMostSignificantBits();
+                    long lsb = uuid.getLeastSignificantBits();
+                    byte[] buffer = new byte[16];
+                    // 填充高 8 字节（MSB）
+                    for (int i = 0; i < 8; i++) {
+                        buffer[i] = (byte) (msb >>> (56 - i * 8));
+                    }
+                    // 填充低 8 字节（LSB）
+                    for (int i = 8; i < 16; i++) {
+                        buffer[i] = (byte) (lsb >>> (56 - (i - 8) * 8));
+                    }
+                    return buffer;
                 }
             default:
                 return obj;

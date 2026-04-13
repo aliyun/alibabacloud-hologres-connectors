@@ -52,6 +52,7 @@ public class ConnectionHolder implements Closeable {
     final boolean isEnableAffectedRows;
     final boolean isEnableGenerateBinlog;
     final boolean isEnableLogSlowQuery;
+    final boolean isDisableExpressionGuc;
 
     long lastActiveTs;
     long connCreateTs;
@@ -190,6 +191,7 @@ public class ConnectionHolder implements Closeable {
         this.isEnableAffectedRows = config.isEnableAffectedRows();
         this.isEnableGenerateBinlog = config.isEnableGenerateBinlog();
         this.isEnableLogSlowQuery = config.isEnableLogSlowQuery();
+        this.isDisableExpressionGuc = config.isDisableExpressionGuc();
         lastActiveTs = System.currentTimeMillis();
         this.owner = owner;
         this.connWithVersion = new ConnectionWithVersion();
@@ -236,6 +238,13 @@ public class ConnectionHolder implements Closeable {
                     // default on
                     pre.add("set hg_experimental_display_slow_fixed_query_id = off");
                 }
+                connWithVersion.version = ConnectionUtil.getHoloVersion(conn);
+                if (isDisableExpressionGuc) {
+                    pre.add("set hg_experimental_enable_fixed_plan_expression = off");
+                } else if (connWithVersion.version.compareTo(Expression.SUPPORT_VERSION) >= 0) {
+                    pre.add("set hg_experimental_enable_fixed_plan_expression = on");
+                }
+
                 for (String sql : pre) {
                     try (Statement stat = conn.createStatement()) {
                         stat.execute(sql);
@@ -244,11 +253,7 @@ public class ConnectionHolder implements Closeable {
                         LOGGER.warn("execute preSql fail:{},emsg:{}", sql, e.getMessage());
                     }
                 }
-                connWithVersion.version = ConnectionUtil.getHoloVersion(conn);
                 connWithVersion.backendPid = ConnectionUtil.getBackendPid(conn);
-                if (connWithVersion.version.compareTo(Expression.INSERT_SUPPORT_VERSION) >= 0) {
-                    pre.add("set hg_experimental_enable_fixed_plan_expression = on");
-                }
             } else {
                 Tuple<HoloVersion, PgConnection> tuple =
                         ConnectionUtil.getHoloVersionByFixedFe(

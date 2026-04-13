@@ -47,7 +47,7 @@ public class HoloClientPutExpressionTest extends HoloClientTestBase {
         try (Connection conn = buildConnection();
                 HoloClient client = new HoloClient(config)) {
             HoloVersion version = ConnectionUtil.getHoloVersion(conn);
-            if (version.compareTo(Expression.INSERT_SUPPORT_VERSION) < 0) {
+            if (version.compareTo(Expression.SUPPORT_VERSION) < 0) {
                 return;
             }
             String tableName = "holo_client_put_record_with_expr_negative";
@@ -151,7 +151,7 @@ public class HoloClientPutExpressionTest extends HoloClientTestBase {
                         client.put(put);
                     });
 
-            if (version.compareTo(Expression.DELETE_SUPPORT_VERSION) < 0) {
+            if (version.compareTo(Expression.SUPPORT_VERSION) < 0) {
                 return;
             }
             // delete 传入了confictUpdateSet
@@ -195,7 +195,7 @@ public class HoloClientPutExpressionTest extends HoloClientTestBase {
         try (Connection conn = buildConnection();
                 HoloClient client = new HoloClient(config)) {
             HoloVersion version = ConnectionUtil.getHoloVersion(conn);
-            if (version.compareTo(Expression.INSERT_SUPPORT_VERSION) < 0) {
+            if (version.compareTo(Expression.SUPPORT_VERSION) < 0) {
                 return;
             }
             String tableName = "holo_client_put_record_with_expr_negative_001";
@@ -289,7 +289,7 @@ public class HoloClientPutExpressionTest extends HoloClientTestBase {
         try (Connection conn = buildConnection();
                 HoloClient client = new HoloClient(config)) {
             HoloVersion version = ConnectionUtil.getHoloVersion(conn);
-            if (version.compareTo(Expression.DELETE_SUPPORT_VERSION) < 0) {
+            if (version.compareTo(Expression.SUPPORT_VERSION) < 0) {
                 return;
             }
             String tableName = "holo_client_put_record_with_expr_negative_002";

@@ -697,11 +697,11 @@ public class UpsertStatementBuilder {
         Expression expression = null;
         if (r instanceof RecordWithExpression) {
             expression = ((RecordWithExpression) r).getExpression();
-            if (!Expression.isVersionSupport(version, Put.MutationType.INSERT)) {
+            if (!Expression.isVersionSupport(version)) {
                 throw new SQLException(
                         String.format(
                                 "Insert RecordWithExpression is supported after holo version %s",
-                                Expression.INSERT_SUPPORT_VERSION));
+                                Expression.SUPPORT_VERSION));
             }
         }
         SqlTemplate sql =
@@ -830,11 +830,11 @@ public class UpsertStatementBuilder {
         Expression expression = null;
         if (r instanceof RecordWithExpression) {
             expression = ((RecordWithExpression) r).getExpression();
-            if (!Expression.isVersionSupport(version, Put.MutationType.DELETE)) {
+            if (!Expression.isVersionSupport(version)) {
                 throw new SQLException(
                         String.format(
-                                "Insert RecordWithExpression is supported after holo version %s",
-                                Expression.DELETE_SUPPORT_VERSION));
+                                "Delete RecordWithExpression is supported after holo version %s",
+                                Expression.SUPPORT_VERSION));
             }
         }
         SqlTemplate sql =

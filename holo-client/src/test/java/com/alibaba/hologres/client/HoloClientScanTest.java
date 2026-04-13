@@ -192,6 +192,53 @@ public class HoloClientScanTest extends HoloClientTestBase {
                     }
                     Assert.assertEquals(count, 3);
                 }
+
+                try (RecordScanner scanner =
+                        client.scan(
+                                Scan.newBuilder(schema)
+                                        .setSortKeys(SortKeys.NONE)
+                                        .addEqualFilter("pk1", 1)
+                                        .addEqualFilter("pk2", 2)
+                                        .addEqualFilter("pk3", 3)
+                                        .addRangeFilter("pk4", 0, 3, false, true)
+                                        .build())) {
+                    int count = 1;
+                    while (scanner.next()) {
+                        Record r = scanner.getRecord();
+                        Assert.assertEquals(1, r.getObject("pk1"));
+                        Assert.assertEquals(2, r.getObject("pk2"));
+                        Assert.assertEquals(3, r.getObject("pk3"));
+                        Assert.assertEquals(count, r.getObject("pk4"));
+                        Assert.assertEquals("name0", r.getObject("name"));
+                        Assert.assertEquals("address0", r.getObject("address"));
+                        ++count;
+                    }
+                    Assert.assertEquals(count, 4);
+                }
+
+                try (RecordScanner scanner =
+                        client.scan(
+                                Scan.newBuilder(schema)
+                                        .setSortKeys(SortKeys.NONE)
+                                        .addEqualFilter("pk1", 1)
+                                        .addEqualFilter("pk2", 2)
+                                        .addEqualFilter("pk3", 3)
+                                        .addRangeFilter("pk4", null, 3)
+                                        .build())) {
+                    int count = 0;
+                    while (scanner.next()) {
+                        Record r = scanner.getRecord();
+                        Assert.assertEquals(1, r.getObject("pk1"));
+                        Assert.assertEquals(2, r.getObject("pk2"));
+                        Assert.assertEquals(3, r.getObject("pk3"));
+                        Assert.assertEquals(count, r.getObject("pk4"));
+                        Assert.assertEquals("name0", r.getObject("name"));
+                        Assert.assertEquals("address0", r.getObject("address"));
+                        ++count;
+                    }
+                    Assert.assertEquals(count, 3);
+                }
+
             } finally {
                 execute(conn, new String[] {dropSql});
             }

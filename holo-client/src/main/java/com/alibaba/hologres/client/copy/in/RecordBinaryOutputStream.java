@@ -7,6 +7,7 @@ package com.alibaba.hologres.client.copy.in;
 import com.alibaba.hologres.client.model.Column;
 import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.model.TableSchema;
+import com.alibaba.hologres.client.utils.Tuple;
 import org.postgresql.core.BaseConnection;
 import org.postgresql.jdbc.ArrayUtil;
 import org.postgresql.jdbc.TimestampUtil;
@@ -19,8 +20,6 @@ import java.sql.Array;
 import java.sql.Date;
 import java.sql.SQLException;
 import java.sql.Types;
-import java.time.LocalTime;
-import java.util.TimeZone;
 
 /** Record转pg binary流. */
 public class RecordBinaryOutputStream extends RecordOutputStream {
@@ -199,23 +198,9 @@ public class RecordBinaryOutputStream extends RecordOutputStream {
             case Types.TIME:
             case Types.TIME_WITH_TIMEZONE:
                 {
-                    long tVal;
-                    int timezone;
-                    if (obj instanceof java.sql.Time) {
-                        java.sql.Time timeObj = (java.sql.Time) obj;
-                        LocalTime localTime = timeObj.toLocalTime();
-                        long nanos = (timeObj.getTime() % 1000) * 1000000L;
-                        localTime = localTime.plusNanos(nanos);
-                        tVal = localTime.toNanoOfDay() / 1000;
-                        timezone = timeObj.getTimezoneOffset() * 60;
-                    } else if (obj instanceof java.time.LocalTime) {
-                        java.time.LocalTime localTime = (java.time.LocalTime) obj;
-                        tVal = localTime.toNanoOfDay() / 1000;
-                        timezone = TimeZone.getDefault().getRawOffset() / -1000;
-                    } else {
-                        throw new IOException(
-                                "unsupported class for time : " + obj.getClass().getName());
-                    }
+                    Tuple<Long, Integer> tuple = TimestampUtil.timeToMicroOfDay(obj, typeName);
+                    long tVal = tuple.l;
+                    int timezone = tuple.r;
                     if (column.getTypeName().equals("time")) {
                         writeInt(8);
                         writeLong(tVal);

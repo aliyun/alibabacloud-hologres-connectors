@@ -7,6 +7,7 @@ import com.alibaba.hologres.client.model.Column;
 import com.alibaba.hologres.client.model.OnConflictAction;
 import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.model.TableSchema;
+import com.alibaba.hologres.client.utils.RateLimiter;
 
 import java.io.IOException;
 import java.sql.Connection;
@@ -17,11 +18,12 @@ import java.util.stream.Collectors;
 
 public class CopyInWrapper implements AutoCloseable {
     private final CopyInContext context;
+    private RateLimiter rateLimiter;
 
     /** copy in 指定的部分字段. */
     public CopyInWrapper(
             Connection conn,
-            String tableName,
+            TableSchema schema,
             List<String> columns,
             CopyFormat copyFormat,
             CopyMode copyMode,
@@ -30,7 +32,7 @@ public class CopyInWrapper implements AutoCloseable {
         this.context =
                 new CopyInContext(
                         conn,
-                        tableName,
+                        schema,
                         columns,
                         copyFormat,
                         copyMode,
@@ -48,7 +50,7 @@ public class CopyInWrapper implements AutoCloseable {
             int maxCellBufferSize) {
         this(
                 conn,
-                schema.getTableNameObj().getFullName(),
+                schema,
                 Arrays.stream(schema.getColumnSchema())
                         .map(Column::getName)
                         .collect(Collectors.toList()),
@@ -76,7 +78,7 @@ public class CopyInWrapper implements AutoCloseable {
         this.context =
                 new CopyInContext(
                         conn,
-                        record.getSchema().getTableNameObj().getFullName(),
+                        record.getSchema(),
                         columns,
                         copyFormat,
                         copyMode,
@@ -89,6 +91,15 @@ public class CopyInWrapper implements AutoCloseable {
     }
 
     public void putRecord(Record record) throws IOException {
+        // Acquire rate limit token before processing
+        if (rateLimiter != null) {
+            try {
+                rateLimiter.acquire();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IOException("InterruptedException: " + e.getMessage(), e);
+            }
+        }
         // insert or replace 模式下，需要将 record 没有设置的字段设置为 null或者默认值
         if (context.getOnConflictAction() == OnConflictAction.INSERT_OR_REPLACE) {
             CopyUtil.prepareRecordForCopy(record, context.getColumns(), true, null);
@@ -130,6 +141,19 @@ public class CopyInWrapper implements AutoCloseable {
                 }
             }
         }
+    }
+
+    public void setEnableCheckSchemaVersion(boolean enableCheckSchemaVersion) {
+        this.context.setEnableCheckSchemaVersion(enableCheckSchemaVersion);
+    }
+
+    /**
+     * Set the rate limiter for controlling write throughput.
+     *
+     * @param rateLimiter the rate limiter to use, or null to disable rate limiting
+     */
+    public void setRateLimiter(RateLimiter rateLimiter) {
+        this.rateLimiter = rateLimiter;
     }
 
     public void flush() throws IOException {

@@ -89,7 +89,7 @@ public class HoloClientCheckAndPutTest extends HoloClientTestBase {
                     });
 
             assertThrowsWithMessage(
-                    HoloClientWithDetailsException.class,
+                    IllegalArgumentException.class,
                     "checkColumn not_exist_column is not exists in table",
                     () -> {
                         CheckAndPut put =
@@ -521,6 +521,8 @@ public class HoloClientCheckAndPutTest extends HoloClientTestBase {
         config.setWriteThreadSize(1);
         config.setOnConflictAction(OnConflictAction.INSERT_OR_REPLACE);
         config.setForceFlushInterval(100000);
+        config.setDisableExpressionGuc(true);
+        config.setUseFixedFe(false);
 
         try (Connection conn = buildConnection();
                 HoloClient client = new HoloClient(config)) {
@@ -1981,7 +1983,8 @@ public class HoloClientCheckAndPutTest extends HoloClientTestBase {
             return;
         }
         HoloConfig config = buildConfig();
-        config.setUseFixedFe(true);
+        config.setUseFixedFe(false);
+        config.setDisableExpressionGuc(true);
         try (Connection conn = buildConnection();
                 HoloClient client = new HoloClient(config)) {
             String tableName = "holo_client_check_and_put_is_null_002";
@@ -2090,7 +2093,8 @@ public class HoloClientCheckAndPutTest extends HoloClientTestBase {
             return;
         }
         HoloConfig config = buildConfig();
-        config.setUseFixedFe(true);
+        config.setUseFixedFe(false);
+        config.setDisableExpressionGuc(true);
         try (Connection conn = buildConnection();
                 HoloClient client = new HoloClient(config)) {
             String tableName = "holo_client_check_and_put_is_not_null_002";
@@ -2331,6 +2335,8 @@ public class HoloClientCheckAndPutTest extends HoloClientTestBase {
         }
         String typeName = typeCaseData.getName();
         HoloConfig config = buildConfig();
+        config.setUseFixedFe(false);
+        config.setDisableExpressionGuc(true);
         // json, jsonb not support compare
         // array type could not use fixed plan
         if (typeName.equals("roaringbitmap")

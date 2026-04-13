@@ -36,7 +36,9 @@ import com.alibaba.hologres.client.model.checkandput.CheckAndPutCondition;
 import com.alibaba.hologres.client.model.checkandput.CheckAndPutRecord;
 import com.alibaba.hologres.client.model.checkandput.CheckCompareOp;
 import com.alibaba.hologres.client.model.expression.RecordWithExpression;
+import com.alibaba.hologres.client.utils.CommonUtil;
 import com.alibaba.hologres.client.utils.PartitionUtil;
+import com.alibaba.hologres.client.utils.RateLimiter;
 import com.alibaba.hologres.client.utils.Tuple;
 import org.postgresql.jdbc.TimestampUtil;
 import org.slf4j.Logger;
@@ -96,6 +98,7 @@ public class HoloClient implements Closeable {
         DriverManager.getDrivers();
     }
 
+    private final AtomicBoolean closing = new AtomicBoolean(false);
     private ActionCollector collector;
 
     /** 是否使用fixed fe. 开启的话会创建fixed pool，用于执行点查、写入以及prefix scan. */
@@ -105,6 +108,7 @@ public class HoloClient implements Closeable {
 
     private ExecutionPool pool = null;
     private final HoloConfig config;
+    private RateLimiter rateLimiter;
 
     /**
      * 在AsyncCommit为true，调用put方法时，当记录数>=writeBatchSize 或 总记录字节数数>=writeBatchByteSize 调用flush进行提交.
@@ -122,21 +126,14 @@ public class HoloClient implements Closeable {
     boolean isEmbeddedFixedPool = false;
 
     public HoloClient(HoloConfig config) throws HoloClientException {
-        try {
-            DriverManager.getDrivers();
-            Class.forName("com.alibaba.hologres.org.postgresql.Driver");
-            isShadingEnv = true;
-        } catch (Exception e) {
-            try {
-                DriverManager.getDrivers();
-                Class.forName("org.postgresql.Driver");
-            } catch (Exception e2) {
-                throw new HoloClientException(ExceptionCode.INTERNAL_ERROR, "load driver fail", e);
-            }
-        }
+        isShadingEnv = CommonUtil.detectShadingEnvironment();
         checkConfig(config);
         this.config = config;
         this.useFixedFe = config.isUseFixedFe();
+        // Initialize rate limiter if writeRps is configured
+        if (config.getWriteRps() > 0) {
+            this.rateLimiter = new RateLimiter(config.getWriteRps());
+        }
     }
 
     private void checkConfig(HoloConfig config) throws HoloClientException {
@@ -304,7 +301,7 @@ public class HoloClient implements Closeable {
                     "CheckAndPut not supports writeMode insertOrIgnore.");
         }
         CheckAndPutRecord record = put.getRecord();
-        String checkColumnName = record.getCheckAndPutCondition().getCheckColumnName();
+        String checkColumnName = record.getCheckAndPutCondition().getCheckColumn().getName();
         CheckCompareOp checkOp = record.getCheckAndPutCondition().getCheckOp();
         Object checkValue = record.getCheckAndPutCondition().getCheckValue();
         Object nullValue = record.getCheckAndPutCondition().getNullValue();
@@ -317,11 +314,6 @@ public class HoloClient implements Closeable {
                             + " is not exists in table "
                             + put.getRecord().getSchema().getTableNameObj().getFullName(),
                     put.getRecord());
-        } else {
-            // CheckAndPutCondition 可能是通过columnName初始化的
-            put.getRecord()
-                    .getCheckAndPutCondition()
-                    .setCheckColumn(record.getSchema().getColumn(checkColumnIndex));
         }
 
         if (checkOp == CheckCompareOp.IS_NULL || checkOp == CheckCompareOp.IS_NOT_NULL) {
@@ -447,7 +439,7 @@ public class HoloClient implements Closeable {
 
     private ScanAction doScan(Scan scan) throws HoloClientException {
         ensurePoolOpen();
-        ScanAction action = new ScanAction(scan);
+        ScanAction action = new ScanAction(scan, closing);
         ExecutionPool execPool = getExecPool();
         while (!execPool.submit(action)) {}
 
@@ -613,6 +605,15 @@ public class HoloClient implements Closeable {
         ensurePoolOpen();
         tryThrowException();
         checkPut(put, config.getOnConflictAction());
+        // Acquire rate limit token before processing
+        if (rateLimiter != null) {
+            try {
+                rateLimiter.acquire();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new HoloClientException(ExceptionCode.INTERRUPTED, e.getMessage(), e);
+            }
+        }
         ExecutionPool execPool = getExecPool();
         if (!rewriteForPartitionTable(
                 put.getRecord(),
@@ -640,6 +641,15 @@ public class HoloClient implements Closeable {
         ensurePoolOpen();
         tryThrowException();
         checkPut(put, config.getOnConflictAction());
+        // Acquire rate limit token before processing
+        if (rateLimiter != null) {
+            try {
+                rateLimiter.acquire();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new HoloClientException(ExceptionCode.INTERRUPTED, e.getMessage(), e);
+            }
+        }
         CompletableFuture<Void> ret = new CompletableFuture<>();
         if (!rewriteForPartitionTable(
                 put.getRecord(),
@@ -748,6 +758,15 @@ public class HoloClient implements Closeable {
         ensurePoolOpen();
         tryThrowException();
         checkCheckAndPut(put);
+        // Acquire rate limit token before processing
+        if (rateLimiter != null) {
+            try {
+                rateLimiter.acquire();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new HoloClientException(ExceptionCode.INTERRUPTED, e.getMessage(), e);
+            }
+        }
         final CheckAndPutRecord record = put.getRecord();
 
         ExecutionPool execPool = useFixedFe ? fixedPool : pool;
@@ -1384,7 +1403,13 @@ public class HoloClient implements Closeable {
         this.asyncCommit = asyncCommit;
     }
 
+    public boolean isClosing() {
+        return closing.get();
+    }
+
     private void closeInternal() throws HoloClientException {
+        LOGGER.info("HoloClient {} is closing", this);
+        closing.set(true);
         HoloClientException exception = null;
         if (pool != null && pool.isRegister(this)) {
             try {

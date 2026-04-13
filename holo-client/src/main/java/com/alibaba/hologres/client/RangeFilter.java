@@ -9,11 +9,16 @@ public class RangeFilter implements Filter {
     int index;
     Object start;
     Object stop;
+    boolean isStartInclude = true;
+    boolean isStopInclude = false;
 
-    public RangeFilter(int index, Object start, Object stop) {
+    public RangeFilter(
+            int index, Object start, Object stop, boolean isStartInclude, boolean isStopInclude) {
         this.index = index;
         this.start = start;
         this.stop = stop;
+        this.isStartInclude = isStartInclude;
+        this.isStopInclude = isStopInclude;
     }
 
     public int getIndex() {
@@ -26,5 +31,13 @@ public class RangeFilter implements Filter {
 
     public Object getStop() {
         return stop;
+    }
+
+    public boolean isStartInclude() {
+        return isStartInclude;
+    }
+
+    public boolean isStopInclude() {
+        return isStopInclude;
     }
 }

@@ -11,9 +11,10 @@
     - [局部更新主键表](#局部更新主键表)
     - [基于主键删除（DELETE占比提高会降低整体的每秒写入）](#基于主键删除delete占比提高会降低整体的每秒写入)
     - [Checkandput写入](#checkandput-写入)
-  - [fixed copy](#fixed-copy)
+  - [copy写入](#copy写入)
     - [fixed copy写入普通表](#fixed-copy写入普通表)
     - [fixed copy写入分区表](#fixed-copy写入分区表)
+    - [通过Stage写入](#通过stage写入)
   - [数据查询](#数据查询)
     - [基于完整主键查询](#基于完整主键查询)
     - [Scan查询](#scan查询)
@@ -60,13 +61,13 @@ select count(*) from pg_stat_activity where backend_type='client backend';
 <dependency>
   <groupId>com.alibaba.hologres</groupId>
   <artifactId>holo-client</artifactId>
-  <version>2.6.3</version>
+  <version>2.7.1</version>
 </dependency>
 ```
 
 - Gradle
 ```
-implementation 'com.alibaba.hologres:holo-client:2.6.3'
+implementation 'com.alibaba.hologres:holo-client:2.7.1'
 ```
 
 ## 连接数说明
@@ -241,7 +242,7 @@ try (HoloClient client = new HoloClient(config)) {
 }
 ```
 
-## fixed copy
+## copy写入
 fixed copy为hologres1.3.x 引入.
 fixed copy与HoloClient.put，以及普通copy的差异如下：
 
@@ -336,6 +337,133 @@ public class CopyDemo {
 
 ### fixed copy写入分区表
 Hologres 3.1版本起,fixed copy支持写入分区父表.
+
+### 通过Stage写入
+Holo-Client 2.7.0 版本起支持通过 `CopyInStageWrapper` 将数据以 Arrow 格式写入 Hologres 内部 Stage，再通过生成的 INSERT 语句将数据从 Stage 加载到目标表。
+该方式适合需要先暂存再批量导入的场景，支持 INSERT_OR_UPDATE / INSERT_OR_IGNORE 等主键冲突策略，数据在 INSERT 执行前不可见，具有普通 copy 的原子性。
+
+```java
+import com.alibaba.hologres.client.HoloClient;
+import com.alibaba.hologres.client.HoloConfig;
+import com.alibaba.hologres.client.Put;
+import com.alibaba.hologres.client.copy.CopyUtil;
+import com.alibaba.hologres.client.copy.in.CopyInStageWrapper;
+import com.alibaba.hologres.client.copy.in.arrow.RecordArrowWriter;
+import com.alibaba.hologres.client.model.OnConflictAction;
+import com.alibaba.hologres.client.model.TableSchema;
+
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
+public class CopyStageDemo {
+
+    public static void main(String[] args) throws Exception {
+        // 注意：jdbcUrl需使用jdbc:hologres协议
+        String jdbcUrl = "jdbc:hologres://host:port/db";
+        String username = "";
+        String password = "";
+
+        /*
+        CREATE TABLE copy_stage_demo (id INT NOT NULL, name TEXT NOT NULL, address TEXT, PRIMARY KEY(id));
+        */
+        String tableName = "copy_stage_demo";
+
+        HoloConfig config = new HoloConfig();
+        config.setJdbcUrl(jdbcUrl);
+        config.setUsername(username);
+        config.setPassword(password);
+        config.setRegion("local");
+
+        // 创建临时Stage名称
+        String stageName = "temp_stage_" + System.currentTimeMillis();
+
+        try (Connection conn = DriverManager.getConnection(jdbcUrl, username, password);
+             HoloClient client = new HoloClient(config)) {
+
+            // 创建内部Stage，TTL为7200秒（2小时），超时后自动清理
+            String createStageSql =
+                    "call hologres.hg_create_internal_stage('"
+                            + stageName
+                            + "', 'default_group', 7200);";
+            try (java.sql.Statement stmt = conn.createStatement()) {
+                stmt.execute(createStageSql);
+            }
+
+            // 获取表结构
+            TableSchema schema = client.getTableSchema(tableName);
+
+            // 定义要写入的列
+            List<String> columns = new ArrayList<>();
+            columns.add("id");
+            columns.add("name");
+            columns.add("address");
+
+            // 使用RecordArrowWriter和CopyInStageWrapper写入数据到Stage
+            try (RecordArrowWriter arrowWriter =
+                         new RecordArrowWriter(
+                                 schema,
+                                 columns,
+                                 8192 // maxBatchSize，每8192行数据组成一个Arrow RecordBatch
+                         );
+                 CopyInStageWrapper<com.alibaba.hologres.client.model.Record> copyInStage =
+                         new CopyInStageWrapper<>(
+                                 config,
+                                 stageName,
+                                 "data_file", // 文件名前缀
+                                 arrowWriter,
+                                 64 * 1024 * 1024 // fileSizeLimit，每个文件大小64 MB
+                         )) {
+
+                for (int i = 0; i < 10; ++i) {
+                    Put put = new Put(schema);
+                    // 字段顺序须与columns保持一致
+                    put.setObject("id", i);
+                    put.setObject("name", "name" + i);
+                    put.setObject("address", "address" + i);
+
+                    copyInStage.putRecord(put.getRecord());
+                }
+                // 程序结束之前需要调用close，保证数据完全写入
+                // demo使用了try-with-resources，无需手动close
+                // copyInStage.close();
+            }
+
+            // 生成从Stage写入目标表的INSERT语句，并执行
+            String insertSql =
+                    CopyUtil.buildInsertTableSelectFromStageSql(
+                            schema,
+                            columns,
+                            Collections.singletonList(stageName),
+                            OnConflictAction.INSERT_OR_UPDATE);
+            try (java.sql.Statement stmt = conn.createStatement()) {
+                stmt.execute(insertSql);
+            }
+
+            // 验证写入结果
+            try (java.sql.Statement stmt = conn.createStatement();
+                 java.sql.ResultSet rs = stmt.executeQuery("select * from " + tableName)) {
+                while (rs.next()) {
+                    System.out.println(
+                            "id: " + rs.getInt(1)
+                            + ", name: " + rs.getString(2)
+                            + ", address: " + rs.getString(3));
+                }
+            }
+        } finally {
+            // 清理临时Stage（不清理也会根据TTL自动清理）
+            try (Connection conn = DriverManager.getConnection(jdbcUrl, username, password);
+                 java.sql.Statement stmt = conn.createStatement()) {
+                stmt.execute("call hologres.hg_drop_internal_stage('" + stageName + "');");
+            } catch (Exception e) {
+                System.err.println("清理Stage时出错: " + e.getMessage());
+            }
+        }
+    }
+}
+```
 
 ## 数据查询
 ### 基于完整主键查询
@@ -773,49 +901,30 @@ unnest格式相比multi values有如下优点:
 - binlog消费时，存在内存泄露问题，bug引入版本2.1.0，bug修复版本2.2.10
 - 分区表drop column之后，自动创建子分区时，可能拿到错误的分区值，bug引入版本1.X，bug修复版本2.2.11
 - 当用户表名中有下划线时，可能获取到错误的字段信息，bug引入版本1.X，bug修复版本2.2.12
-- 当用户的JVM时区不是UTC时，可能会导致V4认证签名计算错误，从而导致登录认证失败，例如客户端时区为+8时，每日00:00-08:00的新建都会连接失败。bug引入版本2.6.0，bug修复版本2.6.1
-- 当写入分区父表同时有DELETE和INSERT数据，由于攒批去重逻辑问题，可能导致数据被DELETE之后没有插入从而丢失数据。bug引入版本2.6.2，bug修复版本2.6.6
-- 如果主键有Decimal类型，在客户端计算shard过程中会发生NPE。bug引入版本2.6.1，bug修复版本2.6.7
 
+## Release Note
 
-## ReleaseNote
-- 2.4.0
-  - 新建连接时会设置LOGIN_TIMEOUT为60S，之前未设置
-  - 对实例只读状态的报错增加重试
-  - 修复binlog读取timestamp类型微秒精度丢失
-  - table schema发生变化时,会强制flush
-  - 支持设置连接最大存活时间，默认为24h
-  - 支持激进模式，开启后如果连接空闲，不等攒批满就触发flush，在流量小时可以降低写入延迟
-  - 查询非utf8字符不抛出异常
-- 2.4.1
-  - 丰富脏数据,提高异常信息的可读性
-- 2.4.2
-  - 支持checkandput接口,仅在数据满足条件时，才进行写入
-  - 进行连接池复用时,会根据新的HoloConfig往大了更新连接池的线程数
-- 2.5.0
-  - pgjdbc 更新到42.2.26.2，解决消费binlog时吞异常导致的unexpected type问题
-  - 当连接的host对应多个ip时，支持load balance
-  - worker poo复用死锁问题，2.4.2修复不彻底，再次调整
-- 2.5.4
-  - pgjdbc 更新到42.3.10
-  - binlog 消费支持分区父表
-  - 修复 scan 操作通过 clustering key 排序不生效的问题
-  - copy 模式支持 time，timetz 类型；
-  - 新增 copyMode，分为 STREAM，BULK_LOAD, BULK_LOAD_ON_CONFLICT
-- 2.5.6
-  — 支持消费逻辑分区表
-  - Hologres3.1版本起, 轻量级连接fixed支持直连
-- 2.5.7
-  - holo-client在query执行耗时超过阈值时，会在日志中打印慢query的queryid
-  - 支持copy out通过arrow格式批量导出,可以选择数据压缩
-- 2.6.1
-  - 支持AKv4认证,默认开启
-  - 连接最大存活时间调整为1小时,会在连接空闲时自动重建连接
-  - Hologres3.2版本起,消费binlog支持列裁剪以及数据压缩
-- 2.6.7
-  - 修复copy写入在夏令时时区时间偏移的问题
-  - 修复非Asia/Shanghai时区在消费binlog指定startTime，启动时间不符合预期的问题
-  - copy接口优化，可以使用CopyInWrapper和CopyOutWrapper接口写入或读取
+| 版本 | 新功能 | 缺陷修复 |
+| --- | --- | --- |
+| 2.4.0 | • 新建连接时会设置 LOGIN_TIMEOUT 为 60s<br>• 对实例只读状态的报错增加重试<br>• table schema 发生变化时，会强制 flush<br>• 支持设置连接最大存活时间，默认为 24h<br>• 支持激进模式，开启后如果连接空闲，不等攒批满就触发 flush，在流量小时可以降低写入延迟 | • 修复 binlog 读取 timestamp 类型微秒精度丢失的问题<br>• 修复查询含非 utf8 字符时抛出异常的问题 |
+| 2.4.1 | • 丰富脏数据信息，提高异常信息的可读性 | |
+| 2.4.2 | • 支持 checkandput 接口，仅在数据满足条件时才进行写入<br>• 连接池复用时，会根据新的 HoloConfig 往大了更新连接池的线程数 | |
+| 2.5.0 | • 当连接的 host 对应多个 ip 时，支持 load balance | • 升级 pgjdbc 到 42.2.26.2，修复消费 binlog 时吞异常导致的 unexpected type 问题<br>• 修复 worker pool 复用死锁问题（2.4.2 修复不彻底，再次调整） |
+| 2.5.4 | • 升级 pgjdbc 到 42.3.10<br>• binlog 消费支持分区父表<br>• copy 模式支持 time、timetz 类型<br>• 新增 copyMode，分为 STREAM、BULK_LOAD、BULK_LOAD_ON_CONFLICT | • 修复 scan 操作通过 clustering key 排序不生效的问题 |
+| 2.6.3 | • 支持 copy out 批量导出，支持对结果进行压缩<br>• Hologres 3.1 版本起，轻量级连接 fixed 支持直连<br>• 支持 AKv4 认证，默认开启<br>• 连接最大存活时间调整为 1 小时，会在连接空闲时自动重建连接<br>• Hologres 3.2 版本起，消费 binlog 支持列裁剪以及数据压缩<br>• Put 接口写入分区表时，默认直接写入父表 | |
+| 2.6.4 | • copy out（CopyOutWrapper）支持 arrow 格式读取 jsonb 类型<br>• copy 接口优化：简化 CopyInWrapper/CopyOutWrapper 的构造方式 | • 修复 copy out arrow 格式处理 const array 的问题<br>• 修复读写时 TimeZone 未考虑夏令时（getRawOffset）导致时区偏移不准确的问题 |
+| 2.6.6 | • 消费 Binlog 时支持传入带时区的 startTime，确保不受客户端时区影响<br>• 升级 pgjdbc 到 42.3.10.2，fixed fe 模式下支持读写 jsonb 类型 | |
+| 2.6.7 | | • 修复 decimal 类型的 distribution key 计算 shard 时报错的问题 |
+| 2.6.9 | • 支持 Binlog Filter 功能，可在消费时对 Binlog 进行过滤<br>• BinlogFilter 支持序列化<br>• date 类型写入数据及创建分区时同时支持 YYYYMMDD 和 YYYY-MM-DD 两种格式<br>• 连接信息中包含 backend pid，方便排查问题 | |
+| 2.6.11 | • fixed copy（CopyInWrapper）增加对 binaryrow format 下 jsonb 类型的支持<br>• copy 支持所有 format 可通过传入 schema version 让服务端进行严格一致性检查<br>• copy 写入性能优化：binaryrow 直接写入 copy cellBuffer，减少一次内存申请和拷贝<br>• 消费 Binlog 支持设置可选参数 consumerGroup<br>• Put 接口支持表达式写入（conflictUpdateSet / conflictWhere），可在 on conflict 时执行自定义表达式<br>• CopyInWrapper 支持通过字段名（而非下标）设置字段值，内部自动按 schema 顺序排列<br>• 写入部分列时，不包含 default 字段的场景也可以走 unnest 高性能写入路径<br>• 轻量级连接直连 URL 去掉 warehouse 和多余参数<br>• 去除 binaryrow format 客户端对 text/char/bpchar 类型的冗余检查 | |
+| 2.6.12 | | • 修复 Scan 查询时 rangeFilter start 为 null 时 SQL 拼写错误的问题<br>• 升级依赖版本，修复 CVE 漏洞 |
+| 2.6.13 | • Scan 查询 addRangeFilter 支持指定 start/end key 的开闭区间（isStartInclude/isEndInclude 参数） | |
+| 2.6.14 | | • 修复 worker 关闭时未停止 scanner 导致资源泄漏的问题<br>• 升级依赖版本，修复 CVE 漏洞 |
+| 2.6.15 | • 增加关闭表达式 GUC 开关，insert 表达式支持版本调整为 Hologres 4.0+<br>• holo-client 关闭时，其发起的 scanner 也强制关闭<br>• 优化 PK 重复引起的攒批逻辑，不再触发无意义的 resize，并增加攒批不满原因的 debug 日志<br>• CheckAndPut 去掉通过列名构造的构造函数，接口更简洁 | |
+| 2.6.17 | • copy out（CopyOutWrapper）支持传入 schema，可按需读取指定列<br>• TableSchema 新增透出 global index 信息<br>• GetTableSchema 优化：获取前后的 schemaVersion 一致性校验，避免频繁 DDL 时字段和 schemaVersion 对不上 | • 修复消费 Binlog 时，部分列场景下 null 值 index 设置错误导致错列的问题<br>• 修复 fatal 异常时 worker 无法正常关闭问题：worker 现在会继续运行并将后续积压的 action 都标记为失败，避免 HoloClient 无法关闭 |
+| 2.7.0 | • 新增 CopyInStageWrapper，支持通过 fixed copy 将数据写入 Stage（外部存储），并提供生成 INSERT 语句的工具方法<br>• Arrow 依赖版本升级到 17.0，并对 copy out 相关实现进行适配 | • 修复获取 index 信息时意外抛出异常的问题，改为返回空列表 |
+| 2.7.1 | • insert overwrite stage 支持写入部分列<br>• 支持写入限流：新增 `writeRps` 参数，可限制每秒最多写入的记录数，同时作用于 HoloClient.put 和 fixed copy 写入 | |
+| 2.7.2 | • COPY CSV 的 NULLSTRING 支持使用\N<br>• 优化 COPY STAGE 链路，避免频繁创建对象 | |
 
 ## 附录
 ### HoloConfig参数说明
@@ -861,6 +970,7 @@ unnest格式相比multi values有如下优点:
 | enableGenerateBinlog                  | true                       | 关闭时，通过当前holo-client写入的数据不会生成binlog                                                                                                                              | 2.2.11   |
 | enableDeduplication                   | true                       | 写入时是否对攒批数据做去重，设置为false表示不会去重，如果数据重复非常严重，性能最差相当于writeBatchSize设置为1的逐条写入.                                                                                         | 2.3.0    |
 | enableAggressive                      | false                      | 写入激进模式，开启后如果连接空闲，不等攒批满就会触发flush，在流量小时可以降低写入延迟.                                                                                                                  | 2.4.0    |
+| writeRps                              | -1                         | 写入限流，每秒最多写入的记录数（rows per second）。-1 表示不限流，同时对 HoloClient.put 和 fixed copy（CopyInWrapper/CopyInStageWrapper）写入生效.                                                    | 2.7.1    |
 
 #### 查询配置
 | 参数名 | 默认值 | 说明 |引入版本| 

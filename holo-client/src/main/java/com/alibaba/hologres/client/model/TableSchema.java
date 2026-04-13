@@ -57,6 +57,11 @@ public class TableSchema implements Serializable {
             return this;
         }
 
+        public Builder setGlobalIndexs(GlobalIndex[] globalIndexs) {
+            tableSchema.globalIndexs = globalIndexs;
+            return this;
+        }
+
         public void setComment(String comment) {
             tableSchema.comment = comment;
         }
@@ -156,6 +161,7 @@ public class TableSchema implements Serializable {
     String schemaVersion;
     TableName tableName;
     Column[] columns;
+    GlobalIndex[] globalIndexs;
 
     // --------table_property---------------
     String[] distributionKeys;
@@ -322,6 +328,10 @@ public class TableSchema implements Serializable {
         return isLogicalPartitionedTable;
     }
 
+    public GlobalIndex[] getGlobalIndexs() {
+        return globalIndexs;
+    }
+
     public TableName getTableNameObj() {
         return tableName;
     }
@@ -449,6 +459,19 @@ public class TableSchema implements Serializable {
 
     @Override
     public String toString() {
+        String globalIndexInfo = "";
+        boolean hasGlobalIndex = globalIndexs != null && globalIndexs.length > 0;
+        if (hasGlobalIndex) {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < globalIndexs.length; i++) {
+                sb.append(globalIndexs[i].toString());
+                if (i != globalIndexs.length - 1) {
+                    sb.append(",");
+                }
+                sb.append("\n");
+            }
+            globalIndexInfo = sb.toString();
+        }
         return "TableSchema{"
                 + "\ntableId='"
                 + tableId
@@ -475,6 +498,7 @@ public class TableSchema implements Serializable {
                 + ", \ncolumns="
                 + Arrays.toString(columns)
                 + (autoPartitioning.isEnable() ? ", \nautoPartitioning=" + autoPartitioning : "")
+                + (hasGlobalIndex ? ", \nglobalIndexInfo=[" + globalIndexInfo + "]" : "")
                 + '}';
     }
 }

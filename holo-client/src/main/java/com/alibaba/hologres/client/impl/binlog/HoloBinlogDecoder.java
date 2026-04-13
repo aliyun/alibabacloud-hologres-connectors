@@ -239,7 +239,7 @@ public class HoloBinlogDecoder {
         int offsetIndex = index + 3;
         int columnIndex = schema.getColumnIndex(column.getName());
         if (currentRow.isNullAt(offsetIndex)) {
-            currentRecord.setObject(index, null);
+            currentRecord.setObject(columnIndex, null);
             return;
         }
         switch (column.getType()) {

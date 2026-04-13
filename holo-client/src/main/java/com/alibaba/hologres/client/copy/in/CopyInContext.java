@@ -7,6 +7,7 @@ import com.alibaba.hologres.client.copy.CopyUtil;
 import com.alibaba.hologres.client.copy.in.binaryrow.RecordBinaryRowOutputStream;
 import com.alibaba.hologres.client.model.Column;
 import com.alibaba.hologres.client.model.OnConflictAction;
+import com.alibaba.hologres.client.model.TableSchema;
 import org.postgresql.copy.CopyManager;
 import org.postgresql.core.BaseConnection;
 import org.postgresql.jdbc.PgConnection;
@@ -33,22 +34,23 @@ public class CopyInContext extends CopyContextCommon {
 
     private BitSet needSetColumns;
 
+    private boolean enableCheckSchemaVersion = false;
+
     public CopyInContext(
             Connection conn,
-            String tableName,
+            TableSchema schema,
             List<String> columns,
             CopyFormat copyFormat,
             CopyMode copyMode,
             OnConflictAction onConflictAction,
             int maxCellBufferSize) {
-        super(conn, tableName, columns, copyFormat, maxCellBufferSize);
+        super(conn, schema, columns, copyFormat, maxCellBufferSize);
         this.copyMode = copyMode;
         this.onConflictAction = onConflictAction;
     }
 
     @Override
     public void init() throws IOException {
-        checkConnAndGetSchema();
         try {
             // RecordOutputStream putRecord时是按照schema中的字段顺序, 因此需要保证 columns 中的字段顺序与 schema 中的字段顺序一致
             List<String> orderedColumns = new ArrayList<>();
@@ -74,8 +76,10 @@ public class CopyInContext extends CopyContextCommon {
                             orderedColumns,
                             copyFormat,
                             schema.getPrimaryKeys() != null && schema.getPrimaryKeys().length > 0,
+                            schema.getSchemaVersion(),
                             onConflictAction,
-                            copyMode);
+                            copyMode,
+                            enableCheckSchemaVersion);
             LOG.info("copy in sql: {}", copySql);
             copyManager = new CopyManager(conn.unwrap(PgConnection.class));
             inOs = new CopyInOutputStream(copyManager.copyIn(copySql));
@@ -105,7 +109,7 @@ public class CopyInContext extends CopyContextCommon {
                                     maxCellBufferSize);
                     break;
                 default:
-                    throw new RuntimeException("unsupported copy in format: " + copyFormat);
+                    throw new IOException("unsupported copy in format: " + copyFormat);
             }
         } catch (SQLException e) {
             throw new IOException(e);
@@ -115,6 +119,10 @@ public class CopyInContext extends CopyContextCommon {
 
     public OnConflictAction getOnConflictAction() {
         return onConflictAction;
+    }
+
+    public void setEnableCheckSchemaVersion(boolean enableCheckSchemaVersion) {
+        this.enableCheckSchemaVersion = enableCheckSchemaVersion;
     }
 
     public void close() throws IOException {

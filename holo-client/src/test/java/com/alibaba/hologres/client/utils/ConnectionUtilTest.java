@@ -31,6 +31,57 @@ public class ConnectionUtilTest extends HoloClientTestBase {
     }
 
     @Test
+    public void testFormatDirectConnectionJdbcUrl() {
+        // 包含数据库名、参数和@符号
+        String url1 = "jdbc:postgresql://host:port/database?param1=value1@param2=value2";
+        String expected1 = "jdbc:postgresql://host:port/database";
+        String result1 = ConnectionUtil.formatDirectConnectionJdbcUrl(url1);
+        Assert.assertEquals(result1, expected1);
+
+        // 包含数据库名和参数，但没有@符号
+        String url2 = "jdbc:postgresql://host:port/database?param1=value1&param2=value2";
+        String expected2 = "jdbc:postgresql://host:port/database";
+        String result2 = ConnectionUtil.formatDirectConnectionJdbcUrl(url2);
+        Assert.assertEquals(result2, expected2);
+
+        // 包含数据库名和@符号，但没有参数
+        String url3 = "jdbc:postgresql://host:port/database@warehouse?param1=value1@&param2=value2";
+        String expected3 = "jdbc:postgresql://host:port/database";
+        String result3 = ConnectionUtil.formatDirectConnectionJdbcUrl(url3);
+        Assert.assertEquals(result3, expected3);
+
+        // 包含数据库名和@符号，但没有参数
+        String url4 = "jdbc:postgresql://host:port/database@warehouse";
+        String expected4 = "jdbc:postgresql://host:port/database";
+        String result4 = ConnectionUtil.formatDirectConnectionJdbcUrl(url4);
+        Assert.assertEquals(result4, expected4);
+
+        // 只包含数据库名，没有参数和@符号
+        String url5 = "jdbc:postgresql://host:port/database";
+        String expected5 = "jdbc:postgresql://host:port/database";
+        String result5 = ConnectionUtil.formatDirectConnectionJdbcUrl(url5);
+        Assert.assertEquals(result5, expected5);
+
+        // null
+        String url6 = null;
+        String expected6 = null;
+        String result6 = ConnectionUtil.formatDirectConnectionJdbcUrl(url6);
+        Assert.assertEquals(result6, expected6);
+
+        // URL为空字符串
+        String url7 = "";
+        String expected7 = "";
+        String result7 = ConnectionUtil.formatDirectConnectionJdbcUrl(url7);
+        Assert.assertEquals(result7, expected7);
+
+        // URL不规范
+        String url8 = "host:port/database?param=value";
+        String expected8 = "host:port/database?param=value";
+        String result8 = ConnectionUtil.formatDirectConnectionJdbcUrl(url8);
+        Assert.assertEquals(result8, expected8);
+    }
+
+    @Test
     public void testMetaDataGetColumns() throws Exception {
         if (properties == null) {
             return;

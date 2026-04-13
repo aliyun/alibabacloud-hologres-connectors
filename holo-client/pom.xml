@@ -6,7 +6,7 @@
 
     <groupId>com.alibaba.hologres</groupId>
     <artifactId>holo-client</artifactId>
-    <version>2.6.11</version>
+    <version>2.7.3-SNAPSHOT</version>
 
     <url>https://www.hologres.io/</url>
     <name>holo-client</name>
@@ -29,31 +29,23 @@
             <name>shangtang.hyb</name>
             <organization>alibaba-inc</organization>
         </developer>
-        <developer>
-            <id>yaotian</id>
-            <name>yaotian.zgd</name>
-            <organization>alibaba-inc</organization>
-        </developer>
-        <developer>
-            <id>shiyu</id>
-            <name>yubing.lyb</name>
-            <organization>alibaba-inc</organization>
-        </developer>
     </developers>
 
     <properties>
         <metrics.version>4.1.16</metrics.version>
-        <slf4j.version>1.7.10</slf4j.version>
+        <slf4j.version>1.7.36</slf4j.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <protobuf.version>3.17.3</protobuf.version>
+        <protobuf.version>3.25.8</protobuf.version>
         <protobuf.plugin.version>0.6.1</protobuf.plugin.version>
+        <jackson.version>2.17.2</jackson.version>
+        <arrow.version>17.0.0</arrow.version>
     </properties>
 
     <dependencies>
         <dependency>
-            <groupId>org.postgresql</groupId>
-            <artifactId>postgresql</artifactId>
-            <version>42.3.10</version>
+            <groupId>com.alibaba.hologres</groupId>
+            <artifactId>postgresql-holo</artifactId>
+            <version>42.3.10-SNAPSHOT</version>
         </dependency>
 
         <dependency>
@@ -76,7 +68,7 @@
         <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
-            <version>31.0.1-jre</version>
+            <version>32.0.0-jre</version>
         </dependency>
 
         <dependency>
@@ -98,40 +90,59 @@
         </dependency>
 
         <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-core</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
+
+        <dependency>
             <groupId>org.apache.arrow</groupId>
-            <artifactId>arrow-memory</artifactId>
-            <version>0.10.0</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>io.netty</groupId>
-                    <artifactId>netty-buffer</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>io.netty</groupId>
-                    <artifactId>netty-common</artifactId>
-                </exclusion>
-            </exclusions>
+            <artifactId>arrow-memory-netty</artifactId>
+            <version>${arrow.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>arrow-compression</artifactId>
+            <version>${arrow.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.arrow</groupId>
             <artifactId>arrow-vector</artifactId>
-            <version>0.10.0</version>
+            <version>${arrow.version}</version>
             <exclusions>
                 <exclusion>
                     <groupId>commons-codec</groupId>
                     <artifactId>commons-codec</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.fasterxml.jackson.core</groupId>
+                    <artifactId>jackson-core</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.fasterxml.jackson.core</groupId>
+                    <artifactId>jackson-databind</artifactId>
                 </exclusion>
             </exclusions>
         </dependency>
         <dependency>
             <groupId>org.apache.arrow</groupId>
             <artifactId>arrow-format</artifactId>
-            <version>0.10.0</version>
+            <version>${arrow.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-compress</artifactId>
+            <version>1.26.2</version>
         </dependency>
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-lang3</artifactId>
-            <version>3.12.0</version>
+            <version>3.18.0</version>
         </dependency>
         <dependency>
             <groupId>org.lz4</groupId>
@@ -160,6 +171,12 @@
 
     </dependencies>
 
+    <distributionManagement>
+        <repository>
+            <id>snapshots</id>
+            <url>http://mvnrepo.alibaba-inc.com/mvn/snapshots</url>
+        </repository>
+    </distributionManagement>
     <build>
         <extensions>
             <extension>
@@ -206,7 +223,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
-                <version>3.2.4</version>
+                <version>3.5.0</version>
                 <executions>
                     <execution>
                         <phase>package</phase>
@@ -216,7 +233,7 @@
                         <configuration>
                             <filters>
                                 <filter>
-                                    <artifact>org.postgresql:postgresql</artifact>
+                                    <artifact>com.alibaba.hologres:postgresql-holo</artifact>
                                     <excludes>
                                         <exclude>META-INF/MANIFEST.MF</exclude>
                                         <exclude>META-INF/services/java.sql.Driver</exclude>
@@ -255,11 +272,8 @@
                                     <pattern>com.fasterxml.jackson</pattern>
                                     <shadedPattern>com.alibaba.hologres.com.fasterxml.jackson</shadedPattern>
                                 </relocation>
-                                <relocation>
-                                    <pattern>org.apache.arrow</pattern>
-                                    <shadedPattern>com.alibaba.hologres.org.apache.arrow</shadedPattern>
-                                </relocation>
                             </relocations>
+                            <minimizeJar>false</minimizeJar>
                         </configuration>
                     </execution>
                 </executions>

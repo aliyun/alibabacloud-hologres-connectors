@@ -27,6 +27,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Properties;
+import java.util.Random;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
@@ -35,6 +36,7 @@ public class HoloClientTestBase {
     public static final Logger LOG = LoggerFactory.getLogger(HoloClientTestBase.class);
     protected static Properties properties;
     protected static HoloVersion holoVersion = new HoloVersion(0, 0, 0);
+    private static final Random RANDOM = new Random();
 
     public static int getShardCount(HoloClient client, TableSchema schema)
             throws HoloClientException {
@@ -154,12 +156,16 @@ public class HoloClientTestBase {
     }
 
     protected static Connection buildConnection(boolean fixed) throws SQLException {
+        Properties info = new Properties();
         if (fixed) {
-            properties.setProperty(PGProperty.OPTIONS.getName(), "type=fixed");
-        } else {
-            properties.remove(PGProperty.OPTIONS.getName());
+            info.setProperty(PGProperty.OPTIONS.getName(), "type=fixed");
         }
-        return DriverManager.getConnection(properties.getProperty("url"), properties);
+        return buildConnection(info);
+    }
+
+    protected static Connection buildConnection(Properties info) throws SQLException {
+        info.putAll(properties);
+        return DriverManager.getConnection(info.getProperty("url"), info);
     }
 
     protected HoloConfig buildConfig() {
@@ -207,5 +213,16 @@ public class HoloClientTestBase {
                             "Expected %s to be thrown, but %s was thrown",
                             expectedMessage, actualException.getMessage()));
         }
+    }
+
+    public static String genRandomStr(int size) {
+        String chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+        StringBuilder sb = new StringBuilder(size);
+        sb.append(" ,\" A'");
+        for (int i = 0; i < size; i++) {
+            int index = RANDOM.nextInt(chars.length());
+            sb.append(chars.charAt(index));
+        }
+        return sb.toString();
     }
 }

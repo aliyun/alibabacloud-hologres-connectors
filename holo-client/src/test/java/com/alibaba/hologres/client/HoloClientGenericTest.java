@@ -8,9 +8,12 @@ import com.alibaba.hologres.client.copy.in.CopyInWrapper;
 import com.alibaba.hologres.client.copy.in.RecordTextOutputStream;
 import com.alibaba.hologres.client.copy.out.CopyOutWrapper;
 import com.alibaba.hologres.client.exception.HoloClientException;
+import com.alibaba.hologres.client.impl.ExecutionPool;
+import com.alibaba.hologres.client.impl.util.ConnectionUtil;
 import com.alibaba.hologres.client.model.HoloVersion;
 import com.alibaba.hologres.client.model.OnConflictAction;
 import com.alibaba.hologres.client.model.Record;
+import com.alibaba.hologres.client.model.TableName;
 import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.model.binlog.BinlogRecord;
 import com.alibaba.hologres.client.model.checkandput.CheckCompareOp;
@@ -30,15 +33,18 @@ import java.sql.Statement;
 import java.sql.Time;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.TimeZone;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 /** HoloClient Tester. HoloClientTest的行数超过了style-check的上限4000，之后的通用测试可以在本文件中实现. */
@@ -911,16 +917,17 @@ public class HoloClientGenericTest extends HoloClientTestBase {
                             + "with (binlog_level = 'replica')";
             try {
                 execute(conn, new String[] {dropSql, createSql});
+                TableName tn = TableName.valueOf(tableName);
+                TableSchema schema = ConnectionUtil.getTableSchema(conn, tn);
                 try (CopyInWrapper copyIn =
                         new CopyInWrapper(
                                 conn,
-                                tableName,
+                                schema,
                                 Arrays.asList("a", "b", "c", "d", "e", "f"),
                                 CopyFormat.BINARY,
                                 CopyMode.STREAM,
                                 OnConflictAction.INSERT_OR_UPDATE,
                                 1024 * 1024 * 10)) {
-                    TableSchema schema = copyIn.getSchema();
                     {
                         Record record = new Record(schema);
                         record.setObject(0, 1);
@@ -948,7 +955,6 @@ public class HoloClientGenericTest extends HoloClientTestBase {
                         copyIn.flush();
                     }
                 }
-                TableSchema schema = client.getTableSchema(tableName);
                 {
                     Put put = new Put(schema);
                     put.setObject(0, 3);
@@ -1032,7 +1038,7 @@ public class HoloClientGenericTest extends HoloClientTestBase {
                                 CopyFormat.ARROW,
                                 Collections.emptyList(),
                                 "",
-                                128)) {
+                                102400)) {
                     int count = 0;
                     while (copyOutWrapper.hasNextBatch()) {
                         List<Record> records = copyOutWrapper.getRecords();
@@ -1148,6 +1154,212 @@ public class HoloClientGenericTest extends HoloClientTestBase {
                 Assert.assertEquals("foo", r.getObject("col1"));
                 Assert.assertEquals("name0_bar", r.getObject("col2"));
 
+                execute(conn, new String[] {dropSql});
+            }
+        }
+    }
+
+    @Test
+    public void testScanNotFinish() throws Exception {
+        if (properties == null) {
+            return;
+        }
+        HoloConfig config = buildConfig();
+        // fixed fe 不支持scan
+        if (config.isUseFixedFe()) {
+            return;
+        }
+        config.setAppName("testScanNotFinish");
+        try (Connection conn = buildConnection()) {
+            String tableName = "holo_client_scan_not_finish";
+            String dropSql = "drop table if exists " + tableName;
+            String createSql =
+                    "create table " + tableName + "(a int not null,b timestamp, primary key(a))";
+            execute(conn, new String[] {dropSql, createSql});
+            try (HoloClient client = new HoloClient(config)) {
+                TableSchema schema = client.getTableSchema(tableName);
+                for (int i = 0; i < 100; i++) {
+                    Put put = new Put(schema);
+                    put.setObject("a", i);
+                    put.setObject("b", Timestamp.valueOf("2025-01-02 12:00:00"));
+                    client.put(put);
+                }
+                client.flush();
+            }
+            ExecutorService es =
+                    new ThreadPoolExecutor(
+                            1,
+                            1,
+                            0L,
+                            TimeUnit.MILLISECONDS,
+                            new LinkedBlockingQueue<>(10),
+                            Thread::new,
+                            new ThreadPoolExecutor.AbortPolicy());
+            try (ExecutionPool pool = ExecutionPool.buildOrGet("testPutPut029", config, false)) {
+                long start = System.currentTimeMillis();
+                CompletableFuture<List<Record>> scanResult = new CompletableFuture<>();
+                try (HoloClient client = new HoloClient(config)) {
+                    client.setPool(pool);
+                    Scan scan = Scan.newBuilder(client.getTableSchema(tableName)).build();
+                    client.asyncScan(scan)
+                            .handleAsync(
+                                    (scanner, throwable) -> {
+                                        // caught an error
+                                        if (throwable != null) {
+                                            scanResult.completeExceptionally(throwable);
+                                        } else {
+                                            List<Record> result = new ArrayList<>();
+                                            while (true) {
+                                                try {
+                                                    if (!scanner.next()) {
+                                                        break;
+                                                    }
+                                                    result.add(scanner.getRecord());
+                                                } catch (HoloClientException e) {
+                                                    scanResult.completeExceptionally(e);
+                                                    break;
+                                                }
+                                            }
+                                            scanResult.complete(result);
+                                        }
+                                        return null;
+                                    },
+                                    es);
+                    // es 立刻shutdown导致scanner 无法正常关闭
+                    es.shutdown();
+                }
+            } finally {
+                execute(conn, new String[] {dropSql});
+            }
+        }
+    }
+
+    @Test
+    public void testScanShareExecutionPool() throws Exception {
+        if (properties == null) {
+            return;
+        }
+        HoloConfig config = buildConfig();
+        config.setScanFetchSize(1);
+        config.setReadThreadSize(3);
+        // fixed fe 不支持scan
+        if (config.isUseFixedFe()) {
+            return;
+        }
+        config.setAppName("testScanNotFinish");
+        try (Connection conn = buildConnection();
+                ExecutionPool pool =
+                        ExecutionPool.buildOrGet("executionPool-scan", config, false)) {
+            String tableName = "holo_client_scan_share_execution_pool";
+            String dropSql = "drop table if exists " + tableName;
+            String createSql =
+                    "create table " + tableName + "(a int not null,b timestamp, primary key(a))";
+            execute(conn, new String[] {dropSql, createSql});
+            try (HoloClient clientPut = new HoloClient(config)) {
+                clientPut.setPool(pool);
+                TableSchema schema = clientPut.getTableSchema(tableName);
+                for (int i = 0; i < 100; i++) {
+                    Put put = new Put(schema);
+                    put.setObject("a", i);
+                    put.setObject("b", Timestamp.valueOf("2025-01-02 12:00:00"));
+                    clientPut.put(put);
+                }
+                clientPut.flush();
+                ExecutorService es =
+                        new ThreadPoolExecutor(
+                                20,
+                                20,
+                                0L,
+                                TimeUnit.MILLISECONDS,
+                                new LinkedBlockingQueue<>(2),
+                                r -> {
+                                    Thread t = new Thread(r);
+                                    return t;
+                                },
+                                new ThreadPoolExecutor.AbortPolicy());
+                AtomicInteger index = new AtomicInteger(0);
+                AtomicInteger scanCount0 = new AtomicInteger(0);
+                AtomicInteger scanCount1 = new AtomicInteger(0);
+                Runnable scanRunnable =
+                        () -> {
+                            int id = index.getAndIncrement();
+                            ExecutorService callbackPool =
+                                    new ThreadPoolExecutor(
+                                            1,
+                                            1,
+                                            0L,
+                                            TimeUnit.MILLISECONDS,
+                                            new LinkedBlockingQueue<>(10),
+                                            Thread::new,
+                                            new ThreadPoolExecutor.AbortPolicy());
+                            try {
+                                CompletableFuture<List<Record>> scanResult =
+                                        new CompletableFuture<>();
+                                HoloClient client = new HoloClient(config);
+                                client.setPool(pool);
+                                Scan scan =
+                                        Scan.newBuilder(client.getTableSchema(tableName)).build();
+                                client.asyncScan(scan)
+                                        .handleAsync(
+                                                (scanner, throwable) -> {
+                                                    // caught an error
+                                                    if (throwable != null) {
+                                                        scanResult.completeExceptionally(throwable);
+                                                    } else {
+                                                        List<Record> result = new ArrayList<>();
+                                                        while (true) {
+                                                            try {
+                                                                if (!scanner.next()) {
+                                                                    break;
+                                                                }
+
+                                                                try {
+                                                                    Thread.sleep(100);
+                                                                } catch (
+                                                                        InterruptedException
+                                                                                ignored) {
+                                                                }
+                                                                result.add(scanner.getRecord());
+                                                            } catch (HoloClientException e) {
+                                                                scanResult.completeExceptionally(e);
+                                                                break;
+                                                            }
+                                                        }
+                                                        scanResult.complete(result);
+                                                    }
+                                                    return null;
+                                                },
+                                                callbackPool);
+                                while (!scanResult.isDone()) {
+                                    try {
+                                        Thread.sleep(2000);
+                                    } catch (InterruptedException ignored) {
+                                    }
+                                    if (id == 0) {
+                                        // 提前关闭线程1的client
+                                        client.close();
+                                    }
+                                }
+                                if (id == 0) {
+                                    Assert.assertTrue(scanResult.isCompletedExceptionally());
+                                } else {
+                                    scanCount1.set(scanResult.get().size());
+                                }
+                                client.close();
+                            } catch (Exception e) {
+                                throw new RuntimeException(e);
+                            }
+                        };
+                es.execute(scanRunnable);
+                es.execute(scanRunnable);
+                es.shutdown();
+                if (!es.awaitTermination(60, TimeUnit.SECONDS)) {
+                    es.shutdownNow();
+                }
+
+                Assert.assertEquals(0, scanCount0.get());
+                Assert.assertEquals(100, scanCount1.get());
+            } finally {
                 execute(conn, new String[] {dropSql});
             }
         }

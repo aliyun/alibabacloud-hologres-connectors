@@ -101,7 +101,7 @@ public class TableCollector {
 
         for (TableShardCollector pair : pairArray) {
             try {
-                doneCount += pair.flush(force, async, uncommittedActionCount) ? 1 : 0;
+                doneCount += pair.flush(force, async, uncommittedActionCount, null) ? 1 : 0;
             } catch (HoloClientWithDetailsException e) {
                 if (exception == null) {
                     exception = e;

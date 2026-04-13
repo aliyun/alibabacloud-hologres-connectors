@@ -348,7 +348,7 @@ public class CopyOutTest extends HoloClientTestBase {
                     try (CopyOutWrapper copyOutWrapper =
                             new CopyOutWrapper(
                                     conn,
-                                    tableName,
+                                    schema,
                                     columns,
                                     enableCompressArrow ? CopyFormat.ARROW : CopyFormat.ARROW_LZ4,
                                     Collections.emptyList(),
@@ -490,14 +490,26 @@ public class CopyOutTest extends HoloClientTestBase {
                 String createSql =
                         "create table "
                                 + tableName
-                                + "(f0 text, f1 text, f2 bigint, f3 int, f4 float4, f5 float8, f6 timestamptz, f7 int[], f8 int[], f9 int[], f10 text[], f11 bigint[], f12 float4[], f13 float8[], f14 bool[])";
-                String prepareData =
+                                + "(f0 text, f1 text, f2 bigint, f3 int, f4 float4, f5 float8, f6 timestamptz, f7 int[], f7_1 int[], f8 int[], f9 int[], f10 text[], f11 bigint[], f12 float4[], f13 float8[], f14 bool[])";
+                String prepareData0 =
                         "insert into "
                                 + tableName
-                                + "  select i, 1, 2, 3, 4, 5, '1990-11-11', '{7, 7, 7}', array[i+1, i+2, i+3], '{9, 99, 999}', '{10, 10, 10}', '{11, 11, 11}', '{12, 12, 12}', '{13, 13, 13}','{true, true, true}' from generate_series(1, 10000)i";
+                                + "  select i, 1, 2, 3, 4, 5, '1990-11-11', '{7, 7, 7}', null, array[i+1, i+2, i+3], '{9, 99, 999}', '{10, 10, 10}', '{11, 11, 11}', '{12, 12, 12}', '{13, 13, 13}','{true, true, true}' from generate_series(1, 1)i";
+                String prepareData1 =
+                        "insert into "
+                                + tableName
+                                + "  select i, 1, 2, 3, 4, 5, '1990-11-11', '{7, 7, 7}', '{7}', array[i+1, i+2, i+3], '{9, 99, 999}', '{10, 10, 10}', '{11, 11, 11}', '{12, 12, 12}', '{13, 13, 13}','{true, true, true}' from generate_series(2, 2)i";
+                String prepareData2 =
+                        "insert into "
+                                + tableName
+                                + "  select i, 1, 2, 3, 4, 5, '1990-11-11', '{7, 7, 7}', null, array[i+1, i+2, i+3], '{9, 99, 999}', '{10, 10, 10}', '{11, 11, 11}', '{12, 12, 12}', '{13, 13, 13}','{true, true, true}' from generate_series(3, 10000)i";
                 String flushSql =
                         "select hg_admin_command('flush', 'table_name=" + tableName + "')";
-                execute(conn, new String[] {dropSql1, createSql, prepareData});
+                execute(
+                        conn,
+                        new String[] {
+                            dropSql1, createSql, prepareData0, prepareData1, prepareData2
+                        });
                 tryExecute(conn, new String[] {flushSql});
                 try {
                     List<String> columns =
@@ -529,6 +541,12 @@ public class CopyOutTest extends HoloClientTestBase {
                                         "1990-11-11 00:00:00.0", String.valueOf(r.getObject("f6")));
                                 Assert.assertEquals(
                                         new Integer[] {7, 7, 7}, (Integer[]) r.getObject("f7"));
+                                if (f0 == 2) {
+                                    Assert.assertEquals(
+                                            new Integer[] {7}, (Integer[]) r.getObject("f7_1"));
+                                } else {
+                                    Assert.assertNull(r.getObject("f7_1"));
+                                }
                                 Assert.assertEquals(
                                         new Integer[] {f0 + 1, f0 + 2, f0 + 3},
                                         (Integer[]) r.getObject("f8"));

@@ -23,7 +23,9 @@ public enum BatchState {
     /** 强制提交. */
     Force(7),
     /** 因为批量执行失败，所以被拆成最多1条一个batch. */
-    RetryOneByOne(8);
+    RetryOneByOne(8),
+    /** 因为pk重复导致强制提交. */
+    PKDuplicate(9);
 
     int index;
 

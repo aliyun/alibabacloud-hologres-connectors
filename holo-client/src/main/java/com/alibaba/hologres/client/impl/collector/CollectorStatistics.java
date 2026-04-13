@@ -15,6 +15,9 @@ public class CollectorStatistics {
     /** 因为时间（或者总内存不够了，不一定是这个表的问题）提交的Batch数. */
     AtomicInteger notFullBatchCount = new AtomicInteger(0);
 
+    /** 由于pk重复时提交的Batch数. */
+    AtomicInteger pkDuplicateBatchCount = new AtomicInteger(0);
+
     /** 每轮统计的开始时间. */
     long nanoTime = System.nanoTime();
 
@@ -24,6 +27,9 @@ public class CollectorStatistics {
             case ByteSizeEnough:
             case ByteSizeCondition:
                 fullBatchCount.incrementAndGet();
+                break;
+            case PKDuplicate:
+                pkDuplicateBatchCount.incrementAndGet();
                 break;
             case NotEnough:
                 break;
@@ -40,6 +46,10 @@ public class CollectorStatistics {
         return notFullBatchCount.get();
     }
 
+    public int getPkDuplicateBatchCount() {
+        return pkDuplicateBatchCount.get();
+    }
+
     public long getNanoTime() {
         return nanoTime;
     }
@@ -47,6 +57,7 @@ public class CollectorStatistics {
     public void clear() {
         fullBatchCount.set(0);
         notFullBatchCount.set(0);
+        pkDuplicateBatchCount.set(0);
         nanoTime = System.nanoTime();
     }
 }

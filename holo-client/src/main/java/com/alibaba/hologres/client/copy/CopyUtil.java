@@ -5,6 +5,7 @@
 package com.alibaba.hologres.client.copy;
 
 import com.alibaba.hologres.client.Put;
+import com.alibaba.hologres.client.impl.util.StatementBuilderUtil;
 import com.alibaba.hologres.client.model.Column;
 import com.alibaba.hologres.client.model.OnConflictAction;
 import com.alibaba.hologres.client.model.Record;
@@ -37,7 +38,7 @@ public class CopyUtil {
     public static final Logger LOGGER = LoggerFactory.getLogger(CopyUtil.class);
     public static final char QUOTE = '"';
     public static final char ESCAPE = '\\';
-    public static final char NULL = 'N';
+    public static final String NULL = "\\N";
     public static final char DELIMITER = ',';
     public static final char NEWLINE = '\n';
 
@@ -72,13 +73,148 @@ public class CopyUtil {
         }
     }
 
+    public static String buildCopyInStageSql(String stageName, String stageFileName) {
+        return String.format(
+                "copy external_files(path='internal_stage://%s/%s') from stdin;",
+                stageName, stageFileName);
+    }
+
+    public static String buildInsertTableSelectFromStageSql(
+            TableSchema schema,
+            List<String> columnNames,
+            List<String> stages,
+            OnConflictAction conflictAction) {
+        return buildInsertTableSelectFromStageSql(
+                schema, columnNames, stages, conflictAction, false);
+    }
+
+    public static String buildInsertOverwriteTableSelectFromStageSql(
+            TableSchema schema, List<String> columnNames, List<String> stages) {
+        return buildInsertTableSelectFromStageSql(schema, columnNames, stages, null, true);
+    }
+
+    public static String buildInsertTableSelectFromStageSql(
+            TableSchema schema,
+            List<String> columnNames,
+            List<String> stages,
+            OnConflictAction conflictAction,
+            boolean is_overwrite) {
+
+        List<String> typeNames = new ArrayList<>();
+        for (String name : columnNames) {
+            Column column = schema.getColumn(schema.getColumnIndex(name));
+            if (column.getType() == Types.NUMERIC || column.getType() == Types.DECIMAL) {
+                String typeName =
+                        "decimal(" + column.getPrecision() + "," + column.getScale() + ")";
+                typeNames.add(typeName);
+            } else {
+                typeNames.add(
+                        StatementBuilderUtil.getRealTypeName(
+                                column.getType(), column.getTypeName()));
+            }
+        }
+
+        StringBuilder sb = new StringBuilder();
+        boolean firstCol = true;
+        if (is_overwrite) {
+            sb.append("insert overwrite ");
+        } else {
+            sb.append("insert into ");
+        }
+        sb.append(schema.getTableNameObj().getFullName()).append(" (");
+        for (String colName : columnNames) {
+            if (!firstCol) {
+                sb.append(",");
+            }
+            firstCol = false;
+            sb.append(IdentifierUtil.quoteIdentifier(colName, true));
+        }
+        sb.append(") ");
+
+        sb.append("select ");
+        firstCol = true;
+        for (int i = 0; i < columnNames.size(); i++) {
+            if (!firstCol) {
+                sb.append(", ");
+            }
+            firstCol = false;
+            String colName = columnNames.get(i);
+            sb.append(IdentifierUtil.quoteIdentifier(colName, true));
+            String typeName = typeNames.get(i);
+            if ("json".equals(typeName) || "jsonb".equals(typeName)) {
+                sb.append("::").append(typeName);
+            }
+        }
+
+        // path指定多个stage,通过,分割
+        StringBuilder pathSb = new StringBuilder();
+        boolean firstStage = true;
+        for (String stage : stages) {
+            if (!firstStage) {
+                pathSb.append(",");
+            }
+            firstStage = false;
+            pathSb.append("internal_stage://").append(stage);
+        }
+
+        sb.append(" from external_files(path='").append(pathSb).append("') as (");
+
+        firstCol = true;
+        for (int i = 0; i < columnNames.size(); i++) {
+            if (!firstCol) {
+                sb.append(", ");
+            }
+            firstCol = false;
+            String colName = columnNames.get(i);
+            sb.append(IdentifierUtil.quoteIdentifier(colName, true));
+            String typeName = typeNames.get(i);
+            if ("json".equals(typeName) || "jsonb".equals(typeName)) {
+                typeName = "text";
+            }
+            sb.append(" ").append(typeName);
+        }
+        sb.append(")");
+
+        if (!is_overwrite && schema.getKeyIndex().length > 0) {
+            sb.append(" on conflict (");
+            firstCol = true;
+            for (int index : schema.getKeyIndex()) {
+                if (!firstCol) {
+                    sb.append(",");
+                }
+                firstCol = false;
+                sb.append(
+                        IdentifierUtil.quoteIdentifier(
+                                schema.getColumnSchema()[index].getName(), true));
+            }
+            sb.append(") do ");
+            if (OnConflictAction.INSERT_OR_IGNORE == conflictAction) {
+                sb.append("nothing");
+            } else {
+                sb.append("update set ");
+                firstCol = true;
+                for (String colName : columnNames) {
+                    if (!firstCol) {
+                        sb.append(",");
+                    }
+                    firstCol = false;
+                    String columnName = IdentifierUtil.quoteIdentifier(colName, true);
+                    sb.append(columnName).append("=excluded.").append(columnName);
+                }
+            }
+        }
+        return sb.toString();
+    }
+
     public static String buildCopyInSql(
             String tableName,
             List<String> columns,
             CopyFormat format,
             boolean withPk,
+            String schemaVersion,
             OnConflictAction onConflictAction,
-            CopyMode copyMode) {
+            CopyMode copyMode,
+            boolean enableCheckSchemaVersion) {
         StringBuilder sb = new StringBuilder();
         sb.append("copy ").append(tableName).append("(");
         boolean first = true;
@@ -105,8 +241,12 @@ public class CopyUtil {
                         .append("', NULL '")
                         .append(NULL)
                         .append("'");
-            } else if (format.equals(CopyFormat.BINARYROW)) {
+            }
+            if (format.equals(CopyFormat.BINARYROW)) {
                 sb.append(", format binaryrow");
+                sb.append(", schema_version ").append(schemaVersion);
+            } else if (enableCheckSchemaVersion) {
+                sb.append(", schema_version ").append(schemaVersion);
             }
         } else {
             // 目前hologres普通copy（非stream_mode）只支持format csv
@@ -154,8 +294,10 @@ public class CopyUtil {
                 columns,
                 format,
                 schema.getPrimaryKeys() != null && schema.getPrimaryKeys().length > 0,
+                schema.getSchemaVersion(),
                 action,
-                copyMode);
+                copyMode,
+                false);
     }
 
     public static String buildCopyInSql(
@@ -184,8 +326,10 @@ public class CopyUtil {
                 columns,
                 format,
                 schema.getPrimaryKeys() != null && schema.getPrimaryKeys().length > 0,
+                schema.getSchemaVersion(),
                 action,
-                copyMode);
+                copyMode,
+                false);
     }
 
     // for read from holo, a more common scenario may be to directly pass in a query

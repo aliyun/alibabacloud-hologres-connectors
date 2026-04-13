@@ -47,6 +47,10 @@ public class RecordScanner implements Closeable {
     }
 
     public Record getRecord() throws HoloClientException {
+        if (rs == null) {
+            throw new HoloClientException(
+                    ExceptionCode.ALREADY_CLOSE, "RecordScanner is already close");
+        }
         try {
             Record record = new Record(schema);
             if (selectedColumns == null) {

@@ -17,8 +17,20 @@ public class CheckAndPutRecord extends Record implements Serializable {
             Object checkValue,
             Object nullValue) {
         super(schema);
+        Integer checkColumnIndex = schema.getColumnIndex(checkColumnName);
+        if (checkColumnIndex == null || checkColumnIndex < 0) {
+            throw new IllegalArgumentException(
+                    "checkColumn "
+                            + checkColumnName
+                            + " is not exists in table "
+                            + schema.getTableNameObj().getFullName());
+        }
         this.checkAndPutCondition =
-                new CheckAndPutCondition(checkColumnName, checkOp, checkValue, nullValue);
+                new CheckAndPutCondition(
+                        schema.getColumn(schema.getColumnIndex(checkColumnName)),
+                        checkOp,
+                        checkValue,
+                        nullValue);
     }
 
     public CheckAndPutRecord(Record record, CheckAndPutCondition checkAndPutCondition) {

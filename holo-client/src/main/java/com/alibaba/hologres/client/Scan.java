@@ -108,6 +108,21 @@ public class Scan {
          * @return this
          */
         public Builder addRangeFilter(String columnName, Object start, Object end) {
+            return addRangeFilter(columnName, start, end, true, false);
+        }
+
+        /**
+         * @param columnName columnName
+         * @param start nullable
+         * @param end nullable
+         * @return this
+         */
+        public Builder addRangeFilter(
+                String columnName,
+                Object start,
+                Object end,
+                boolean isStartInclude,
+                boolean isEndInclude) {
             Integer index = schema.getColumnIndex(columnName);
             if (index == null) {
                 throw new InvalidParameterException(
@@ -124,7 +139,7 @@ public class Scan {
             if (filterList == null) {
                 filterList = new ArrayList<>();
             }
-            filterList.add(new RangeFilter(index, start, end));
+            filterList.add(new RangeFilter(index, start, end, isStartInclude, isEndInclude));
             return this;
         }
 

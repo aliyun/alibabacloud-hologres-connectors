@@ -70,7 +70,7 @@ public class Worker implements Runnable {
         handlerMap.put(SqlAction.class, new SqlActionHandler(connectionHolder, config));
         handlerMap.put(CopyAction.class, new CopyActionHandler(connectionHolder, config));
         handlerMap.put(PutAction.class, new PutActionHandler(connectionHolder, config));
-        handlerMap.put(ScanAction.class, new ScanActionHandler(connectionHolder, config));
+        handlerMap.put(ScanAction.class, new ScanActionHandler(connectionHolder, config, started));
     }
 
     public boolean offer(AbstractAction action) throws HoloClientException {
@@ -127,6 +127,11 @@ public class Worker implements Runnable {
                  * 3 根据connectionMaxAliveMs释放存活时间比较久的connection
                  * */
                 if (null != action) {
+                    if (fatal.get() != null
+                            && action.getFuture() != null
+                            && !action.getFuture().isDone()) {
+                        action.getFuture().completeExceptionally(fatal.get());
+                    }
                     try {
                         handle(action);
                     } finally {
@@ -147,7 +152,6 @@ public class Worker implements Runnable {
             } catch (Throwable e) {
                 LOGGER.error("should not happen", e);
                 fatal.set(e);
-                break;
             }
         }
         LOGGER.info("worker:{} stop", this);

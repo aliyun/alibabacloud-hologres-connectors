@@ -12,8 +12,6 @@ import com.alibaba.hologres.client.Scan;
 import com.alibaba.hologres.client.exception.HoloClientException;
 import com.alibaba.hologres.client.impl.ConnectionHolder;
 import com.alibaba.hologres.client.impl.action.ScanAction;
-import com.alibaba.hologres.client.model.Record;
-import com.alibaba.hologres.client.model.RecordKey;
 import com.alibaba.hologres.client.model.RecordScanner;
 import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.utils.IdentifierUtil;
@@ -27,9 +25,8 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Arrays;
 import java.util.BitSet;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.PrimitiveIterator;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /** ScanAction处理类. */
 public class ScanActionHandler extends ActionHandler<ScanAction> {
@@ -39,11 +36,14 @@ public class ScanActionHandler extends ActionHandler<ScanAction> {
     private static final String NAME = "empty";
 
     private final HoloConfig config;
+    private final AtomicBoolean started;
     private final ConnectionHolder connectionHolder;
 
-    public ScanActionHandler(ConnectionHolder connectionHolder, HoloConfig config) {
+    public ScanActionHandler(
+            ConnectionHolder connectionHolder, HoloConfig config, AtomicBoolean started) {
         super(config);
         this.config = config;
+        this.started = started;
         this.connectionHolder = connectionHolder;
     }
 
@@ -95,18 +95,18 @@ public class ScanActionHandler extends ActionHandler<ScanAction> {
                                             IdentifierUtil.quoteIdentifier(
                                                     schema.getColumn(rf.getIndex()).getName(),
                                                     true))
-                                    .append(">=?");
+                                    .append(rf.isStartInclude() ? ">=?" : ">?");
                             first = false;
                         }
                         if (rf.getStop() != null) {
-                            if (!first) {
+                            if (!first && rf.getStart() != null) {
                                 sb.append(" and ");
                             }
                             sb.append(
                                             IdentifierUtil.quoteIdentifier(
                                                     schema.getColumn((rf).getIndex()).getName(),
                                                     true))
-                                    .append("<?");
+                                    .append(rf.isStopInclude() ? "<=?" : "<?");
                             first = false;
                         }
                     }
@@ -155,10 +155,11 @@ public class ScanActionHandler extends ActionHandler<ScanAction> {
                 }
             }
             String sql = sb.toString();
+            int scanTimeout =
+                    scan.getTimeout() > 0 ? scan.getTimeout() : config.getScanTimeoutSeconds();
             LOGGER.debug("Scan sql:{}", sql);
             connectionHolder.retryExecute(
                     (conn) -> {
-                        Map<RecordKey, Record> resultMap = new HashMap<>();
                         try {
                             if (!config.isUseFixedFe()) {
                                 // AutoCommit set false will execute "begin" query, what fixed fe
@@ -202,10 +203,7 @@ public class ScanActionHandler extends ActionHandler<ScanAction> {
                                         scan.getFetchSize() > 0
                                                 ? scan.getFetchSize()
                                                 : config.getScanFetchSize());
-                                ps.setQueryTimeout(
-                                        scan.getTimeout() > 0
-                                                ? scan.getTimeout()
-                                                : config.getScanTimeoutSeconds());
+                                ps.setQueryTimeout(scanTimeout);
                                 ResultSet rs = null;
                                 try {
                                     rs = ps.executeQuery();
@@ -230,8 +228,29 @@ public class ScanActionHandler extends ActionHandler<ScanAction> {
                                                     rs, lock, schema, scan.getSelectedColumns());
                                     scanAction.getFuture().complete(recordScanner);
                                     synchronized (lock) {
+                                        long scannerStart = System.currentTimeMillis();
                                         while (!recordScanner.isDone()) {
+                                            if (scanAction.isClientClosing().get()) {
+                                                LOGGER.warn(
+                                                        "Close RecordScanner because the client is closing.");
+                                                recordScanner.close();
+                                                break;
+                                            }
+                                            if (!started.get()) {
+                                                LOGGER.warn(
+                                                        "Close RecordScanner because the worker is stopping.");
+                                                recordScanner.close();
+                                                break;
+                                            }
+                                            if (System.currentTimeMillis() - scannerStart
+                                                    > scanTimeout * 1000L) {
+                                                LOGGER.warn(
+                                                        "Close RecordScanner because the scan timeout.");
+                                                recordScanner.close();
+                                                break;
+                                            }
                                             try {
+                                                LOGGER.debug("RecordScanner wait...");
                                                 lock.wait(5000L);
                                             } catch (InterruptedException e) {
                                                 throw new RuntimeException(e);

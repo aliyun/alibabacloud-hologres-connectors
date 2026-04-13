@@ -4,11 +4,11 @@ import com.alibaba.blink.dataformat.BinaryArray;
 import com.alibaba.blink.dataformat.BinaryArrayWriter;
 import com.alibaba.blink.dataformat.BinaryRow;
 import com.alibaba.blink.dataformat.BinaryRowWriter;
+import com.alibaba.blink.memory.MemorySegment;
 import com.alibaba.hologres.client.copy.in.RecordBinaryOutputStream;
 import com.alibaba.hologres.client.model.Column;
 import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.model.TableSchema;
-import com.alibaba.hologres.client.utils.CommonUtil;
 import org.apache.commons.lang3.ArrayUtils;
 import org.postgresql.core.BaseConnection;
 import org.postgresql.jdbc.TimestampUtil;
@@ -41,12 +41,12 @@ public class RecordBinaryRowOutputStream extends RecordBinaryOutputStream {
         }
 
         writeShort((short) record.getBitSet().cardinality());
-        byte[] bytes = convertRecordToBinaryRow(record);
-        writeInt(bytes.length);
-        write(bytes);
+        BinaryRow binaryRow = convertRecordToBinaryRow(record);
+        writeInt(binaryRow.getSizeInBytes());
+        WriteBinaryRow(binaryRow);
     }
 
-    private byte[] convertRecordToBinaryRow(Record record) throws IOException {
+    private BinaryRow convertRecordToBinaryRow(Record record) throws IOException {
         BinaryRow row = new BinaryRow(record.getBitSet().cardinality());
         BinaryRowWriter w = new BinaryRowWriter(row);
         int srcIndex = 0;
@@ -73,8 +73,24 @@ public class RecordBinaryRowOutputStream extends RecordBinaryOutputStream {
         }
         w.complete();
 
-        byte[] data = row.serializeToBytes();
-        return data;
+        return row;
+    }
+
+    private void WriteBinaryRow(BinaryRow row) throws IOException {
+        int binaryRowSize = row.getSizeInBytes();
+        mayIncBuffer(binaryRowSize);
+        int offset = row.getBaseOffset();
+        MemorySegment[] segments = row.getAllSegments();
+        int segmentsLength = segments.length;
+
+        for (int pos = 0; pos < segmentsLength; ++pos) {
+            MemorySegment segment = segments[pos];
+            int remain = segment.size() - offset;
+            int copySize = Math.min(remain, binaryRowSize);
+            segment.get(offset, cellBuffer, copySize);
+            binaryRowSize -= copySize;
+            offset = 0;
+        }
     }
 
     public static void convertToBinaryRow(
@@ -120,18 +136,6 @@ public class RecordBinaryRowOutputStream extends RecordBinaryOutputStream {
             case Types.CHAR:
                 {
                     String str = obj.toString();
-                    CommonUtil.pgVerifyMbstrLen(str);
-                    int maxLen = column.getPrecision();
-                    if (typeName != "text"
-                            && maxLen > 0
-                            && maxLen != Integer.MAX_VALUE) { // 未指定精度时，maxLen = Integer.MAX_VALUE
-                        if (type == Types.VARCHAR) {
-                            str = CommonUtil.varcharInput(str, maxLen);
-                        }
-                        if (type == Types.CHAR) {
-                            str = CommonUtil.bpcharInput(str, maxLen);
-                        }
-                    }
                     writer.writeString(dstIndex, str);
                     break;
                 }
@@ -304,7 +308,8 @@ public class RecordBinaryRowOutputStream extends RecordBinaryOutputStream {
 
             case Types.OTHER:
                 if ("jsonb".equals(typeName)) {
-                    throw new IOException("unsupported type:" + typeName + "(" + type + ")");
+                    writer.writeString(dstIndex, String.valueOf(obj));
+                    break;
                 } else if ("json".equals(typeName)) {
                     byte[] jsonBytes = String.valueOf(obj).getBytes(UTF8);
                     writer.writeByteArray(dstIndex, jsonBytes);
