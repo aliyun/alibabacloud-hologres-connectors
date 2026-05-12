@@ -10,10 +10,15 @@ import org.apache.flink.table.connector.source.ScanTableSource;
 import org.apache.flink.table.connector.source.abilities.SupportsFilterPushDown;
 import org.apache.flink.table.connector.source.abilities.SupportsLimitPushDown;
 import org.apache.flink.table.connector.source.lookup.AsyncLookupFunctionProvider;
+import org.apache.flink.table.connector.source.lookup.FullCachingLookupProvider;
 import org.apache.flink.table.connector.source.lookup.LookupFunctionProvider;
+import org.apache.flink.table.connector.source.lookup.LookupOptions;
 import org.apache.flink.table.connector.source.lookup.PartialCachingAsyncLookupProvider;
 import org.apache.flink.table.connector.source.lookup.PartialCachingLookupProvider;
 import org.apache.flink.table.connector.source.lookup.cache.LookupCache;
+import org.apache.flink.table.connector.source.lookup.cache.trigger.CacheReloadTrigger;
+import org.apache.flink.table.connector.source.lookup.cache.trigger.PeriodicCacheReloadTrigger;
+import org.apache.flink.table.connector.source.lookup.cache.trigger.TimedCacheReloadTrigger;
 import org.apache.flink.table.expressions.ResolvedExpression;
 import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.util.Preconditions;
@@ -102,6 +107,10 @@ public class HologresTableSource
 
     @Override
     public LookupRuntimeProvider getLookupRuntimeProvider(LookupContext context) {
+        if (config.get(LookupOptions.CACHE_TYPE).equals(LookupOptions.LookupCacheType.FULL)) {
+            return FullCachingLookupProvider.of(createScanRuntimeProvider(), getCacheReloadTrigger());
+        }
+
         String[] lookupKeys = new String[context.getKeys().length];
         for (int i = 0; i < lookupKeys.length; i++) {
             int[] innerKeyArr = context.getKeys()[i];
@@ -149,8 +158,21 @@ public class HologresTableSource
         return lookupProvider;
     }
 
+    private CacheReloadTrigger getCacheReloadTrigger() {
+        if (config.get(LookupOptions.FULL_CACHE_RELOAD_STRATEGY)
+                .equals(LookupOptions.ReloadStrategy.PERIODIC)) {
+            return PeriodicCacheReloadTrigger.fromConfig(config);
+        } else {
+            return TimedCacheReloadTrigger.fromConfig(config);
+        }
+    }
+
     @Override
     public ScanRuntimeProvider getScanRuntimeProvider(ScanContext scanContext) {
+        return createScanRuntimeProvider();
+    }
+
+    private ScanRuntimeProvider createScanRuntimeProvider() {
         String filterPredicate = String.join(" and ", resolvedPredicates);
         HologresTableSchema hologresTableSchema =
                 HologresTableSchema.get(connectionParam.getJdbcOptions());
