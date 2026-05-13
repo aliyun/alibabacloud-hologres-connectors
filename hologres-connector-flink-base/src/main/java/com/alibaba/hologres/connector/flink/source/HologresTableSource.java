@@ -108,7 +108,9 @@ public class HologresTableSource
     @Override
     public LookupRuntimeProvider getLookupRuntimeProvider(LookupContext context) {
         if (config.get(LookupOptions.CACHE_TYPE).equals(LookupOptions.LookupCacheType.FULL)) {
-            return FullCachingLookupProvider.of(createScanRuntimeProvider(), getCacheReloadTrigger());
+            logFullCacheConfig();
+            return FullCachingLookupProvider.of(
+                    createScanRuntimeProvider(), getCacheReloadTrigger());
         }
 
         String[] lookupKeys = new String[context.getKeys().length];
@@ -158,6 +160,26 @@ public class HologresTableSource
         return lookupProvider;
     }
 
+    private void logFullCacheConfig() {
+        LookupOptions.ReloadStrategy reloadStrategy =
+                config.get(LookupOptions.FULL_CACHE_RELOAD_STRATEGY);
+        if (reloadStrategy.equals(LookupOptions.ReloadStrategy.PERIODIC)) {
+            LOG.debug(
+                    "Use Hologres FULL lookup cache for table {}, reloadStrategy={}, periodicInterval={}, scheduleMode={}.",
+                    tableName,
+                    reloadStrategy,
+                    config.get(LookupOptions.FULL_CACHE_PERIODIC_RELOAD_INTERVAL),
+                    config.get(LookupOptions.FULL_CACHE_PERIODIC_RELOAD_SCHEDULE_MODE));
+        } else {
+            LOG.debug(
+                    "Use Hologres FULL lookup cache for table {}, reloadStrategy={}, timedReloadTime={}, timedReloadIntervalInDays={}.",
+                    tableName,
+                    reloadStrategy,
+                    config.get(LookupOptions.FULL_CACHE_TIMED_RELOAD_ISO_TIME),
+                    config.get(LookupOptions.FULL_CACHE_TIMED_RELOAD_INTERVAL_IN_DAYS));
+        }
+    }
+
     private CacheReloadTrigger getCacheReloadTrigger() {
         if (config.get(LookupOptions.FULL_CACHE_RELOAD_STRATEGY)
                 .equals(LookupOptions.ReloadStrategy.PERIODIC)) {
@@ -174,13 +196,15 @@ public class HologresTableSource
 
     private ScanRuntimeProvider createScanRuntimeProvider() {
         String filterPredicate = String.join(" and ", resolvedPredicates);
-        HologresTableSchema hologresTableSchema =
-                HologresTableSchema.get(connectionParam.getJdbcOptions());
-        verifyBulkReadJob(tableSchema.getFieldNames(), hologresTableSchema);
         LOG.info("Filter predicate of bulk read is: " + filterPredicate);
         return InputFormatProvider.of(
                 new HologresBulkreadInputFormat(
-                        connectionParam, jdbcOptions, tableSchema, filterPredicate, limit));
+                        connectionParam,
+                        jdbcOptions,
+                        tableSchema,
+                        filterPredicate,
+                        limit,
+                        config.get(HologresConfigs.SCAN_SPLIT_COUNT)));
     }
 
     @Override
@@ -215,18 +239,5 @@ public class HologresTableSource
     @Override
     public void applyLimit(long limit) {
         this.limit = limit;
-    }
-
-    private void verifyBulkReadJob(String[] fieldNames, HologresTableSchema hologresTableSchema) {
-        for (String fieldName : fieldNames) {
-            Integer hologresColumnIndex = hologresTableSchema.get().getColumnIndex(fieldName);
-            if (hologresColumnIndex == null || hologresColumnIndex < 0) {
-                throw new IllegalArgumentException(
-                        "Hologres table "
-                                + hologresTableSchema.get().getTableName()
-                                + " does not have column "
-                                + fieldName);
-            }
-        }
     }
 }

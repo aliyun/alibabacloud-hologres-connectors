@@ -68,6 +68,14 @@ public class HologresConfigs {
             key("source.scan.fetch-size".toLowerCase()).intType().defaultValue(256);
     public static final ConfigOption<Integer> SCAN_TIMEOUT_SECONDS =
             key("source.scan.timeout-seconds".toLowerCase()).intType().defaultValue(28800);
+    public static final ConfigOption<Integer> SCAN_SPLIT_COUNT =
+            key("source.scan.split-count".toLowerCase())
+                    .intType()
+                    .defaultValue(-1)
+                    .withDescription(
+                            "The number of input splits for full table scan. "
+                                    + "By default, one split is created for each Hologres shard. "
+                                    + "Set a positive value to merge Hologres shards into fewer input splits.");
     public static final ConfigOption<Boolean> ENABLE_FILTER_PUSH_DOWN =
             key("source.filter-push-down.enabled".toLowerCase()).booleanType().defaultValue(false);
 
