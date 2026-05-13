@@ -37,6 +37,9 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 
 /** Bulkread input format. */
 public class HologresBulkreadInputFormat extends RichInputFormat<RowData, HologresShardInputSplit>
@@ -48,33 +51,30 @@ public class HologresBulkreadInputFormat extends RichInputFormat<RowData, Hologr
     private final JDBCOptions options;
     private final String[] fieldNames;
     private final DataType[] fieldTypes;
-    private final String[] holoColumnTypes;
+    private transient String[] holoColumnTypes;
 
     private HologresBulkReader hologresBulkReader;
     private Tuple3<RowData, Integer, Long> record;
     private final String filterPredicate;
     private final long limit;
+    private final int scanSplitCount;
+    private long currentSplitStartMs;
+    private long currentSplitRecordCount;
 
     public HologresBulkreadInputFormat(
             HologresConnectionParam connectionParam,
             JDBCOptions jdbcOptions,
             TableSchema tableSchema,
             String filterPredicate,
-            long limit) {
+            long limit,
+            int scanSplitCount) {
         this.connectionParam = connectionParam;
         this.options = jdbcOptions;
         this.fieldNames = tableSchema.getFieldNames();
         this.fieldTypes = tableSchema.getFieldDataTypes();
-        this.holoColumnTypes = new String[fieldNames.length];
-        HologresTableSchema hologresTableSchema =
-                HologresTableSchema.get(connectionParam.getJdbcOptions());
-        for (int i = 0; i < fieldNames.length; i++) {
-            Integer hologresColumnIndex = hologresTableSchema.get().getColumnIndex(fieldNames[i]);
-            this.holoColumnTypes[i] =
-                    hologresTableSchema.get().getColumn(hologresColumnIndex).getTypeName();
-        }
         this.filterPredicate = filterPredicate;
         this.limit = limit;
+        this.scanSplitCount = scanSplitCount;
     }
 
     @Override
@@ -83,15 +83,14 @@ public class HologresBulkreadInputFormat extends RichInputFormat<RowData, Hologr
 
         LOG.info("Creating input splits for Holo shards");
 
-        int numShards = JDBCUtils.getShardCount(options);
+        int shardCount = JDBCUtils.getShardCount(options);
+        HologresShardInputSplit[] splits = createShardInputSplits(shardCount, scanSplitCount);
 
-        HologresShardInputSplit[] splits = new HologresShardInputSplit[numShards];
-
-        for (int i = 0; i < numShards; i++) {
-            splits[i] = new HologresShardInputSplit(i);
-        }
-
-        LOG.info("Created {} input splits for Holo shards", splits.length);
+        LOG.info(
+                "Created {} input splits for {} Holo shards, configured split count {}",
+                splits.length,
+                shardCount,
+                scanSplitCount);
 
         return splits;
     }
@@ -104,7 +103,13 @@ public class HologresBulkreadInputFormat extends RichInputFormat<RowData, Hologr
 
     @Override
     public void open(HologresShardInputSplit inputSplit) throws IOException {
-        LOG.info("Opening HoloShardInputSplit {}", inputSplit.getSplitNumber());
+        LOG.info(
+                "Opening HoloShardInputSplit {}, shard ids {}",
+                inputSplit.getSplitNumber(),
+                Arrays.toString(inputSplit.getShardIds()));
+        currentSplitStartMs = System.currentTimeMillis();
+        currentSplitRecordCount = 0;
+        initializeHoloColumnTypes();
         hologresBulkReader =
                 new HologresBulkReader(
                         connectionParam,
@@ -112,11 +117,49 @@ public class HologresBulkreadInputFormat extends RichInputFormat<RowData, Hologr
                         fieldNames,
                         fieldTypes,
                         holoColumnTypes,
-                        new String[] {String.valueOf(inputSplit.getSplitNumber())},
+                        inputSplit.getShardIds(),
                         false,
                         filterPredicate,
                         limit);
         hologresBulkReader.open();
+    }
+
+    static HologresShardInputSplit[] createShardInputSplits(
+            int shardCount, int configuredSplitCount) {
+        int splitCount =
+                configuredSplitCount > 0 ? Math.min(configuredSplitCount, shardCount) : shardCount;
+        List<HologresShardInputSplit> splits = new ArrayList<>(splitCount);
+        for (int splitNumber = 0; splitNumber < splitCount; splitNumber++) {
+            int startInclusive = splitNumber * shardCount / splitCount;
+            int endExclusive = (splitNumber + 1) * shardCount / splitCount;
+            String[] shardIds = new String[endExclusive - startInclusive];
+            for (int shardId = startInclusive; shardId < endExclusive; shardId++) {
+                shardIds[shardId - startInclusive] = String.valueOf(shardId);
+            }
+            splits.add(new HologresShardInputSplit(splitNumber, shardIds));
+        }
+        return splits.toArray(new HologresShardInputSplit[0]);
+    }
+
+    private void initializeHoloColumnTypes() {
+        if (holoColumnTypes != null) {
+            return;
+        }
+        HologresTableSchema hologresTableSchema =
+                HologresTableSchema.get(connectionParam.getJdbcOptions());
+        holoColumnTypes = new String[fieldNames.length];
+        for (int i = 0; i < fieldNames.length; i++) {
+            Integer hologresColumnIndex = hologresTableSchema.get().getColumnIndex(fieldNames[i]);
+            if (hologresColumnIndex == null || hologresColumnIndex < 0) {
+                throw new IllegalArgumentException(
+                        "Hologres table "
+                                + hologresTableSchema.get().getTableName()
+                                + " does not have column "
+                                + fieldNames[i]);
+            }
+            holoColumnTypes[i] =
+                    hologresTableSchema.get().getColumn(hologresColumnIndex).getTypeName();
+        }
     }
 
     @Override
@@ -126,6 +169,7 @@ public class HologresBulkreadInputFormat extends RichInputFormat<RowData, Hologr
 
     @Override
     public RowData nextRecord(RowData reuse) throws IOException {
+        currentSplitRecordCount++;
         return record.f0;
     }
 
@@ -134,6 +178,10 @@ public class HologresBulkreadInputFormat extends RichInputFormat<RowData, Hologr
         if (hologresBulkReader != null) {
             hologresBulkReader.close();
         }
+        LOG.info(
+                "Closed HoloShardInputSplit, loaded {} records, cost {} ms",
+                currentSplitRecordCount,
+                System.currentTimeMillis() - currentSplitStartMs);
     }
 
     @Override

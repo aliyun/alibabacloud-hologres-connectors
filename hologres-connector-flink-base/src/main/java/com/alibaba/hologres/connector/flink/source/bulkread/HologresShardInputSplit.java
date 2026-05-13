@@ -20,17 +20,23 @@ package com.alibaba.hologres.connector.flink.source.bulkread;
 
 import org.apache.flink.core.io.InputSplit;
 
-/** An input split that represents a Holo shard, where split number equals shard id. */
+/** An input split that represents one or more Holo shards. */
 public class HologresShardInputSplit implements InputSplit {
 
-    private final int shardId; // shard id == split number
+    private final int splitNumber;
+    private final String[] shardIds;
 
-    public HologresShardInputSplit(int splitNumber) {
-        this.shardId = splitNumber;
+    public HologresShardInputSplit(int splitNumber, String[] shardIds) {
+        this.splitNumber = splitNumber;
+        this.shardIds = shardIds;
     }
 
     @Override
     public int getSplitNumber() {
-        return shardId;
+        return splitNumber;
+    }
+
+    public String[] getShardIds() {
+        return shardIds;
     }
 }
