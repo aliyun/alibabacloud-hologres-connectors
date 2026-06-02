@@ -29,12 +29,17 @@ class HoloTableCatalog extends TableCatalog with SupportsNamespaces with Logging
   override def initialize(name: String, options: CaseInsensitiveStringMap): Unit = {
     assert(catalogName == null, "The Holo table catalog is already initialed")
     catalogName = name
+    currentHoloSchema = options.getOrDefault(SourceProvider.DEFAULT_DATABASE, currentHoloSchema)
     hologresConfigs = new HologresConfigs(options.asScala.toMap)
   }
 
   override def name(): String = {
     require(catalogName != null, "The Holo table catalog is not initialed")
     catalogName
+  }
+
+  override def defaultNamespace(): Array[String] = {
+    Array(currentHoloSchema)
   }
 
   override def listTables(namespace: Array[String]): Array[Identifier] = {

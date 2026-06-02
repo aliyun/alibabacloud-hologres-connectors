@@ -4,6 +4,7 @@ import scala.reflect.runtime.{universe => ru}
 
 class BaseSourceProvider() {
   val DATABASE = "database"
+  val DEFAULT_DATABASE = "defaultdatabase"
   val TABLE = "table"
   val USERNAME = "username"
   val PASSWORD = "password"
