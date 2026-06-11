@@ -17,7 +17,7 @@
     <properties>
         <scala.version>2.12.21</scala.version>
         <scala.binary.version>2.12</scala.binary.version>
-        <spark.version>3.3.1</spark.version>
+        <spark.version>3.5.7</spark.version>
         <spark.release.version>3</spark.release.version>
         <scalatest.version>3.2.10</scalatest.version>
     </properties>
