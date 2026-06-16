@@ -12,7 +12,7 @@
         <java.version>1.8</java.version>
         <scala.version>2.12.21</scala.version>
         <scala.binary.version>2.12</scala.binary.version>
-        <spark.version>3.3.1</spark.version>
+        <spark.version>3.5.7</spark.version>
     </properties>
 
     <dependencies>
