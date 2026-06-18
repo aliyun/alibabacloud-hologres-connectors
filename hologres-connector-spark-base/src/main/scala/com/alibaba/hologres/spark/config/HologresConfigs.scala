@@ -6,9 +6,12 @@ import com.alibaba.hologres.client.model.OnConflictAction
 import com.alibaba.hologres.spark.ConfigUtils
 import com.alibaba.hologres.spark.utils.JDBCUtil
 import com.alibaba.hologres.spark.utils.JDBCUtil._
+import org.apache.spark.SparkContext
 
 /** Hologres config parameters process. */
-class HologresConfigs(sourceOptions: Map[String, String], val sparkAppName: String = "default", val sparkAppId: String = "") extends Serializable {
+class HologresConfigs(sourceOptions: Map[String, String]) extends Serializable {
+  val sparkAppName: String = HologresConfigs.defaultAppName
+  val sparkAppId: String = HologresConfigs.defaultAppId
   private val allConfigNames = ConfigUtils.getAllConfigNames
   sourceOptions.foreach(key => {
     if (!allConfigNames.contains(key._1)) {
@@ -150,5 +153,21 @@ class HologresConfigs(sourceOptions: Map[String, String], val sparkAppName: Stri
 
   var holoVersion: String = _
 
-  override def clone(): HologresConfigs = new HologresConfigs(sourceOptions, sparkAppName, sparkAppId)
+  override def clone(): HologresConfigs = new HologresConfigs(sourceOptions)
+}
+
+object HologresConfigs {
+  private lazy val defaultAppName: String = try {
+    val name = SparkContext.getOrCreate().appName
+    if (name == null || name.isEmpty) "default" else name
+  } catch {
+    case _: Exception => "default"
+  }
+
+  private lazy val defaultAppId: String = try {
+    val id = SparkContext.getOrCreate().applicationId
+    if (id == null || id.isEmpty) "" else id
+  } catch {
+    case _: Exception => ""
+  }
 }

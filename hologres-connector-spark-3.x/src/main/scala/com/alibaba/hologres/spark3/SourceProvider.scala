@@ -5,7 +5,6 @@ import com.alibaba.hologres.spark.BaseSourceProvider
 import com.alibaba.hologres.spark.config.HologresConfigs
 import com.alibaba.hologres.spark.utils.{RepartitionUtil, SparkHoloUtil}
 import com.alibaba.hologres.spark3.sink.HologresRelation
-import org.apache.spark.SparkContext
 import org.apache.spark.sql.connector.catalog.{Table, TableProvider}
 import org.apache.spark.sql.connector.expressions.Transform
 import org.apache.spark.sql.sources._
@@ -25,14 +24,6 @@ class SourceProvider extends DataSourceRegister
   // holo表的schema,如果是通过query或者view查询holo, 也需要mock一个holo schema
   private var holoSchema: TableSchema = _
   private var sourceType: String = "TABLE"
-  var sparkAppName: String = SparkContext.getOrCreate().appName
-  if (sparkAppName == null || "".eq(sparkAppName)) {
-    sparkAppName = "default"
-  }
-  var sparkAppId: String = SparkContext.getOrCreate().applicationId
-  if (sparkAppId == null) {
-    sparkAppId = ""
-  }
 
   override def shortName(): String = "hologres"
 
@@ -40,7 +31,7 @@ class SourceProvider extends DataSourceRegister
    * 用户不指定spark schema, 通过holo表的schema推断
    */
   override def inferSchema(options: CaseInsensitiveStringMap): StructType = {
-    val hologresConfigs: HologresConfigs = new HologresConfigs(options.asScala.toMap, sparkAppName, sparkAppId)
+    val hologresConfigs: HologresConfigs = new HologresConfigs(options.asScala.toMap)
     inferredSchema = true
     val tuple2 = SparkHoloUtil.getHoloSchema(hologresConfigs)
     holoSchema = tuple2._1
@@ -52,7 +43,7 @@ class SourceProvider extends DataSourceRegister
   override def getTable(sparkSchema: StructType, transforms: Array[Transform], properties: util.Map[String, String]): Table = {
     this.sparkSchema = sparkSchema
     val opts = properties.asScala.toMap
-    val hologresConfigs = new HologresConfigs(opts, sparkAppName, sparkAppId)
+    val hologresConfigs = new HologresConfigs(opts)
     if (holoSchema == null) {
       val tuple2 = SparkHoloUtil.getHoloSchema(hologresConfigs)
       holoSchema = tuple2._1
