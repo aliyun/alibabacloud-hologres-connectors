@@ -88,6 +88,19 @@ class HoloBatchWriter(
 
   override def abort(messages: Array[WriterCommitMessage]): Unit = {
     logger.warn("HoloBatchWriter abort: " + LocalDateTime.now())
+    if ("stage" == hologresConfigs.writeMode && !hologresConfigs.copyStageOnly && messages != null) {
+      val stageNames = messages.filter(_ != null).collect {
+        case m: StageWriterCommitMessage => m.stageName
+      }
+      if (stageNames.nonEmpty) {
+        try {
+          JDBCUtil.dropStages(hologresConfigs, stageNames)
+        } catch {
+          case e: Exception =>
+            logger.warn("Failed to drop stages on batch abort", e)
+        }
+      }
+    }
     if (is_overwrite) {
       JDBCUtil.deleteTempTableForOverWrite(hologresConfigs)
     }

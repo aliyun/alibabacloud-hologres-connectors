@@ -6,7 +6,7 @@ import com.alibaba.hologres.client.model.TableSchema
 import com.alibaba.hologres.client.utils.RateLimiter
 import com.alibaba.hologres.spark.config.HologresConfigs
 import com.alibaba.hologres.spark.sink._
-import com.alibaba.hologres.spark.utils.LoggerWrapper
+import com.alibaba.hologres.spark.utils.{JDBCUtil, LoggerWrapper}
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.connector.write.WriterCommitMessage
@@ -69,14 +69,31 @@ abstract class BaseHoloDataCopyStageWriter(hologresConfigs: HologresConfigs,
   }
 
   def abort(): Unit = {
-    logger.debug("Abort....")
-    close()
+    logger.info("Abort, dropping stage: " + stageName)
+    try {
+      if (stageWrapper != null) {
+        stageWrapper.abort()
+      }
+    } catch {
+      case e: Exception =>
+        logger.warn("Error aborting stageWrapper", e)
+    }
+    try {
+      JDBCUtil.dropStages(hologresConfigs, Array(stageName))
+    } catch {
+      case e: Exception =>
+        logger.warn("Failed to drop stage on abort: " + stageName, e)
+    }
   }
 
   protected def close(): Unit = {
     if (stageWrapper != null) {
-      stageWrapper.flush()
-      stageWrapper.close()
+      try {
+        stageWrapper.close()
+      } catch {
+        case e: Exception =>
+          logger.warn("Error closing stageWrapper", e)
+      }
     }
     logger.debug("Close....")
   }
