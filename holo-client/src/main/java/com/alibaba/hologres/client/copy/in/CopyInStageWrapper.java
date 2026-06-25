@@ -39,6 +39,8 @@ public class CopyInStageWrapper<RECORD> implements AutoCloseable {
 
     private RateLimiter rateLimiter;
 
+    private volatile boolean closed = false;
+
     public CopyInStageWrapper(
             HoloConfig config,
             String stageName,
@@ -128,13 +130,39 @@ public class CopyInStageWrapper<RECORD> implements AutoCloseable {
         copyInStageFromBytes(data);
     }
 
+    public void abort() throws IOException {
+        if (closed) {
+            return;
+        }
+        closed = true;
+        LOGGER.info("CopyInStageWrapper abort begin");
+        try {
+            arrowWriter.close();
+        } finally {
+            if (connectionHolder != null) {
+                connectionHolder.close();
+            }
+        }
+        LOGGER.info("CopyInStageWrapper abort end");
+    }
+
     @Override
     public void close() throws IOException {
+        if (closed) {
+            return;
+        }
+        closed = true;
         LOGGER.info("CopyInStageWrapper close begin");
         try {
             flush();
         } finally {
-            arrowWriter.close();
+            try {
+                arrowWriter.close();
+            } finally {
+                if (connectionHolder != null) {
+                    connectionHolder.close();
+                }
+            }
         }
         LOGGER.info("CopyInStageWrapper close end");
     }
