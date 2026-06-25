@@ -88,7 +88,7 @@ class HoloBatchWriter(
 
   override def abort(messages: Array[WriterCommitMessage]): Unit = {
     logger.warn("HoloBatchWriter abort: " + LocalDateTime.now())
-    if ("stage" == hologresConfigs.writeMode && messages != null) {
+    if ("stage" == hologresConfigs.writeMode && !hologresConfigs.copyStageOnly && messages != null) {
       val stageNames = messages.filter(_ != null).collect {
         case m: StageWriterCommitMessage => m.stageName
       }
