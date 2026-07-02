@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hologres-client"
+dynamic = ["version"]
+description = "Python client for Hologres"
+requires-python = ">=3.8"
+dependencies = [
+    "psycopg[binary]>=3.1",
+    "pyarrow>=12.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-benchmark",
+    "ruff>=0.4",
+]
+
+[tool.setuptools.dynamic]
+version = {attr = "hologres._version.__version__"}
+
+[tool.setuptools.packages.find]
+include = ["hologres*"]
+exclude = ["tests*", "perf*"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py38"
+
+[tool.ruff.format]
+quote-style = "double"
