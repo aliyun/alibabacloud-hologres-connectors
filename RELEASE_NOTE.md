@@ -2,6 +2,7 @@
 
 hologres-connectors 各版本的功能更新与缺陷修复记录。
 
+- [1.6.2](#162)
 - [1.6.1](#161)
 - [1.6.0](#160)
 - [1.5.6](#156)
@@ -14,6 +15,15 @@ hologres-connectors 各版本的功能更新与缺陷修复记录。
 - [1.3.0](#130)
 
 ---
+
+## 1.6.2
+
+| 模块 | 新功能 | 缺陷修复 |
+| --- | --- | --- |
+| Spark connector | • Stage 写入稳定性与性能优化：分离 abort/close、并发 drop stage、stageName 唯一化<br>• 升级 Spark 3.5.3 与 SLF4J 2.0.9<br>• Arrow 方式读取支持 LZ4 压缩<br>• Catalog 写入支持 Hologres 生成列<br>• 支持通过 defaultdatabase 指定 Catalog 默认数据库<br>• Spark connector 支持指定逻辑分区表分区<br>• 增加 Spark stage abort 清理逻辑 | • 修复 v1Write 路径丢失 write.insert.* 配置导致分区表写入失败的问题 |
+| holo-client | • holo-client 不再 shaded Arrow | • 修复 HoloTable.name() 在 logging appender 上下文中的死锁<br>• 修复 read null 字符串报错 |
+| holo-client-py | • 新增 holo-client-py Python 客户端 | |
+| 通用 | | • 更新潜在漏洞依赖库 |
 
 ## 1.6.1
 

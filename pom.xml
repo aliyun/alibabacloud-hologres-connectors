@@ -6,11 +6,12 @@
 
     <groupId>com.alibaba.hologres</groupId>
     <artifactId>hologres-connector-parent</artifactId>
-    <version>1.6.2-SNAPSHOT</version>
+    <version>${revision}</version>
     <packaging>pom</packaging>
 
     <properties>
-        <hologres.client.version>2.7.1</hologres.client.version>
+        <revision>1.6.3-SNAPSHOT</revision>
+        <hologres.client.version>2.7.6</hologres.client.version>
         <java.version>11</java.version>
         <maven.compiler.source>${java.version}</maven.compiler.source>
         <maven.compiler.target>${java.version}</maven.compiler.target>
@@ -191,6 +192,27 @@
                         <goals>
                             <goal>check</goal>
                         </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>flatten-maven-plugin</artifactId>
+                <version>1.5.0</version>
+                <configuration>
+                    <updatePomFile>true</updatePomFile>
+                    <flattenMode>resolveCiFriendliesOnly</flattenMode>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>flatten</id>
+                        <phase>process-resources</phase>
+                        <goals><goal>flatten</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>flatten.clean</id>
+                        <phase>clean</phase>
+                        <goals><goal>clean</goal></goals>
                     </execution>
                 </executions>
             </plugin>

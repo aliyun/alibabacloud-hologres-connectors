@@ -106,7 +106,7 @@ Connectors for Hologres
 <dependency>
     <groupId>com.alibaba.hologres</groupId>
     <artifactId>hologres-connector-flink-1.19</artifactId>
-    <version>1.6.1</version>
+    <version>1.6.2</version>
     <classifier>jar-with-dependencies</classifier>
 </dependency>
 ```
