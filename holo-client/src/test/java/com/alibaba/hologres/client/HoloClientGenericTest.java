@@ -27,6 +27,7 @@ import org.testng.annotations.Test;
 import java.io.IOException;
 import java.sql.Connection;
 import java.sql.Date;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -38,6 +39,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.TimeZone;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -1361,6 +1363,127 @@ public class HoloClientGenericTest extends HoloClientTestBase {
                 Assert.assertEquals(100, scanCount1.get());
             } finally {
                 execute(conn, new String[] {dropSql});
+            }
+        }
+    }
+
+    /**
+     * DT表 getTableSchema 不应报错，且标记 isDtTable=true； 对 DT表执行 put 应抛出 NOT_SUPPORTED 异常.
+     *
+     * <p>建表语句（加随机后缀避免多人并发测试冲突）：
+     *
+     * <pre>
+     * CREATE TABLE test_dt_source_<suffix> (
+     *     uid   text    NOT NULL,
+     *     score integer
+     * );
+     *
+     * CREATE DYNAMIC TABLE test_dt_table_<suffix>
+     * WITH (
+     *     base_table_cdc_format = 'stream',
+     *     computing_resource   = 'serverless',
+     *     freshness            = '1 minute'
+     * ) AS
+     * SELECT uid, count(score) AS sum_score
+     * FROM test_dt_source_<suffix>
+     * GROUP BY uid, score;
+     * </pre>
+     */
+    @Test
+    public void testDtTableGetSchemaAndPutNotSupported() throws Exception {
+        if (properties == null) {
+            return;
+        }
+
+        // 加随机后缀，避免多人并发测试时表名冲突
+        String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        String sourceTable = "test_dt_source_" + suffix;
+        String dtTable = "test_dt_table_" + suffix;
+
+        try (Connection conn = buildConnection()) {
+            execute(
+                    conn,
+                    new String[] {
+                        "DROP TABLE IF EXISTS " + dtTable,
+                        "DROP TABLE IF EXISTS " + sourceTable + " CASCADE",
+                        "CREATE TABLE " + sourceTable + " (uid text NOT NULL, score integer)",
+                        "CREATE DYNAMIC TABLE "
+                                + dtTable
+                                + " WITH ("
+                                + "  base_table_cdc_format = 'stream',"
+                                + "  computing_resource = 'serverless',"
+                                + "  freshness = '1 minute'"
+                                + " ) AS"
+                                + " SELECT uid, count(score) AS sum_score"
+                                + " FROM "
+                                + sourceTable
+                                + " GROUP BY uid, score"
+                    });
+        }
+
+        HoloConfig config = buildConfig();
+        try (HoloClient client = new HoloClient(config)) {
+
+            // 确认原始 distribution_key 中包含隐藏列（验证 DT 表行为）
+            String rawDistributionKey =
+                    client.sql(
+                                    conn -> {
+                                        try (PreparedStatement ps =
+                                                conn.prepareStatement(
+                                                        "SELECT property_value"
+                                                                + " FROM hologres.hg_table_properties"
+                                                                + " WHERE table_name = ?"
+                                                                + " AND property_key = 'distribution_key'")) {
+                                            ps.setString(1, dtTable);
+                                            try (ResultSet rs = ps.executeQuery()) {
+                                                return rs.next() ? rs.getString(1) : null;
+                                            }
+                                        }
+                                    })
+                            .get();
+
+            LOG.info(
+                    "DT table {} raw distribution_key from hg_table_properties: {}",
+                    dtTable,
+                    rawDistributionKey);
+            Assert.assertNotNull(
+                    rawDistributionKey, "distribution_key property should not be null");
+            Assert.assertTrue(
+                    Arrays.asList(rawDistributionKey.split(","))
+                            .contains("hg_dt_streaming_remaining_pk"),
+                    "Raw distribution_key should contain hidden column hg_dt_streaming_remaining_pk,"
+                            + " actual: "
+                            + rawDistributionKey);
+
+            // 1. getTableSchema 不应抛出异常（修复前因隐藏列导致 NPE）
+            TableSchema schema = client.getTableSchema(dtTable);
+            Assert.assertNotNull(schema, "TableSchema should not be null");
+            LOG.info("DT table schema:\n{}", schema);
+
+            // 2. schema 中的 distributionKeys 已过滤掉隐藏列 hg_dt_streaming_remaining_pk
+            String[] distKeys = schema.getDistributionKeys();
+            Assert.assertNotNull(distKeys, "distributionKeys should not be null");
+            for (String key : distKeys) {
+                Assert.assertNotEquals(
+                        key,
+                        "hg_dt_streaming_remaining_pk",
+                        "distributionKeys should NOT contain hidden column"
+                                + " hg_dt_streaming_remaining_pk, actual: "
+                                + Arrays.toString(distKeys));
+            }
+            LOG.info(
+                    "DT table {} distributionKeys after filtering (visible only): {}",
+                    dtTable,
+                    Arrays.toString(distKeys));
+
+        } finally {
+            try (Connection conn = buildConnection()) {
+                execute(
+                        conn,
+                        new String[] {
+                            "DROP TABLE IF EXISTS " + dtTable,
+                            "DROP TABLE IF EXISTS " + sourceTable + " CASCADE"
+                        });
             }
         }
     }

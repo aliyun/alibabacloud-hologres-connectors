@@ -39,6 +39,7 @@ import java.sql.Date;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -46,6 +47,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -57,6 +59,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import static com.alibaba.hologres.client.copy.CopyUtil.buildInsertTableSelectFromStageSql;
+import static com.alibaba.hologres.client.utils.DataTypeTestUtil.ALL_TYPE_DATA;
 import static com.alibaba.hologres.client.utils.DataTypeTestUtil.EXCEPTION_ALL_TYPE_DATA;
 import static com.alibaba.hologres.client.utils.DataTypeTestUtil.FIXED_PLAN_TYPE_DATA;
 import static com.alibaba.hologres.client.utils.DataTypeTestUtil.TypeCaseData;
@@ -64,8 +67,7 @@ import static com.alibaba.hologres.client.utils.DataTypeTestUtil.TypeCaseData;
 /** Fixed Copy测试用例. */
 public class CopyTest extends HoloClientTestBase {
 
-    @DataProvider(name = "typeCaseData")
-    public Object[][] createData() {
+    private Object[][] buildTypeCaseDataCombinations() {
         // type, format[csv, binary, binaryrow], stream mode[on, off], usefixedfe [on, off], index
         Object[][] ret = new Object[FIXED_PLAN_TYPE_DATA.length * 7][];
         for (int i = 0; i < FIXED_PLAN_TYPE_DATA.length; ++i) {
@@ -94,9 +96,9 @@ public class CopyTest extends HoloClientTestBase {
 
     @DataProvider(name = "typeCaseDataForStage")
     public Object[][] createStageTestData() {
-        Object[][] ret = new Object[FIXED_PLAN_TYPE_DATA.length][];
-        for (int i = 0; i < FIXED_PLAN_TYPE_DATA.length; ++i) {
-            ret[i] = new Object[] {FIXED_PLAN_TYPE_DATA[i]};
+        Object[][] ret = new Object[ALL_TYPE_DATA.length][];
+        for (int i = 0; i < ALL_TYPE_DATA.length; ++i) {
+            ret[i] = new Object[] {ALL_TYPE_DATA[i]};
         }
         return ret;
     }
@@ -110,36 +112,36 @@ public class CopyTest extends HoloClientTestBase {
         return ret;
     }
 
-    /** data type test. */
-    @Test(dataProvider = "typeCaseData")
-    public void testCopy001(
-            TypeCaseData typeCaseData,
-            CopyFormat format,
-            boolean streamMode,
-            boolean useFixedFe,
-            int index)
-            throws Exception {
-
+    /** data type test - runs all type × format × mode × fixedFe combinations in parallel. */
+    @Test
+    public void testCopy001() throws Exception {
         if (properties == null) {
             return;
         }
 
-        final int totalCount = 10;
-        final int nullPkId = 5;
-        String typeName = typeCaseData.getName();
+        Object[][] combinations = buildTypeCaseDataCombinations();
+        List<Callable<Void>> tasks = new ArrayList<>();
 
-        if (useFixedFe
-                && format != CopyFormat.BINARYROW
-                && Objects.equals(typeName, "roaringbitmap")) {
-            return;
-        }
-        if (useFixedFe && holoVersion.compareTo(new HoloVersion("3.1.0")) < 0) {
-            return;
-        } else if (format == CopyFormat.BINARYROW
-                && holoVersion.compareTo(new HoloVersion("4.1.0")) < 0) {
-            return;
-        }
-        try (Connection conn = buildConnection()) {
+        for (Object[] combo : combinations) {
+            TypeCaseData typeCaseData = (TypeCaseData) combo[0];
+            CopyFormat format = (CopyFormat) combo[1];
+            boolean streamMode = (boolean) combo[2];
+            boolean useFixedFe = (boolean) combo[3];
+            int index = (int) combo[4];
+            String typeName = typeCaseData.getName();
+
+            if (useFixedFe
+                    && format != CopyFormat.BINARYROW
+                    && Objects.equals(typeName, "roaringbitmap")) {
+                continue;
+            }
+            if (useFixedFe && holoVersion.compareTo(new HoloVersion("3.1.0")) < 0) {
+                continue;
+            } else if (format == CopyFormat.BINARYROW
+                    && holoVersion.compareTo(new HoloVersion("4.1.0")) < 0) {
+                continue;
+            }
+
             String tableName =
                     "\"holo_client_copy_type_001_"
                             + typeName
@@ -152,80 +154,80 @@ public class CopyTest extends HoloClientTestBase {
                             + "_"
                             + index
                             + "\"";
-            String forceReplaySql = "set hg_experimental_force_sync_replay = on";
-            String dropSql = "drop table if exists " + tableName;
             String createSql =
                     "create table "
                             + tableName
                             + "(id "
                             + typeCaseData.getColumnType()
                             + ", pk int primary key)";
-            try {
-                LOG.info("current type {}, format {}, streamMode {}", typeName, format, streamMode);
-                execute(conn, new String[] {forceReplaySql});
-                execute(conn, new String[] {dropSql});
-                execute(conn, new String[] {createSql});
 
-                PgConnection pgConn = conn.unwrap(PgConnection.class);
-                TableName tn = TableName.valueOf(tableName);
-
-                HoloVersion version = ConnectionUtil.getHoloVersion(pgConn);
-                ConnectionUtil.checkMeta(pgConn, version, tn.getFullName(), 120);
-
-                TableSchema schema = ConnectionUtil.getTableSchema(conn, tn);
-
-                try (Connection copyConn = buildConnection(useFixedFe);
-                        CopyInWrapper copyIn =
-                                new CopyInWrapper(
-                                        copyConn,
-                                        schema,
+            tasks.add(
+                    tableTask(
+                            tableName,
+                            createSql,
+                            conn -> {
+                                LOG.info(
+                                        "current type {}, format {}, streamMode {}",
+                                        typeName,
                                         format,
-                                        CopyMode.STREAM,
-                                        OnConflictAction.INSERT_OR_REPLACE,
-                                        1024 * 1024 * 10)) {
+                                        streamMode);
+                                PgConnection pgConn = conn.unwrap(PgConnection.class);
+                                TableName tn = TableName.valueOf(tableName);
+                                HoloVersion version = ConnectionUtil.getHoloVersion(pgConn);
+                                ConnectionUtil.checkMeta(pgConn, version, tn.getFullName(), 120);
+                                TableSchema schema = ConnectionUtil.getTableSchema(conn, tn);
 
-                    // 插入10条，id=5的插空值
-                    for (int i = 0; i < totalCount; ++i) {
-                        Record record = Record.build(schema);
-                        if (i == nullPkId) {
-                            record.setObject(0, null);
-                        } else {
-                            record.setObject(
-                                    0,
-                                    typeCaseData
-                                            .getSupplier()
-                                            .apply(i, conn.unwrap(BaseConnection.class)));
-                        }
-                        record.setObject(1, i);
-                        copyIn.putRecord(record);
-                    }
-                }
+                                try (Connection copyConn = buildConnection(useFixedFe);
+                                        CopyInWrapper copyIn =
+                                                new CopyInWrapper(
+                                                        copyConn,
+                                                        schema,
+                                                        format,
+                                                        CopyMode.STREAM,
+                                                        OnConflictAction.INSERT_OR_REPLACE,
+                                                        1024 * 1024 * 10)) {
+                                    for (int i = 0; i < 10; ++i) {
+                                        Record record = Record.build(schema);
+                                        if (i == 5) {
+                                            record.setObject(0, null);
+                                        } else {
+                                            record.setObject(
+                                                    0,
+                                                    typeCaseData
+                                                            .getSupplier()
+                                                            .apply(
+                                                                    i,
+                                                                    conn.unwrap(
+                                                                            BaseConnection.class)));
+                                        }
+                                        record.setObject(1, i);
+                                        copyIn.putRecord(record);
+                                    }
+                                }
 
-                int count = 0;
-                try (Statement stat = conn.createStatement()) {
-                    LOG.info("current type:{}", typeName);
-                    String sql = "select * from " + tableName;
-                    if ("roaringbitmap".equals(typeName)) {
-                        sql = "select rb_cardinality(id), pk from " + tableName;
-                    }
-
-                    try (ResultSet rs = stat.executeQuery(sql)) {
-                        while (rs.next()) {
-                            int i = rs.getInt(2);
-                            if (i == nullPkId) {
-                                Assert.assertNull(rs.getObject(1));
-                            } else {
-                                typeCaseData.getPredicate().run(i, rs);
-                            }
-                            ++count;
-                        }
-                    }
-                    Assert.assertEquals(count, totalCount);
-                }
-            } finally {
-                execute(conn, new String[] {dropSql});
-            }
+                                int count = 0;
+                                try (Statement stat = conn.createStatement()) {
+                                    String sql = "select * from " + tableName;
+                                    if ("roaringbitmap".equals(typeName)) {
+                                        sql = "select rb_cardinality(id), pk from " + tableName;
+                                    }
+                                    try (ResultSet rs = stat.executeQuery(sql)) {
+                                        while (rs.next()) {
+                                            int i = rs.getInt(2);
+                                            if (i == 5) {
+                                                Assert.assertNull(rs.getObject(1));
+                                            } else {
+                                                typeCaseData.getPredicate().run(i, rs);
+                                            }
+                                            ++count;
+                                        }
+                                    }
+                                    Assert.assertEquals(count, 10);
+                                }
+                            }));
         }
+
+        runParallelTasks(tasks);
     }
 
     /** data type test. */
@@ -317,6 +319,8 @@ public class CopyTest extends HoloClientTestBase {
                     String sql = "select * from " + tableName;
                     if ("roaringbitmap".equals(typeName)) {
                         sql = "select rb_cardinality(id), pk from " + tableName;
+                    } else if ("geometry".equals(typeName) || "geography".equals(typeName)) {
+                        sql = "select ST_AsText(id), pk from " + tableName;
                     }
 
                     try (ResultSet rs = stat.executeQuery(sql)) {
@@ -334,6 +338,182 @@ public class CopyTest extends HoloClientTestBase {
                 }
             } finally {
                 execute(conn, new String[] {dropSql});
+            }
+        }
+    }
+
+    /**
+     * copy stage with LZ4 compression: 使用 Arrow IPC V5 buffer-level LZ4 压缩写入 stage， 然后通过 INSERT
+     * INTO SELECT FROM stage 读取数据，验证引擎端可正确解压。
+     */
+    @Test
+    public void testCopyStageWithLz4Compression() throws Exception {
+        if (properties == null) {
+            return;
+        }
+        if (holoVersion.compareTo(new HoloVersion("4.2.5")) < 0) {
+            return;
+        }
+        Properties info = new Properties();
+        info.setProperty(PGProperty.PREFER_QUERY_MODE.getName(), "simple");
+        try (Connection conn = buildConnection(info)) {
+            long ts = System.currentTimeMillis();
+            String stageName = "test_stage_lz4_" + ts;
+            String createStageSql =
+                    "call hologres.hg_create_internal_stage('"
+                            + stageName
+                            + "', 'test_group', 7200);";
+            String dropStageSql = "call hologres.hg_drop_internal_stage('" + stageName + "');";
+            String uncompressedStageName = "test_stage_no_lz4_" + ts;
+            String dropUncompressedStageSql =
+                    "call hologres.hg_drop_internal_stage('" + uncompressedStageName + "');";
+            String tableName = "test_stage_lz4_001";
+            String forceReplaySql = "set hg_experimental_force_sync_replay = on";
+            String dropSql = "drop table if exists " + tableName;
+            String createSql =
+                    "create table " + tableName + "(a int, b text, c float4, primary key(a))";
+            try {
+                execute(conn, new String[] {forceReplaySql});
+                tryExecute(conn, new String[] {dropStageSql});
+                execute(conn, new String[] {dropSql, createSql, createStageSql});
+
+                PgConnection pgConn = conn.unwrap(PgConnection.class);
+                TableName tn = TableName.valueOf(tableName);
+                HoloVersion version = ConnectionUtil.getHoloVersion(pgConn);
+                ConnectionUtil.checkMeta(pgConn, version, tn.getFullName(), 120);
+                TableSchema schema = ConnectionUtil.getTableSchema(conn, tn);
+
+                List<String> columnNames =
+                        Arrays.stream(schema.getColumnSchema())
+                                .map(Column::getName)
+                                .collect(Collectors.toList());
+
+                final int totalCount = 100;
+                // enableCompression = true，使用 Arrow IPC V5 buffer-level LZ4 压缩
+                try (RecordArrowWriter arrowWriter =
+                                new RecordArrowWriter(schema, columnNames, 8192, true);
+                        CopyInStageWrapper<Record> copyIn =
+                                new CopyInStageWrapper<>(
+                                        buildConfig(), stageName, "lz4_test_file", arrowWriter)) {
+                    for (int i = 0; i < totalCount; ++i) {
+                        Record record = Record.build(schema);
+                        record.setObject(0, i);
+                        record.setObject(1, "compressed_name_" + i);
+                        record.setObject(2, 1.5f * i);
+                        copyIn.putRecord(record);
+                    }
+                } catch (Exception e) {
+                    LOG.error("copy in stage with lz4 failed", e);
+                    throw e;
+                }
+
+                // 查询压缩 stage 的文件大小
+                long compressedBytes = 0;
+                try (Statement stat = conn.createStatement();
+                        ResultSet rs =
+                                stat.executeQuery(
+                                        "select stage_bytes, file_count from hologres.hg_internal_stages where stage_name = '"
+                                                + stageName
+                                                + "'")) {
+                    if (rs.next()) {
+                        compressedBytes = rs.getLong("stage_bytes");
+                        LOG.info(
+                                "Compressed stage: name={}, bytes={}, file_count={}",
+                                stageName,
+                                compressedBytes,
+                                rs.getInt("file_count"));
+                    }
+                }
+
+                // 写入不压缩的数据到另一个 stage 做对比
+                String createUncompressedStageSql =
+                        "call hologres.hg_create_internal_stage('"
+                                + uncompressedStageName
+                                + "', 'test_group', 7200);";
+                execute(conn, new String[] {createUncompressedStageSql});
+                try (RecordArrowWriter arrowWriter2 =
+                                new RecordArrowWriter(schema, columnNames, 8192, false);
+                        CopyInStageWrapper<Record> copyIn2 =
+                                new CopyInStageWrapper<>(
+                                        buildConfig(),
+                                        uncompressedStageName,
+                                        "no_lz4_test_file",
+                                        arrowWriter2)) {
+                    for (int i = 0; i < totalCount; ++i) {
+                        Record record = Record.build(schema);
+                        record.setObject(0, i);
+                        record.setObject(1, "compressed_name_" + i);
+                        record.setObject(2, 1.5f * i);
+                        copyIn2.putRecord(record);
+                    }
+                }
+
+                long uncompressedBytes = 0;
+                try (Statement stat = conn.createStatement();
+                        ResultSet rs =
+                                stat.executeQuery(
+                                        "select stage_bytes, file_count from hologres.hg_internal_stages where stage_name = '"
+                                                + uncompressedStageName
+                                                + "'")) {
+                    if (rs.next()) {
+                        uncompressedBytes = rs.getLong("stage_bytes");
+                        LOG.info(
+                                "Uncompressed stage: name={}, bytes={}, file_count={}",
+                                uncompressedStageName,
+                                uncompressedBytes,
+                                rs.getInt("file_count"));
+                    }
+                }
+
+                double ratio =
+                        uncompressedBytes > 0
+                                ? (double) compressedBytes / uncompressedBytes * 100
+                                : 0;
+                LOG.info(
+                        "Size comparison: compressed={} bytes, uncompressed={} bytes, ratio={}%",
+                        compressedBytes, uncompressedBytes, String.format("%.1f", ratio));
+                Assert.assertTrue(
+                        compressedBytes < uncompressedBytes,
+                        String.format(
+                                "compressed size (%d) should be smaller than uncompressed (%d)",
+                                compressedBytes, uncompressedBytes));
+
+                // 使用 INSERT INTO table SELECT FROM stage 读取压缩数据
+                try (Statement stat = conn.createStatement()) {
+                    String sql =
+                            buildInsertTableSelectFromStageSql(
+                                    schema,
+                                    columnNames,
+                                    Collections.singletonList(stageName),
+                                    OnConflictAction.INSERT_OR_UPDATE);
+                    LOG.info("insert from lz4 stage sql: {}", sql);
+                    stat.execute(sql);
+                }
+
+                // 验证数据
+                int count = 0;
+                try (Statement stat = conn.createStatement()) {
+                    try (ResultSet rs =
+                            stat.executeQuery("select a, b, c from " + tableName + " order by a")) {
+                        while (rs.next()) {
+                            int a = rs.getInt(1);
+                            String b = rs.getString(2);
+                            float c = rs.getFloat(3);
+                            Assert.assertEquals(a, count, "column a mismatch");
+                            Assert.assertEquals(b, "compressed_name_" + count, "column b mismatch");
+                            Assert.assertEquals(c, 1.5f * count, 0.01f, "column c mismatch");
+                            ++count;
+                        }
+                    }
+                }
+                Assert.assertEquals(count, totalCount, "total row count mismatch");
+                LOG.info(
+                        "testCopyStageWithLz4Compression passed: {} rows written and read back successfully",
+                        totalCount);
+            } finally {
+                tryExecute(conn, new String[] {dropSql});
+                tryExecute(conn, new String[] {dropStageSql});
+                tryExecute(conn, new String[] {dropUncompressedStageSql});
             }
         }
     }
@@ -1102,110 +1282,113 @@ public class CopyTest extends HoloClientTestBase {
         }
     }
 
-    @Test(dataProvider = "typeCaseData")
-    public void testRecordChecker001(
-            TypeCaseData typeCaseData,
-            CopyFormat format,
-            boolean streamMode,
-            boolean useFixedFe,
-            int index)
-            throws Exception {
+    @Test
+    public void testRecordChecker001() throws Exception {
         if (properties == null) {
             return;
         }
-        if (useFixedFe
-                && format != CopyFormat.BINARYROW
-                && Objects.equals(typeCaseData.getName(), "roaringbitmap")) {
-            return;
-        }
-        if (useFixedFe && holoVersion.compareTo(new HoloVersion("3.1.0")) < 0) {
-            return;
-        } else if (format == CopyFormat.BINARYROW
-                && holoVersion.compareTo(new HoloVersion("4.1.0")) < 0) {
-            return;
-        } else if (!streamMode
-                && (typeCaseData.getName().equals("varchar")
-                        || typeCaseData.getName().equals("char"))) {
-            return;
-        }
-        try (Connection conn = buildConnection()) {
-            {
-                String typeName = typeCaseData.getName();
-                String tableName =
-                        "\"holo_client_record_checker_sql_001_"
-                                + typeCaseData.getName()
-                                + "_"
-                                + format
-                                + "_"
-                                + streamMode
-                                + "_"
-                                + useFixedFe
-                                + "_"
-                                + index
-                                + "\"";
-                String forceReplaySql = "set hg_experimental_force_sync_replay = on";
-                String dropSql = "drop table if exists " + tableName;
-                String createSql = "create table " + tableName;
-                createSql += "(c0" + " " + typeCaseData.getColumnType();
-                createSql += ",id int not null,primary key(id))";
-                try {
-                    LOG.info(
-                            "current type {}, format {}, streamMode {}",
-                            typeName,
-                            format,
-                            streamMode);
-                    execute(conn, new String[] {forceReplaySql});
-                    execute(conn, new String[] {dropSql});
-                    execute(conn, new String[] {createSql});
-                    PgConnection pgConn = conn.unwrap(PgConnection.class);
 
-                    HoloVersion version = ConnectionUtil.getHoloVersion(pgConn);
-                    TableName tn = TableName.valueOf(tableName);
-                    ConnectionUtil.checkMeta(pgConn, version, tn.getFullName(), 120);
+        Object[][] combinations = buildTypeCaseDataCombinations();
+        List<Callable<Void>> tasks = new ArrayList<>();
 
-                    TableSchema schema = ConnectionUtil.getTableSchema(conn, tn);
-                    try (Connection copyConn = buildConnection(useFixedFe)) {
-                        CopyInWrapper copyIn;
-                        Record record = new Record(schema);
-                        Object obj =
-                                typeCaseData
-                                        .getSupplier()
-                                        .apply(0, conn.unwrap(BaseConnection.class));
-                        record.setObject(0, obj);
-                        record.setObject(1, 1);
-                        RecordChecker.check(record);
-                        copyIn =
-                                new CopyInWrapper(
-                                        copyConn,
-                                        record,
-                                        format,
-                                        streamMode ? CopyMode.STREAM : CopyMode.BULK_LOAD,
-                                        OnConflictAction.INSERT_OR_UPDATE,
-                                        1024 * 1024 * 10);
+        for (Object[] combo : combinations) {
+            TypeCaseData typeCaseData = (TypeCaseData) combo[0];
+            CopyFormat format = (CopyFormat) combo[1];
+            boolean streamMode = (boolean) combo[2];
+            boolean useFixedFe = (boolean) combo[3];
+            int index = (int) combo[4];
+            String typeName = typeCaseData.getName();
 
-                        copyIn.putRecord(record);
-                        copyIn.close();
-                    }
-                    int count = 0;
-                    try (Statement stat = conn.createStatement()) {
-                        String sql = "select * from " + tableName;
-                        if ("roaringbitmap".equals(typeCaseData.getColumnType())) {
-                            sql = "select rb_cardinality(c0), id from " + tableName;
-                        }
-                        try (ResultSet rs = stat.executeQuery(sql)) {
-                            while (rs.next()) {
-                                typeCaseData.getPredicate().run(0, rs);
-                                ++count;
-                            }
-                            Assert.assertEquals(1, count);
-                        }
-                    }
-
-                } finally {
-                    execute(conn, new String[] {dropSql});
-                }
+            if (useFixedFe
+                    && format != CopyFormat.BINARYROW
+                    && Objects.equals(typeName, "roaringbitmap")) {
+                continue;
             }
+            if (useFixedFe && holoVersion.compareTo(new HoloVersion("3.1.0")) < 0) {
+                continue;
+            } else if (format == CopyFormat.BINARYROW
+                    && holoVersion.compareTo(new HoloVersion("4.1.0")) < 0) {
+                continue;
+            } else if (!streamMode && (typeName.equals("varchar") || typeName.equals("char"))) {
+                continue;
+            }
+
+            String tableName =
+                    "\"holo_client_record_checker_sql_001_"
+                            + typeName
+                            + "_"
+                            + format
+                            + "_"
+                            + streamMode
+                            + "_"
+                            + useFixedFe
+                            + "_"
+                            + index
+                            + "\"";
+            String createSql =
+                    "create table "
+                            + tableName
+                            + "(c0 "
+                            + typeCaseData.getColumnType()
+                            + ",id int not null,primary key(id))";
+
+            tasks.add(
+                    tableTask(
+                            tableName,
+                            createSql,
+                            conn -> {
+                                LOG.info(
+                                        "current type {}, format {}, streamMode {}",
+                                        typeName,
+                                        format,
+                                        streamMode);
+                                PgConnection pgConn = conn.unwrap(PgConnection.class);
+                                HoloVersion version = ConnectionUtil.getHoloVersion(pgConn);
+                                TableName tn = TableName.valueOf(tableName);
+                                ConnectionUtil.checkMeta(pgConn, version, tn.getFullName(), 120);
+                                TableSchema schema = ConnectionUtil.getTableSchema(conn, tn);
+
+                                try (Connection copyConn = buildConnection(useFixedFe)) {
+                                    Record record = new Record(schema);
+                                    Object obj =
+                                            typeCaseData
+                                                    .getSupplier()
+                                                    .apply(0, conn.unwrap(BaseConnection.class));
+                                    record.setObject(0, obj);
+                                    record.setObject(1, 1);
+                                    RecordChecker.check(record);
+                                    CopyInWrapper copyIn =
+                                            new CopyInWrapper(
+                                                    copyConn,
+                                                    record,
+                                                    format,
+                                                    streamMode
+                                                            ? CopyMode.STREAM
+                                                            : CopyMode.BULK_LOAD,
+                                                    OnConflictAction.INSERT_OR_UPDATE,
+                                                    1024 * 1024 * 10);
+                                    copyIn.putRecord(record);
+                                    copyIn.close();
+                                }
+
+                                int count = 0;
+                                try (Statement stat = conn.createStatement()) {
+                                    String sql = "select * from " + tableName;
+                                    if ("roaringbitmap".equals(typeCaseData.getColumnType())) {
+                                        sql = "select rb_cardinality(c0), id from " + tableName;
+                                    }
+                                    try (ResultSet rs = stat.executeQuery(sql)) {
+                                        while (rs.next()) {
+                                            typeCaseData.getPredicate().run(0, rs);
+                                            ++count;
+                                        }
+                                        Assert.assertEquals(1, count);
+                                    }
+                                }
+                            }));
         }
+
+        runParallelTasks(tasks);
     }
 
     @Test(dataProvider = "exceptionTypeCaseData")
@@ -1427,6 +1610,449 @@ public class CopyTest extends HoloClientTestBase {
                         "copy \"public\".\"holo_client_copy_util_001\"(id,name) from stdin with(format csv, DELIMITER ',', ESCAPE '\\', QUOTE '\"', NULL '\\N', on_conflict update)");
             } finally {
                 execute(conn, new String[] {dropSql});
+            }
+        }
+    }
+
+    /**
+     * test buildPartitionClause and buildInsertTableSelectFromStageSql with partition parameters.
+     */
+    @Test
+    public void testCopyUtilPartitionClause() throws Exception {
+        if (properties == null) {
+            return;
+        }
+        try (Connection conn = buildConnection()) {
+            String tableName = "holo_client_copy_util_partition_clause";
+            String dropSql = "drop table if exists " + tableName;
+            // 包含text和int类型的分区列,验证quoting逻辑
+            String createSql =
+                    "create table "
+                            + tableName
+                            + "(id int not null, name text, ds text, kind int, primary key(id))";
+            try {
+                execute(conn, new String[] {dropSql, createSql});
+                TableName tn = TableName.valueOf(tableName);
+                TableSchema schema = ConnectionUtil.getTableSchema(conn, tn);
+
+                // 1. 空partition参数,返回空字符串
+                Assert.assertEquals(CopyUtil.buildPartitionClause(schema, null, null), "");
+                Assert.assertEquals(
+                        CopyUtil.buildPartitionClause(schema, new String[] {}, new String[][] {}),
+                        "");
+
+                // 2. 单分区列(text类型),单个分区值,值需要加引号
+                Assert.assertEquals(
+                        CopyUtil.buildPartitionClause(
+                                schema, new String[] {"ds"}, new String[][] {{"20250101"}}),
+                        "PARTITION (ds = '20250101')");
+
+                // 3. 单分区列(int类型),单个分区值,值不需要加引号
+                Assert.assertEquals(
+                        CopyUtil.buildPartitionClause(
+                                schema, new String[] {"kind"}, new String[][] {{"100"}}),
+                        "PARTITION (kind = 100)");
+
+                // 4. 多分区列(text+int),多个分区值组合
+                Assert.assertEquals(
+                        CopyUtil.buildPartitionClause(
+                                schema,
+                                new String[] {"ds", "kind"},
+                                new String[][] {{"20250101", "100"}, {"20250102", "200"}}),
+                        "PARTITION (ds = '20250101', kind = 100) PARTITION (ds = '20250102', kind = 200)");
+
+                // 5. 分区值包含单引号,需要转义
+                Assert.assertEquals(
+                        CopyUtil.buildPartitionClause(
+                                schema, new String[] {"ds"}, new String[][] {{"it's"}}),
+                        "PARTITION (ds = 'it''s')");
+
+                // 6. buildInsertTableSelectFromStageSql with partition parameters (insert into)
+                List<String> columnNames = Arrays.asList("id", "name");
+                String sql =
+                        buildInsertTableSelectFromStageSql(
+                                schema,
+                                columnNames,
+                                Collections.singletonList("my_stage"),
+                                OnConflictAction.INSERT_OR_UPDATE,
+                                new String[] {"ds"},
+                                new String[][] {{"20250101"}});
+                LOG.info("insert with partition sql: {}", sql);
+                Assert.assertTrue(
+                        sql.contains("PARTITION (ds = '20250101')"),
+                        "SQL should contain PARTITION clause");
+                Assert.assertTrue(
+                        sql.startsWith("insert into"), "SQL should start with insert into");
+                Assert.assertTrue(
+                        sql.contains("on conflict"), "SQL should contain on conflict clause");
+
+                // 7. buildInsertOverwriteTableSelectFromStageSql with partition parameters
+                String overwriteSql =
+                        CopyUtil.buildInsertOverwriteTableSelectFromStageSql(
+                                schema,
+                                columnNames,
+                                Collections.singletonList("my_stage"),
+                                new String[] {"ds", "kind"},
+                                new String[][] {{"20250101", "100"}});
+                LOG.info("insert overwrite with partition sql: {}", overwriteSql);
+                Assert.assertTrue(
+                        overwriteSql.contains("PARTITION (ds = '20250101', kind = 100)"),
+                        "SQL should contain PARTITION clause");
+                Assert.assertTrue(
+                        overwriteSql.startsWith("insert overwrite"),
+                        "SQL should start with insert overwrite");
+
+                // 8. 不传partition参数时,SQL与原有行为一致(无PARTITION关键字)
+                String noPartitionSql =
+                        buildInsertTableSelectFromStageSql(
+                                schema,
+                                columnNames,
+                                Collections.singletonList("my_stage"),
+                                OnConflictAction.INSERT_OR_UPDATE);
+                Assert.assertFalse(
+                        noPartitionSql.contains("PARTITION"),
+                        "SQL should not contain PARTITION when no partition params");
+            } finally {
+                execute(conn, new String[] {dropSql});
+            }
+        }
+    }
+
+    /**
+     * copy stage: test insert into logical partition table with two partition columns via stage.
+     */
+    @Test
+    public void testCopyStageLogicalPartition() throws Exception {
+        if (properties == null) {
+            return;
+        }
+        if (holoVersion.compareTo(new HoloVersion("4.1.0")) < 0) {
+            return;
+        }
+        Properties info = new Properties();
+        info.setProperty(PGProperty.PREFER_QUERY_MODE.getName(), "simple");
+        try (Connection conn = buildConnection(info);
+                HoloClient client = new HoloClient(buildConfig())) {
+            String stageName = "test_stage_lp_" + System.currentTimeMillis();
+            String createStageSql =
+                    "call hologres.hg_create_internal_stage('"
+                            + stageName
+                            + "', 'test_group', 7200);";
+            String dropStageSql = "call hologres.hg_drop_internal_stage('" + stageName + "');";
+            String tableName = "test_stage_logical_partition_001";
+            String dropSql = "drop table if exists " + tableName;
+            // 两个分区列: ds(text需加引号) 和 kind(int不需要引号)
+            String createSql =
+                    "create table "
+                            + tableName
+                            + "(id int not null, name text, ds text, kind int not null,"
+                            + " primary key(id, ds, kind))"
+                            + " logical partition by list(ds, kind)";
+
+            tryExecute(conn, new String[] {dropStageSql});
+            execute(conn, new String[] {dropSql, createSql, createStageSql});
+
+            try {
+                TableSchema schema = client.getTableSchema(tableName);
+                // 逻辑分区表: 写入列需包含所有PK列, 否则on conflict会报错
+                List<String> columns = Arrays.asList("id", "name", "ds", "kind");
+
+                // 写入数据到stage
+                try (RecordArrowWriter arrowWriter = new RecordArrowWriter(schema, columns, 8192);
+                        CopyInStageWrapper<Record> copyIn =
+                                new CopyInStageWrapper<>(
+                                        buildConfig(), stageName, "test_file", arrowWriter)) {
+                    // 写入15行: 分区1(20250101,1) 5行, 分区2(20250102,2) 5行, 分区3(20250103,3) 5行
+                    for (int i = 0; i < 15; ++i) {
+                        Put put = new Put(schema);
+                        put.setObject("id", i);
+                        put.setObject("name", "name_" + i);
+                        if (i % 3 == 0) {
+                            put.setObject("ds", "20250101");
+                            put.setObject("kind", 1);
+                        } else if (i % 3 == 1) {
+                            put.setObject("ds", "20250102");
+                            put.setObject("kind", 2);
+                        } else {
+                            put.setObject("ds", "20250103");
+                            put.setObject("kind", 3);
+                        }
+                        copyIn.putRecord(put.getRecord());
+                    }
+                }
+
+                // 使用带partition参数的方法生成SQL并执行
+                // ds是text(值加引号), kind是int(值不加引号)
+                String insertSql =
+                        buildInsertTableSelectFromStageSql(
+                                schema,
+                                columns,
+                                Collections.singletonList(stageName),
+                                OnConflictAction.INSERT_OR_UPDATE,
+                                new String[] {"ds", "kind"},
+                                new String[][] {{"20250101", "1"}, {"20250102", "2"}});
+                LOG.info("insert with logical partition sql: {}", insertSql);
+                Assert.assertTrue(
+                        insertSql.contains("PARTITION"),
+                        "insert SQL should contain PARTITION clause");
+                // 验证text类型ds加引号, int类型kind不加引号
+                Assert.assertTrue(
+                        insertSql.contains("ds = '20250101'"),
+                        "text partition value should be quoted");
+                Assert.assertTrue(
+                        insertSql.contains("kind = 1"), "int partition value should not be quoted");
+
+                try (Statement stat = conn.createStatement()) {
+                    stat.execute(insertSql);
+                }
+
+                // 验证: 只有分区1和分区2的数据被写入(各5行), 分区3的数据被过滤
+                int count = 0;
+                try (Statement stat = conn.createStatement()) {
+                    try (ResultSet rs =
+                            stat.executeQuery("select * from " + tableName + " order by id")) {
+                        while (rs.next()) {
+                            int id = rs.getInt("id");
+                            // 只有 i%3==0 (分区1) 和 i%3==1 (分区2) 的行被写入
+                            Assert.assertTrue(
+                                    id % 3 == 0 || id % 3 == 1,
+                                    "only partition 1 and 2 data should exist, but found id=" + id);
+                            ++count;
+                        }
+                    }
+                }
+                Assert.assertEquals(10, count, "should have 10 rows (5 per partition)");
+
+                // 验证: stage中分区3(20250103,3)的5行数据未被写入表
+                try (Statement stat = conn.createStatement()) {
+                    try (ResultSet rs =
+                            stat.executeQuery(
+                                    "select count(*) from "
+                                            + tableName
+                                            + " where ds = '20250103' and kind = 3")) {
+                        Assert.assertTrue(rs.next());
+                        Assert.assertEquals(
+                                0,
+                                rs.getInt(1),
+                                "partition (ds='20250103', kind=3) should have no data");
+                    }
+                }
+            } finally {
+                execute(conn, new String[] {dropSql});
+                tryExecute(conn, new String[] {dropStageSql});
+            }
+        }
+    }
+
+    /**
+     * 覆盖所有支持的逻辑分区键类型: int, text, varchar, date, timestamp, timestamptz.
+     * 每种类型使用刁钻的测试数据(单引号、反斜杠、边界值等).
+     */
+    @Test
+    public void testCopyStageLogicalPartitionAllTypes() throws Exception {
+        if (properties == null) {
+            return;
+        }
+        if (holoVersion == null || holoVersion.compareTo(new HoloVersion("4.1.0")) < 0) {
+            return;
+        }
+        // 每一项: {类型def, value1, value2, value3(不在PARTITION子句中)}
+        // 注意: int/date类型必须传对应的Java对象, text/timestamp/timestamptz可传String
+        Object[][] cases = {
+            {"int not null", 0, -2147483648, 2147483647},
+            {"text not null", "O'Brien", "a\\b\"c", "中文;,'"},
+            {"varchar(64) not null", "it's ok", "x\\y", "foo'bar'baz"},
+            {
+                "date not null",
+                java.sql.Date.valueOf("2025-01-01"),
+                java.sql.Date.valueOf("2025-12-31"),
+                java.sql.Date.valueOf("1970-01-01")
+            },
+            {
+                "timestamp not null",
+                java.sql.Timestamp.valueOf("2025-01-01 00:00:00"),
+                java.sql.Timestamp.valueOf("2025-06-15 12:34:56.123456"),
+                java.sql.Timestamp.valueOf("2099-12-31 23:59:59")
+            },
+            {
+                "timestamptz not null",
+                java.sql.Timestamp.valueOf("2025-01-01 00:00:00"),
+                java.sql.Timestamp.valueOf("2025-06-15 12:34:56.123"),
+                java.sql.Timestamp.valueOf("2099-12-31 23:59:59")
+            },
+        };
+
+        Properties info = new Properties();
+        info.setProperty(PGProperty.PREFER_QUERY_MODE.getName(), "simple");
+        for (Object[] aCase : cases) {
+            String colType = String.valueOf(aCase[0]);
+            String v1 = String.valueOf(aCase[1]);
+            String v2 = String.valueOf(aCase[2]);
+            String v3 = String.valueOf(aCase[3]);
+            String typeShort = colType.split(" ")[0].replaceAll("[^a-zA-Z]", "");
+            LOG.info("==== test logical partition type: {} ====", colType);
+
+            try (Connection conn = buildConnection(info);
+                    HoloClient client = new HoloClient(buildConfig())) {
+                String stageName =
+                        "test_stage_lp_t_" + typeShort + "_" + System.currentTimeMillis();
+                String createStageSql =
+                        "call hologres.hg_create_internal_stage('"
+                                + stageName
+                                + "', 'test_group', 7200);";
+                String dropStageSql = "call hologres.hg_drop_internal_stage('" + stageName + "');";
+                String tableName = "test_stage_lp_alltypes_" + typeShort;
+                String dropSql = "drop table if exists " + tableName;
+                String createSql =
+                        "create table "
+                                + tableName
+                                + "(id int not null, name text, p "
+                                + colType
+                                + ", primary key(id, p)) logical partition by list(p)";
+
+                tryExecute(conn, new String[] {dropStageSql});
+                execute(conn, new String[] {dropSql, createSql, createStageSql});
+
+                try {
+                    TableSchema schema = client.getTableSchema(tableName);
+                    List<String> columns = Arrays.asList("id", "name", "p");
+                    Object[] threeValues = {aCase[1], aCase[2], aCase[3]};
+
+                    try (RecordArrowWriter arrowWriter =
+                                    new RecordArrowWriter(schema, columns, 8192);
+                            CopyInStageWrapper<Record> copyIn =
+                                    new CopyInStageWrapper<>(
+                                            buildConfig(), stageName, "test_file", arrowWriter)) {
+                        for (int i = 0; i < 12; ++i) {
+                            Put put = new Put(schema);
+                            put.setObject("id", i);
+                            put.setObject("name", "name_" + i);
+                            put.setObject("p", threeValues[i % 3]); // 直接传字符串, Arrow Writer内部自动解析
+                            copyIn.putRecord(put.getRecord());
+                        }
+                    }
+
+                    // 先测试不带 PARTITION 子句的 INSERT, 看 Stage 中 timestamptz 值是否能正常写入
+                    String insertSqlNoPartition =
+                            buildInsertTableSelectFromStageSql(
+                                    schema,
+                                    columns,
+                                    Collections.singletonList(stageName),
+                                    OnConflictAction.INSERT_OR_UPDATE);
+                    LOG.info(
+                            "type {} insert sql (no partition): {}", colType, insertSqlNoPartition);
+
+                    try (Statement stat = conn.createStatement()) {
+                        stat.execute(insertSqlNoPartition);
+                    }
+
+                    // 查询表中所有数据, 用于诊断问题
+                    try (Statement stat = conn.createStatement()) {
+                        try (ResultSet rs =
+                                stat.executeQuery(
+                                        "select id, p, p::text as p_text from "
+                                                + tableName
+                                                + " order by id")) {
+                            StringBuilder sb = new StringBuilder();
+                            int actualCount = 0;
+                            while (rs.next()) {
+                                int id = rs.getInt(1);
+                                String pVal = rs.getString(2);
+                                String pText = rs.getString(3);
+                                sb.append(
+                                        String.format(
+                                                "[id=%d, p=%s, p::text=%s] ", id, pVal, pText));
+                                actualCount++;
+                            }
+                            LOG.info(
+                                    "type {} actual data in table without PARTITION (count={}): {}",
+                                    colType,
+                                    actualCount,
+                                    sb);
+                        }
+                    }
+
+                    int count = 0;
+                    try (Statement stat = conn.createStatement()) {
+                        try (ResultSet rs =
+                                stat.executeQuery("select count(*) from " + tableName)) {
+                            Assert.assertTrue(rs.next());
+                            count = rs.getInt(1);
+                        }
+                    }
+
+                    // 验证不带PARTITION的写入结果
+                    Assert.assertEquals(
+                            12,
+                            count,
+                            "type=" + colType + " should have 12 rows without PARTITION");
+
+                    String insertSql =
+                            buildInsertTableSelectFromStageSql(
+                                    schema,
+                                    columns,
+                                    Collections.singletonList(stageName),
+                                    OnConflictAction.INSERT_OR_UPDATE,
+                                    new String[] {"p"},
+                                    new String[][] {{v1}, {v2}});
+                    LOG.info("type {} insert sql: {}", colType, insertSql);
+                    Assert.assertTrue(
+                            insertSql.contains("PARTITION"),
+                            "insert SQL should contain PARTITION clause");
+
+                    // 先drop表重建, 重新测试带PARTITION的
+                    execute(conn, new String[] {dropSql, createSql});
+
+                    // 重新写入 stage
+                    try (RecordArrowWriter arrowWriter =
+                                    new RecordArrowWriter(schema, columns, 8192);
+                            CopyInStageWrapper<Record> copyIn =
+                                    new CopyInStageWrapper<>(
+                                            buildConfig(), stageName, "test_file", arrowWriter)) {
+                        for (int i = 0; i < 12; ++i) {
+                            Put put = new Put(schema);
+                            put.setObject("id", i);
+                            put.setObject("name", "name_" + i);
+                            put.setObject("p", threeValues[i % 3]); // 直接传字符串, Arrow Writer内部自动解析
+                            copyIn.putRecord(put.getRecord());
+                        }
+                    }
+
+                    try (Statement stat = conn.createStatement()) {
+                        stat.execute(insertSql);
+                    }
+
+                    count = 0;
+                    try (Statement stat = conn.createStatement()) {
+                        try (ResultSet rs =
+                                stat.executeQuery("select count(*) from " + tableName)) {
+                            Assert.assertTrue(rs.next());
+                            count = rs.getInt(1);
+                        }
+                    }
+                    Assert.assertEquals(
+                            8, count, "type=" + colType + " should have 8 rows after insert");
+
+                    try (Statement stat = conn.createStatement()) {
+                        String quotedV3 = v3.replace("'", "''");
+                        try (ResultSet rs =
+                                stat.executeQuery(
+                                        "select count(*) from "
+                                                + tableName
+                                                + " where p = '"
+                                                + quotedV3
+                                                + "'")) {
+                            Assert.assertTrue(rs.next());
+                            Assert.assertEquals(
+                                    0,
+                                    rs.getInt(1),
+                                    "type=" + colType + " partition v3 should have no data");
+                        }
+                    }
+                } finally {
+                    execute(conn, new String[] {dropSql});
+                    tryExecute(conn, new String[] {dropStageSql});
+                }
             }
         }
     }

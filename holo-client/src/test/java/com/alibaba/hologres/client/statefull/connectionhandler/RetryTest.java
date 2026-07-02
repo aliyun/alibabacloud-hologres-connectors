@@ -15,6 +15,8 @@ import com.alibaba.hologres.client.model.OnConflictAction;
 import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.utils.Metrics;
+import org.postgresql.util.PSQLException;
+import org.postgresql.util.PSQLState;
 import org.testng.Assert;
 import org.testng.annotations.Ignore;
 import org.testng.annotations.Test;
@@ -29,6 +31,8 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** retry单元测试. */
 public class RetryTest extends HoloClientTestBase {
@@ -780,6 +784,95 @@ public class RetryTest extends HoloClientTestBase {
             } finally {
                 execute(conn, new String[] {dropSql});
             }
+        }
+    }
+
+    /**
+     * Class 08 (Connection Exception) 端到端恢复测试.
+     *
+     * <p>复现 Hologres 实例缩容场景：server 强制关闭 TCP、client 仍持有 PgConnection，下一次 操作会从 socket 读到非预期数据并抛出
+     * SQLState=08P01 ("Expected command status BEGIN, got .")。这是 PSQLState.isConnectionError
+     * 不覆盖的协议错乱状态。
+     *
+     * <p>修复前 HoloClientException.fromSqlException 会把 08P01 归为 UNKNOWN_ERROR，doRetryExecute 内部不会
+     * retry：
+     *
+     * <ul>
+     *   <li>ConnectionHolder.needRetry 返回 false → 第一次抛出后直接 throw，没有 try again 日志；
+     *   <li>异常抛出前 testConnection 仍会跑 select 1（在 needRetry 判断之前），由于协议错乱后
+     *       PgConnection.isClosed()=false 且 select 1 走完整命令流通常能跑通，testConnection 返回 true， conn 不被置
+     *       null；
+     *   <li>结果：同一个 ConnectionHolder 被外层（Worker / 调用方）持续复用，下一次 retryExecute 开头 conn != null &&
+     *       !isClosed() → 不重建 → 又拿坏连接跑 → 又抛 08P01。整体表现为 “每次任务都报 08P01 直到外部干预”的持续报错。
+     * </ul>
+     *
+     * <p>修复后 SQLState class 08（除 08P02 IDLE_SESSION_TIMEOUT 外）整类归为 CONNECTION_ERROR：
+     *
+     * <ul>
+     *   <li>testConnection 直接返回 false → 当前 PgConnection 被关闭并丢弃；
+     *   <li>needRetry 返回 true → 同一次 doRetryExecute 内部 buildConnection 重建并重试；
+     *   <li>本测试通过 backend pid 的变化验证连接确实被重建。
+     * </ul>
+     */
+    @Test
+    public void testRetry09_class08RecoveryAfterProtocolViolation() throws Exception {
+        if (properties == null) {
+            return;
+        }
+        HoloConfig config = buildConfig();
+        // 单 worker，确保所有 SqlAction 都打到同一个 ConnectionHolder，便于观测 backend pid 变化
+        config.setReadThreadSize(1);
+        config.setWriteThreadSize(1);
+        config.setRetryCount(3);
+        config.setRetrySleepInitMs(50L);
+        config.setRetrySleepStepMs(50L);
+
+        try (HoloClient client = new HoloClient(config)) {
+            AtomicInteger callCount = new AtomicInteger(0);
+            AtomicReference<Integer> firstPid = new AtomicReference<>();
+            AtomicReference<Integer> secondPid = new AtomicReference<>();
+
+            Integer result =
+                    client.sql(
+                                    conn -> {
+                                        int n = callCount.incrementAndGet();
+                                        int pid;
+                                        try (Statement stat = conn.createStatement();
+                                                ResultSet rs =
+                                                        stat.executeQuery(
+                                                                "select pg_backend_pid()")) {
+                                            rs.next();
+                                            pid = rs.getInt(1);
+                                        }
+                                        if (n == 1) {
+                                            firstPid.set(pid);
+                                            // 模拟 Hologres 缩容场景下 server 关闭 TCP 后 pg-jdbc 抛出的
+                                            // 08P01 PROTOCOL_VIOLATION 异常。不依赖实际网络故障，
+                                            // 这样能在单体环境里确实性复现。
+                                            throw new PSQLException(
+                                                    "Expected command status BEGIN, got .",
+                                                    PSQLState.PROTOCOL_VIOLATION);
+                                        }
+                                        secondPid.set(pid);
+                                        return pid;
+                                    })
+                            .get();
+
+            Assert.assertEquals(
+                    callCount.get(),
+                    2,
+                    "08P01 必须被识别为 CONNECTION_ERROR 并触发一次重试；如果只调用了 1 次，说明还是 UNKNOWN_ERROR 路径");
+            Assert.assertNotNull(firstPid.get());
+            Assert.assertNotNull(secondPid.get());
+            Assert.assertNotEquals(
+                    secondPid.get(),
+                    firstPid.get(),
+                    "重试前后 backend pid 应该不同，证明 PgConnection 被丢弃并重建");
+            Assert.assertEquals(result, secondPid.get());
+            LOG.info(
+                    "08P01 class 08 recovery: firstPid={}, secondPid={}",
+                    firstPid.get(),
+                    secondPid.get());
         }
     }
 }

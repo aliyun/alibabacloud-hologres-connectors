@@ -11,6 +11,8 @@ import com.alibaba.hologres.client.model.Column;
 import com.alibaba.hologres.client.model.binlog.BinlogRecord;
 import com.alibaba.hologres.client.utils.IdentifierUtil;
 import com.alibaba.niagara.client.table.ServiceContractMsg;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.Serializable;
 import java.security.InvalidParameterException;
@@ -27,6 +29,8 @@ import static com.alibaba.hologres.client.utils.CommonUtil.encodeColumnNamesToSt
 
 /** 消费binlog的请求. */
 public class Subscribe {
+    private static final Logger LOGGER = LoggerFactory.getLogger(Subscribe.class);
+
     private final String tableName;
     private String slotName;
     private String consumerGroup;
@@ -230,7 +234,7 @@ public class Subscribe {
                 + ", projectionColumnNames="
                 + Arrays.toString(projectionColumnNames)
                 + ", binlogFilters="
-                + binlogFilters.toString()
+                + binlogFilters
                 + ", partitionToSubscribeMap="
                 + partitionToSubscribeMap
                 + ", logicalPartitionColumnNames="
@@ -427,8 +431,15 @@ public class Subscribe {
                 throw new InvalidParameterException("must call addShardStartOffset before build");
             }
             NavigableMap<String, Subscribe> partitionToSubscribeMap = new TreeMap<>();
+            // binlogFilters must not be applied to physical partition subscriptions:
+            // the filter might skip the last LSN record of a partition, causing the
+            // consumer to wait indefinitely for the partition to end.
+            boolean isPhysicalPartitionMode = !partitionValuesToSubscribe.isEmpty();
             if (partitionToBuilderMap != null) {
                 // partitions inherit projectionColumnNames,enableCompression from parent table
+                // For physical partition tables, binlogFilters are not inherited to avoid
+                // filtering the last LSN record which would prevent partition consumption
+                // from completing.
                 partitionToBuilderMap.forEach(
                         (partition, subscribe) ->
                                 partitionToSubscribeMap.put(
@@ -437,11 +448,24 @@ public class Subscribe {
                                                 .setEnableCompression(enableCompression)
                                                 .addProjectionColumnNamesToSubscribe(
                                                         projectionColumnNamesToSubscribe)
-                                                .setBinlogFilters(binlogFilters)
+                                                .setBinlogFilters(
+                                                        isPhysicalPartitionMode
+                                                                ? null
+                                                                : binlogFilters)
                                                 .build()));
             }
-            if (!partitionValuesToSubscribe.isEmpty()) {
+            if (isPhysicalPartitionMode && binlogFilters != null && !binlogFilters.isEmpty()) {
+                LOGGER.warn(
+                        "Binlog filters are ignored for physical partition table [{}] because "
+                                + "applying filters during physical partition consumption may cause "
+                                + "the last LSN record to be filtered, preventing the partition from ever completing.",
+                        tableName);
+            }
+            if (isPhysicalPartitionMode) {
                 // Initialize Subscribe for physical partition table.
+                // binlogFilters are disabled: applying filters during physical partition
+                // consumption may cause the last LSN record to be filtered, preventing
+                // the partition from ever completing.
                 return new Subscribe(
                         tableName,
                         slotName,
@@ -450,7 +474,7 @@ public class Subscribe {
                         null,
                         enableCompression,
                         projectionColumnNamesToSubscribe,
-                        binlogFilters,
+                        null,
                         partitionToSubscribeMap,
                         partitionValuesToSubscribe.toArray(new String[0]));
             } else {
@@ -545,8 +569,20 @@ public class Subscribe {
         }
 
         public Subscribe build() {
+            if (!partitionValuesToSubscribe.isEmpty()
+                    && binlogFilters != null
+                    && !binlogFilters.isEmpty()) {
+                LOGGER.warn(
+                        "Binlog filters are ignored for physical partition table [{}] because "
+                                + "applying filters during physical partition consumption may cause "
+                                + "the last LSN record to be filtered, preventing the partition from ever completing.",
+                        tableName);
+            }
             if (!partitionValuesToSubscribe.isEmpty()) {
                 // Initialize Subscribe for physical partition table.
+                // binlogFilters are disabled: applying filters during physical partition
+                // consumption may cause the last LSN record to be filtered, preventing
+                // the partition from ever completing.
                 return new Subscribe(
                         tableName,
                         slotName,
@@ -555,7 +591,7 @@ public class Subscribe {
                         binlogReadStartTime,
                         enableCompression,
                         projectionColumnNamesToSubscribe,
-                        binlogFilters,
+                        null,
                         new TreeMap<>(),
                         partitionValuesToSubscribe.toArray(new String[0]));
             } else {

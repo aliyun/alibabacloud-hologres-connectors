@@ -1,8 +1,10 @@
 package com.alibaba.hologres.client.copy.in.arrow.creator;
 
+import org.apache.arrow.memory.ArrowBuf;
 import org.apache.arrow.vector.complex.ListVector;
 import org.apache.arrow.vector.complex.impl.UnionListWriter;
 
+import java.nio.charset.StandardCharsets;
 import java.sql.Types;
 import java.util.ArrayList;
 import java.util.List;
@@ -54,7 +56,17 @@ public class BaseArrowArrayCreator extends AbstractArrowVectorCreator {
                         break;
                     case Types.CHAR:
                     case Types.VARCHAR:
-                        writer.writeVarChar(obj.toString());
+                        // 使用底层 ArrowBuf API 代替 writeVarChar(String),
+                        // 后者是 Arrow 16+ 才引入的便利方法,
+                        // 而 Spark 自带的 Arrow 版本较老(无此方法),
+                        // 使用 writeVarChar(int, int, ArrowBuf) 版本可保证多版本兼容.
+                        {
+                            byte[] bytes = obj.toString().getBytes(StandardCharsets.UTF_8);
+                            try (ArrowBuf buf = listVector.getAllocator().buffer(bytes.length)) {
+                                buf.setBytes(0, bytes);
+                                writer.writeVarChar(0, bytes.length, buf);
+                            }
+                        }
                         break;
                     default:
                         throw new IllegalArgumentException(
@@ -64,7 +76,6 @@ public class BaseArrowArrayCreator extends AbstractArrowVectorCreator {
         }
 
         writer.endList();
-        System.out.println("Row 0: " + listVector.getObject(rowId));
     }
 
     @Override

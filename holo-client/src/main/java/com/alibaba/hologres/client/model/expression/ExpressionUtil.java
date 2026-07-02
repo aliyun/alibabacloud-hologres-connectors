@@ -147,4 +147,10 @@ public class ExpressionUtil {
                 });
         return columns;
     }
+
+    /** 设置RecordWithExpression的enableDeduplication属性，仅供内部逻辑使用，风险极大，不建议外部调用. */
+    public static void setEnableDeduplication(
+            RecordWithExpression record, boolean enableDeduplication) {
+        record.setEnableDeduplication(enableDeduplication);
+    }
 }

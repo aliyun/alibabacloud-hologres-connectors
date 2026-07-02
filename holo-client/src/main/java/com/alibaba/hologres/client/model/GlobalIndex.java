@@ -1,8 +1,9 @@
 package com.alibaba.hologres.client.model;
 
+import java.io.Serializable;
 import java.util.Arrays;
 
-public class GlobalIndex {
+public class GlobalIndex implements Serializable {
     TableName indexName;
     String[] indexKeys;
 

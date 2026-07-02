@@ -7,6 +7,7 @@ import java.io.Serializable;
 
 public class RecordWithExpression extends Record implements Serializable {
     private Expression expression;
+    private Boolean enableDeduplication = false;
 
     public RecordWithExpression(
             TableSchema schema, String conflictUpdateSet, String conflictWhere) {
@@ -15,14 +16,21 @@ public class RecordWithExpression extends Record implements Serializable {
     }
 
     public RecordWithExpression(Record record, String conflictUpdateSet, String conflictWhere) {
-        super(record.getSchema());
-        this.merge(record);
-        this.setType(record.getType());
+        super(record);
         this.expression = new Expression(conflictUpdateSet, conflictWhere);
     }
 
     public Expression getExpression() {
         return expression;
+    }
+
+    public Boolean getEnableDeduplication() {
+        return enableDeduplication;
+    }
+
+    /** 包级私有，仅允许同包内的ExpressionUtil访问. */
+    void setEnableDeduplication(Boolean enableDeduplication) {
+        this.enableDeduplication = enableDeduplication;
     }
 
     @Override

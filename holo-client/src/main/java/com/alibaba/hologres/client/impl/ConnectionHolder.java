@@ -214,6 +214,8 @@ public class ConnectionHolder implements Closeable {
             // set application_name in startup message.
             PGProperty.ASSUME_MIN_SERVER_VERSION.set(info, "9.4");
             PGProperty.PREFER_QUERY_MODE.set(info, "extendedForPrepared");
+            PGProperty.PREPARE_THRESHOLD.set(
+                    info, -1); // 对于fixed fe第一次parse就是named statement，避免同一query多次parse
         }
         this.connWithVersion.jdbcUrl = url;
         LOGGER.info("Try to connect {}, owner:{}", this.connWithVersion.jdbcUrl, owner);
@@ -253,14 +255,14 @@ public class ConnectionHolder implements Closeable {
                         LOGGER.warn("execute preSql fail:{},emsg:{}", sql, e.getMessage());
                     }
                 }
-                connWithVersion.backendPid = ConnectionUtil.getBackendPid(conn);
+                connWithVersion.backendPid = ConnectionUtil.getBackendPidByConn(conn, isFixed);
             } else {
                 Tuple<HoloVersion, PgConnection> tuple =
                         ConnectionUtil.getHoloVersionByFixedFe(
                                 conn, this.connWithVersion.jdbcUrl, info);
                 connWithVersion.version = tuple.l;
                 if (connWithVersion.version.compareTo(new HoloVersion(4, 0, 0)) >= 0) {
-                    connWithVersion.backendPid = ConnectionUtil.getFixedBackendPid(conn);
+                    connWithVersion.backendPid = ConnectionUtil.getBackendPidByConn(conn, isFixed);
                 }
                 conn = tuple.r;
             }

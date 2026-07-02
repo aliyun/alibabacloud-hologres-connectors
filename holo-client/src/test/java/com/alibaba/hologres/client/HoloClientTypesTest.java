@@ -135,7 +135,10 @@ public class HoloClientTypesTest extends HoloClientTestBase {
 
         HoloConfig config = buildConfig();
         // fixed fe not support jsonb and roaringbitmap now
-        if ((typeName.equals("roaringbitmap")) && useFixedFe) {
+        if ((typeName.equals("roaringbitmap")
+                        || typeName.equals("geometry")
+                        || typeName.equals("geography"))
+                && useFixedFe) {
             return;
         }
         config.setUseFixedFe(useFixedFe);
@@ -180,6 +183,8 @@ public class HoloClientTypesTest extends HoloClientTestBase {
                     String sql = "select * from " + tableName;
                     if ("roaringbitmap".equals(typeName)) {
                         sql = "select rb_cardinality(id), pk from " + tableName;
+                    } else if ("geography".equals(typeName) || "geometry".equals(typeName)) {
+                        sql = "select ST_AsText(id), pk from " + tableName;
                     }
 
                     try (ResultSet rs = stat.executeQuery(sql)) {

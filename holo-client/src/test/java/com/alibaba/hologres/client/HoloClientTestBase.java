@@ -26,10 +26,17 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Properties;
 import java.util.Random;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 /** 测试基类. */
 public class HoloClientTestBase {
@@ -159,6 +166,7 @@ public class HoloClientTestBase {
         Properties info = new Properties();
         if (fixed) {
             info.setProperty(PGProperty.OPTIONS.getName(), "type=fixed");
+            PGProperty.PREFER_QUERY_MODE.set(info, "extendedForPrepared");
         }
         return buildConnection(info);
     }
@@ -224,5 +232,86 @@ public class HoloClientTestBase {
             sb.append(chars.charAt(index));
         }
         return sb.toString();
+    }
+
+    // ==================== Parallel Test Infrastructure ====================
+
+    /**
+     * Run a list of test tasks in parallel with bounded concurrency and timeout. Usage:
+     *
+     * <pre>{@code
+     * List<Callable<Void>> tasks = new ArrayList<>();
+     * for (...) {
+     *     tasks.add(() -> { doTest(); return null; });
+     * }
+     * runParallelTasks(tasks, 16);
+     * }</pre>
+     */
+    protected void runParallelTasks(List<Callable<Void>> tasks, int maxThreads) throws Exception {
+        if (tasks.isEmpty()) {
+            return;
+        }
+        ExecutorService executor = Executors.newFixedThreadPool(Math.min(tasks.size(), maxThreads));
+        try {
+            List<Future<Void>> futures = executor.invokeAll(tasks);
+            List<Throwable> errors = new ArrayList<>();
+            for (Future<Void> future : futures) {
+                try {
+                    future.get(5, TimeUnit.MINUTES);
+                } catch (Exception e) {
+                    errors.add(e.getCause() != null ? e.getCause() : e);
+                }
+            }
+            if (!errors.isEmpty()) {
+                StringBuilder msg =
+                        new StringBuilder(errors.size() + "/" + tasks.size() + " tasks failed:\n");
+                for (Throwable err : errors) {
+                    msg.append("  - ").append(err.getMessage()).append("\n");
+                }
+                AssertionError ae = new AssertionError(msg.toString());
+                errors.forEach(ae::addSuppressed);
+                throw ae;
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    /** Convenience overload with default 16 threads. */
+    protected void runParallelTasks(List<Callable<Void>> tasks) throws Exception {
+        runParallelTasks(tasks, 32);
+    }
+
+    /** Functional interface for test logic that may throw. */
+    @FunctionalInterface
+    protected interface ThrowingConsumer<T> {
+        void accept(T t) throws Exception;
+    }
+
+    /**
+     * Create a parallel task that manages table lifecycle: drop-if-exists → create → test → drop.
+     * The task creates its own connection. Usage:
+     *
+     * <pre>{@code
+     * tasks.add(tableTask("my_table", "create table my_table(id int primary key)", conn -> {
+     *     // test logic using conn
+     * }));
+     * }</pre>
+     */
+    protected Callable<Void> tableTask(
+            String tableName, String createSql, ThrowingConsumer<Connection> body) {
+        return () -> {
+            try (Connection conn = buildConnection()) {
+                execute(conn, new String[] {"set hg_experimental_force_sync_replay = on"});
+                execute(conn, new String[] {"drop table if exists " + tableName});
+                execute(conn, new String[] {createSql});
+                try {
+                    body.accept(conn);
+                } finally {
+                    execute(conn, new String[] {"drop table if exists " + tableName});
+                }
+            }
+            return null;
+        };
     }
 }

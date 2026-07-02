@@ -47,6 +47,7 @@ import java.sql.Types;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -55,6 +56,7 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.TimeZone;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeoutException;
@@ -5028,26 +5030,6 @@ public class BinlogReaderTest extends HoloClientTestBase {
         }
     }
 
-    @DataProvider(name = "typeCaseDataForBinlogFilter")
-    public Object[][] createDataForBinlogFilter() {
-        DataTypeTestUtil.TypeCaseDataWithRecord[] typeToTest = FIXED_PLAN_TYPE_DATA_WITH_RECORD;
-        Object[][] ret =
-                new Object[typeToTest.length * ServiceContractMsg.OperatorType.values().length * 2]
-                        [];
-        int count = 0;
-        for (int i = 0; i < typeToTest.length; ++i) {
-            DataTypeTestUtil.TypeCaseDataWithRecord typeCaseData = typeToTest[i];
-            for (int j = 0; j < ServiceContractMsg.OperatorType.values().length; ++j) {
-                ServiceContractMsg.OperatorType op = ServiceContractMsg.OperatorType.values()[j];
-                for (int k = 0; k < 2; ++k) {
-                    boolean useFixedFe = k == 0 ? false : true;
-                    ret[count++] = new Object[] {typeCaseData, op, useFixedFe};
-                }
-            }
-        }
-        return ret;
-    }
-
     private boolean isBinlogFilterSupported(
             DataTypeTestUtil.TypeCaseDataWithRecord typeCaseData,
             ServiceContractMsg.OperatorType operatorType) {
@@ -5077,76 +5059,636 @@ public class BinlogReaderTest extends HoloClientTestBase {
         return false;
     }
 
-    /** binlog reader data type test. */
-    @Test(dataProvider = "typeCaseDataForBinlogFilter")
-    public void binlogReaderBinlogFilterDataTypeTest(
-            DataTypeTestUtil.TypeCaseDataWithRecord typeCaseData,
+    private int[] getJudgerAndTargetCount(
             ServiceContractMsg.OperatorType operatorType,
-            boolean useFixedFe)
-            throws Exception {
+            String typeName,
+            int totalCount,
+            int filterValuePkId,
+            int nullValuePkId,
+            Function<Integer, Void>[] judgerHolder) {
+        int targetCount;
+        Function<Integer, Void> judger;
+        switch (operatorType) {
+            case EQUAL:
+                targetCount = 1;
+                judger =
+                        (pk) -> {
+                            Assert.assertEquals(pk, filterValuePkId);
+                            return null;
+                        };
+                break;
+            case NOT_EQUAL:
+                targetCount = totalCount - 2;
+                judger =
+                        (pk) -> {
+                            Assert.assertTrue(pk != filterValuePkId && pk != nullValuePkId);
+                            return null;
+                        };
+                break;
+            case GREATER:
+                targetCount = 4;
+                judger =
+                        (pk) -> {
+                            Assert.assertTrue(pk > filterValuePkId && pk < nullValuePkId);
+                            return null;
+                        };
+                break;
+            case GREATER_EQUAL:
+                targetCount = 5;
+                judger =
+                        (pk) -> {
+                            Assert.assertTrue(pk >= filterValuePkId && pk < nullValuePkId);
+                            return null;
+                        };
+                break;
+            case LESS:
+                targetCount = 4;
+                judger =
+                        (pk) -> {
+                            Assert.assertTrue(pk < filterValuePkId);
+                            return null;
+                        };
+                break;
+            case LESS_EQUAL:
+                targetCount = 5;
+                judger =
+                        (pk) -> {
+                            Assert.assertTrue(pk <= filterValuePkId);
+                            return null;
+                        };
+                break;
+            case IS_NULL:
+                targetCount = 1;
+                judger =
+                        (pk) -> {
+                            Assert.assertTrue(pk == nullValuePkId);
+                            return null;
+                        };
+                break;
+            case IS_NOT_NULL:
+                judger =
+                        (pk) -> {
+                            Assert.assertTrue(pk < nullValuePkId);
+                            return null;
+                        };
+                targetCount = totalCount - 1;
+                break;
+            default:
+                throw new RuntimeException("unsupported operator type");
+        }
+        if (typeName.equalsIgnoreCase("bool")) {
+            switch (operatorType) {
+                case EQUAL:
+                    targetCount = 5;
+                    judger =
+                            (pk) -> {
+                                Assert.assertEquals(pk % 2, 0);
+                                return null;
+                            };
+                    break;
+                case NOT_EQUAL:
+                    targetCount = 4;
+                    judger =
+                            (pk) -> {
+                                Assert.assertEquals(pk % 2, 1);
+                                return null;
+                            };
+                    break;
+                case GREATER:
+                    targetCount = 0;
+                    judger =
+                            (pk) -> {
+                                return null;
+                            };
+                    break;
+                case GREATER_EQUAL:
+                    targetCount = 5;
+                    judger =
+                            (pk) -> {
+                                Assert.assertEquals(pk % 2, 0);
+                                return null;
+                            };
+                    break;
+                case LESS:
+                    targetCount = 4;
+                    judger =
+                            (pk) -> {
+                                Assert.assertEquals(pk % 2, 1);
+                                return null;
+                            };
+                    break;
+                case LESS_EQUAL:
+                    targetCount = 9;
+                    judger =
+                            (pk) -> {
+                                Assert.assertTrue(pk < nullValuePkId);
+                                return null;
+                            };
+                    break;
+                case IS_NULL:
+                    targetCount = 1;
+                    judger =
+                            (pk) -> {
+                                Assert.assertTrue(pk == nullValuePkId);
+                                return null;
+                            };
+                    break;
+                case IS_NOT_NULL:
+                    judger =
+                            (pk) -> {
+                                Assert.assertTrue(pk < nullValuePkId);
+                                return null;
+                            };
+                    targetCount = totalCount - 1;
+                    break;
+            }
+        }
+        judgerHolder[0] = judger;
+        return new int[] {targetCount};
+    }
+
+    /**
+     * Binlog reader filter data type test. Creates ONE multi-column table with all supported types,
+     * inserts data once, then uses parallel threads to test each type independently with single
+     * filter subscriptions. Each type × operator × fixedFe combination runs in its own thread with
+     * its own HoloClient, verifying the filter works correctly for that specific type.
+     */
+    @Test
+    public void binlogReaderBinlogFilterDataTypeTest() throws Exception {
         HoloVersion needVersion = new HoloVersion(3, 3, 0);
         if (properties == null || holoVersion.compareTo(needVersion) < 0) {
             return;
         }
-        HoloConfig config = buildConfig();
-        config.setUseFixedFe(useFixedFe);
-        config.setOnConflictAction(OnConflictAction.INSERT_OR_REPLACE);
-        config.setBinlogReadBatchSize(128);
 
         final int totalCount = 10;
         final int filterValuePkId = 4;
         final int nullValuePkId = 9;
-        String typeName = typeCaseData.getName();
-        if (useFixedFe && typeName == "roaringbitmap") {
+
+        // Only include fully supported types (standard + bool)
+        List<DataTypeTestUtil.TypeCaseDataWithRecord> supportedTypes = new ArrayList<>();
+        for (DataTypeTestUtil.TypeCaseDataWithRecord t : FIXED_PLAN_TYPE_DATA_WITH_RECORD) {
+            if (isBinlogFilterSupported(t, ServiceContractMsg.OperatorType.EQUAL)) {
+                supportedTypes.add(t);
+            }
+        }
+
+        try (Connection conn = buildConnection()) {
+            String tableName = "holo_client_binlog_filter_all_types";
+            StringBuilder createSql = new StringBuilder("create table " + tableName + "(");
+            for (DataTypeTestUtil.TypeCaseDataWithRecord t : supportedTypes) {
+                createSql
+                        .append("col_")
+                        .append(t.getName())
+                        .append(" ")
+                        .append(t.getColumnType())
+                        .append(", ");
+            }
+            createSql.append(
+                    "pk int primary key) with (binlog_level='replica',table_group='tg_1')");
+
+            execute(conn, new String[] {"drop table if exists " + tableName});
+            execute(conn, new String[] {"begin;", createSql.toString(), "commit;"});
+
+            try {
+                HoloConfig insertConfig = buildConfig();
+                insertConfig.setUseFixedFe(false);
+                insertConfig.setOnConflictAction(OnConflictAction.INSERT_OR_REPLACE);
+                try (HoloClient insertClient = new HoloClient(insertConfig)) {
+                    TableSchema schema = insertClient.getTableSchema(tableName, true);
+                    int pkIdx = schema.getColumnIndex("pk");
+
+                    for (int i = 0; i < totalCount - 1; ++i) {
+                        Record record = Record.build(schema);
+                        for (DataTypeTestUtil.TypeCaseDataWithRecord t : supportedTypes) {
+                            int colIdx = schema.getColumnIndex("col_" + t.getName());
+                            record.setObject(
+                                    colIdx,
+                                    t.getSupplier().apply(i, conn.unwrap(BaseConnection.class)));
+                        }
+                        record.setObject(pkIdx, i);
+                        insertClient.put(new Put(record));
+                    }
+                    Record nullRecord = Record.build(schema);
+                    nullRecord.setObject(schema.getColumnIndex("pk"), totalCount - 1);
+                    insertClient.put(new Put(nullRecord));
+                    insertClient.flush();
+                }
+
+                // Build tasks: each (type × operator × fixedFe) is one parallel task
+                List<Callable<Void>> tasks = new ArrayList<>();
+                for (DataTypeTestUtil.TypeCaseDataWithRecord t : supportedTypes) {
+                    String typeName = t.getName();
+                    String judgerTypeName = "bool".equals(typeName) ? "bool" : "int";
+                    for (boolean useFixedFe : new boolean[] {false, true}) {
+                        if (useFixedFe && "roaringbitmap".equals(typeName)) {
+                            continue;
+                        }
+                        boolean feFlag = useFixedFe;
+                        for (ServiceContractMsg.OperatorType op :
+                                ServiceContractMsg.OperatorType.values()) {
+                            tasks.add(
+                                    () -> {
+                                        testSupportedTypeFilter(
+                                                tableName,
+                                                t,
+                                                op,
+                                                feFlag,
+                                                judgerTypeName,
+                                                totalCount,
+                                                filterValuePkId,
+                                                nullValuePkId);
+                                        return null;
+                                    });
+                        }
+                    }
+                }
+
+                runParallelTasks(tasks, 50);
+
+                LOG.info("binlogReaderBinlogFilterDataTypeTest all combinations done");
+            } finally {
+                execute(conn, new String[] {"drop table if exists " + tableName});
+            }
+        }
+    }
+
+    /**
+     * Helper: subscribe with a single filter on one supported type column and verify results. Each
+     * call creates its own HoloClient for thread safety.
+     */
+    private void testSupportedTypeFilter(
+            String tableName,
+            DataTypeTestUtil.TypeCaseDataWithRecord typeData,
+            ServiceContractMsg.OperatorType op,
+            boolean useFixedFe,
+            String judgerTypeName,
+            int totalCount,
+            int filterValuePkId,
+            int nullValuePkId)
+            throws Exception {
+        String typeName = typeData.getName();
+        LOG.info(
+                "Testing supported type filter: type={}, op={}, fixedFe={}",
+                typeName,
+                op,
+                useFixedFe);
+
+        HoloConfig config = buildConfig();
+        config.setUseFixedFe(useFixedFe);
+        config.setBinlogReadBatchSize(128);
+
+        try (Connection c = buildConnection();
+                HoloClient client = new HoloClient(config)) {
+            TableSchema schema = client.getTableSchema(tableName, true);
+            int pkIdx = schema.getColumnIndex("pk");
+            int colIdx = schema.getColumnIndex("col_" + typeName);
+
+            Object value =
+                    (op == ServiceContractMsg.OperatorType.IS_NULL
+                                    || op == ServiceContractMsg.OperatorType.IS_NOT_NULL)
+                            ? null
+                            : typeData.getSupplier()
+                                    .apply(filterValuePkId, c.unwrap(BaseConnection.class));
+
+            BinlogShardGroupReader reader = null;
+            try {
+                reader =
+                        client.binlogSubscribe(
+                                Subscribe.newOffsetBuilder(tableName)
+                                        .addShardsStartOffset(
+                                                IntStream.range(0, 1)
+                                                        .boxed()
+                                                        .collect(Collectors.toSet()),
+                                                new BinlogOffset()
+                                                        .setTimestamp("2021-04-12 12:12:12"))
+                                        .addBinlogFilter(schema.getColumn(colIdx), op, value)
+                                        .build());
+
+                @SuppressWarnings("unchecked")
+                Function<Integer, Void>[] judgerHolder = new Function[] {null};
+                int targetCount =
+                        getJudgerAndTargetCount(
+                                op,
+                                judgerTypeName,
+                                totalCount,
+                                filterValuePkId,
+                                nullValuePkId,
+                                judgerHolder)[0];
+                Function<Integer, Void> judger = judgerHolder[0];
+
+                int count = 0;
+                try {
+                    while (true) {
+                        long timeout = (count < targetCount) ? 30000L : 3000L;
+                        BinlogRecord record = reader.getBinlogRecord(timeout);
+                        int pk = (int) record.getObject(pkIdx);
+                        judger.apply(pk);
+                        count++;
+                        if (count > targetCount) {
+                            Assert.fail(
+                                    "Filter leaked: type="
+                                            + typeName
+                                            + ", op="
+                                            + op
+                                            + ", fixedFe="
+                                            + useFixedFe);
+                        }
+                    }
+                } catch (TimeoutException e) {
+                    // Expected
+                }
+                Assert.assertEquals(
+                        count,
+                        targetCount,
+                        "Count mismatch: type="
+                                + typeName
+                                + ", op="
+                                + op
+                                + ", fixedFe="
+                                + useFixedFe
+                                + ", expected "
+                                + targetCount
+                                + " but got "
+                                + count);
+            } finally {
+                if (reader != null) {
+                    reader.cancel();
+                }
+            }
+        }
+    }
+
+    /**
+     * Test unsupported types with binlog filter. Uses ONE multi-column table for most types, but
+     * roaringbitmap uses a separate single-column table (jsonb + roaringbitmap in the same table
+     * triggers a server-side bug). For each type: IS_NULL/IS_NOT_NULL should work correctly, EQUAL
+     * should throw. Uses parallel threads so each type's subscriptions run concurrently.
+     */
+    @Test
+    public void binlogReaderBinlogFilterUnsupportedErrorTest() throws Exception {
+        HoloVersion needVersion = new HoloVersion(3, 3, 0);
+        if (properties == null || holoVersion.compareTo(needVersion) < 0) {
             return;
         }
 
-        boolean isSupported = isBinlogFilterSupported(typeCaseData, operatorType);
+        final int totalCount = 10;
+        final int filterValuePkId = 4;
+        final int nullValuePkId = 9;
 
-        try (Connection conn = buildConnection();
-                HoloClient client = new HoloClient(config)) {
-            String tableName = "holo_client_type_binlog_filter_" + typeName;
-            String dropSql1 = "drop table if exists " + tableName;
-            String createSql =
-                    "create table "
-                            + tableName
-                            + "(id "
-                            + typeCaseData.getColumnType()
-                            + ", pk int primary key) with (binlog_level='replica',table_group='tg_1')\n";
+        // Split unsupported types: roaringbitmap needs its own table (incompatible with jsonb)
+        List<DataTypeTestUtil.TypeCaseDataWithRecord> multiColTypes = new ArrayList<>();
+        DataTypeTestUtil.TypeCaseDataWithRecord roaringType = null;
+        for (DataTypeTestUtil.TypeCaseDataWithRecord t : FIXED_PLAN_TYPE_DATA_WITH_RECORD) {
+            if (!isBinlogFilterSupported(t, ServiceContractMsg.OperatorType.EQUAL)) {
+                if ("roaringbitmap".equals(t.getName())) {
+                    roaringType = t;
+                } else {
+                    multiColTypes.add(t);
+                }
+            }
+        }
 
-            execute(conn, new String[] {dropSql1});
-            execute(conn, new String[] {"begin;", createSql, "commit;"});
+        try (Connection conn = buildConnection()) {
+            // --- Multi-column table (all unsupported types except roaringbitmap) ---
+            String tableName = "holo_client_binlog_filter_unsupported";
+            StringBuilder createSql = new StringBuilder("create table " + tableName + "(");
+            for (DataTypeTestUtil.TypeCaseDataWithRecord t : multiColTypes) {
+                createSql
+                        .append("col_")
+                        .append(t.getName())
+                        .append(" ")
+                        .append(t.getColumnType())
+                        .append(", ");
+            }
+            createSql.append(
+                    "pk int primary key) with (binlog_level='replica',table_group='tg_1')");
 
-            BinlogShardGroupReader reader = null;
+            execute(conn, new String[] {"drop table if exists " + tableName});
+            execute(conn, new String[] {"begin;", createSql.toString(), "commit;"});
+
+            // --- Separate single-column table for roaringbitmap ---
+            String rbTableName = "holo_client_binlog_filter_unsupported_rb";
+            if (roaringType != null) {
+                execute(conn, new String[] {"drop table if exists " + rbTableName});
+                execute(
+                        conn,
+                        new String[] {
+                            "begin;",
+                            "create table "
+                                    + rbTableName
+                                    + "(col_roaringbitmap "
+                                    + roaringType.getColumnType()
+                                    + ", pk int primary key)"
+                                    + " with (binlog_level='replica',table_group='tg_1')",
+                            "commit;"
+                        });
+            }
 
             try {
-                TableSchema schema = client.getTableSchema(tableName, true);
+                // Insert data into multi-column table
+                HoloConfig insertConfig = buildConfig();
+                insertConfig.setUseFixedFe(false);
+                insertConfig.setOnConflictAction(OnConflictAction.INSERT_OR_REPLACE);
+                try (HoloClient insertClient = new HoloClient(insertConfig)) {
+                    TableSchema schema = insertClient.getTableSchema(tableName, true);
+                    int pkIdx = schema.getColumnIndex("pk");
+                    for (int i = 0; i < totalCount - 1; ++i) {
+                        Record record = Record.build(schema);
+                        for (DataTypeTestUtil.TypeCaseDataWithRecord t : multiColTypes) {
+                            int colIdx = schema.getColumnIndex("col_" + t.getName());
+                            record.setObject(
+                                    colIdx,
+                                    t.getSupplier().apply(i, conn.unwrap(BaseConnection.class)));
+                        }
+                        record.setObject(pkIdx, i);
+                        insertClient.put(new Put(record));
+                    }
+                    Record nullRecord = Record.build(schema);
+                    nullRecord.setObject(pkIdx, totalCount - 1);
+                    insertClient.put(new Put(nullRecord));
+                    insertClient.flush();
 
-                for (int i = 0; i < totalCount - 1; ++i) {
-                    Record record = Record.build(schema);
-
-                    record.setObject(
-                            0,
-                            typeCaseData.getSupplier().apply(i, conn.unwrap(BaseConnection.class)));
-
-                    record.setObject(1, i);
-                    client.put(new Put(record));
+                    // Insert data into roaringbitmap table
+                    if (roaringType != null) {
+                        TableSchema rbSchema = insertClient.getTableSchema(rbTableName, true);
+                        for (int i = 0; i < totalCount - 1; ++i) {
+                            Record record = Record.build(rbSchema);
+                            record.setObject(
+                                    0,
+                                    roaringType
+                                            .getSupplier()
+                                            .apply(i, conn.unwrap(BaseConnection.class)));
+                            record.setObject(1, i);
+                            insertClient.put(new Put(record));
+                        }
+                        Record rbNull = Record.build(rbSchema);
+                        rbNull.setObject(1, totalCount - 1);
+                        insertClient.put(new Put(rbNull));
+                        insertClient.flush();
+                    }
                 }
-                Record nullRecord = Record.build(schema);
-                nullRecord.setObject(0, null);
-                nullRecord.setObject(1, totalCount - 1);
-                client.put(new Put(nullRecord));
-                client.flush();
 
-                Object value =
-                        (operatorType == ServiceContractMsg.OperatorType.IS_NULL
-                                        || operatorType
-                                                == ServiceContractMsg.OperatorType.IS_NOT_NULL)
-                                ? null
-                                : typeCaseData
+                // Build test tasks
+                List<Callable<Void>> tasks = new ArrayList<>();
+
+                // Tasks for multi-column table types
+                for (DataTypeTestUtil.TypeCaseDataWithRecord unsupportedType : multiColTypes) {
+                    String typeName = unsupportedType.getName();
+                    for (boolean useFixedFe : new boolean[] {false, true}) {
+                        boolean feFlag = useFixedFe;
+                        addUnsupportedTypeTasks(
+                                tasks,
+                                tableName,
+                                typeName,
+                                unsupportedType,
+                                feFlag,
+                                totalCount,
+                                filterValuePkId,
+                                nullValuePkId,
+                                conn);
+                    }
+                }
+
+                // Tasks for roaringbitmap (separate table, no fixedFe)
+                if (roaringType != null) {
+                    addUnsupportedTypeTasks(
+                            tasks,
+                            rbTableName,
+                            "roaringbitmap",
+                            roaringType,
+                            false,
+                            totalCount,
+                            filterValuePkId,
+                            nullValuePkId,
+                            conn);
+                }
+
+                // Execute all tasks in parallel
+                runParallelTasks(tasks, 50);
+
+                LOG.info("binlogReaderBinlogFilterUnsupportedErrorTest all done");
+            } finally {
+                execute(conn, new String[] {"drop table if exists " + tableName});
+                if (roaringType != null) {
+                    execute(conn, new String[] {"drop table if exists " + rbTableName});
+                }
+            }
+        }
+    }
+
+    /** Add IS_NULL, IS_NOT_NULL, and EQUAL(error) tasks for one unsupported type. */
+    private void addUnsupportedTypeTasks(
+            List<Callable<Void>> tasks,
+            String tableName,
+            String typeName,
+            DataTypeTestUtil.TypeCaseDataWithRecord unsupportedType,
+            boolean feFlag,
+            int totalCount,
+            int filterValuePkId,
+            int nullValuePkId,
+            Connection conn)
+            throws Exception {
+        // IS_NULL task
+        tasks.add(
+                () -> {
+                    testUnsupportedTypeFilter(
+                            tableName,
+                            typeName,
+                            ServiceContractMsg.OperatorType.IS_NULL,
+                            null,
+                            feFlag,
+                            1,
+                            (pk) -> {
+                                Assert.assertEquals(
+                                        pk,
+                                        nullValuePkId,
+                                        "IS_NULL should only return null row for " + typeName);
+                                return null;
+                            });
+                    return null;
+                });
+        // IS_NOT_NULL task
+        tasks.add(
+                () -> {
+                    testUnsupportedTypeFilter(
+                            tableName,
+                            typeName,
+                            ServiceContractMsg.OperatorType.IS_NOT_NULL,
+                            null,
+                            feFlag,
+                            totalCount - 1,
+                            (pk) -> {
+                                Assert.assertTrue(
+                                        pk < nullValuePkId,
+                                        "IS_NOT_NULL should not return null row for " + typeName);
+                                return null;
+                            });
+                    return null;
+                });
+        // EQUAL error task
+        tasks.add(
+                () -> {
+                    HoloConfig config = buildConfig();
+                    config.setUseFixedFe(feFlag);
+                    config.setBinlogReadBatchSize(128);
+                    try (Connection c = buildConnection();
+                            HoloClient client = new HoloClient(config)) {
+                        TableSchema schema = client.getTableSchema(tableName, true);
+                        Object value =
+                                unsupportedType
                                         .getSupplier()
-                                        .apply(filterValuePkId, conn.unwrap(BaseConnection.class));
+                                        .apply(filterValuePkId, c.unwrap(BaseConnection.class));
+                        BinlogShardGroupReader reader = null;
+                        try {
+                            reader =
+                                    client.binlogSubscribe(
+                                            Subscribe.newOffsetBuilder(tableName)
+                                                    .addShardsStartOffset(
+                                                            IntStream.range(0, 1)
+                                                                    .boxed()
+                                                                    .collect(Collectors.toSet()),
+                                                            new BinlogOffset()
+                                                                    .setTimestamp(
+                                                                            "2021-04-12 12:12:12"))
+                                                    .addBinlogFilter(
+                                                            schema.getColumn(
+                                                                    schema.getColumnIndex(
+                                                                            "col_" + typeName)),
+                                                            ServiceContractMsg.OperatorType.EQUAL,
+                                                            value)
+                                                    .build());
+                            BinlogShardGroupReader finalReader = reader;
+                            Assert.expectThrows(
+                                    HoloClientException.class, () -> finalReader.getBinlogRecord());
+                        } finally {
+                            if (reader != null) {
+                                reader.cancel();
+                            }
+                        }
+                    }
+                    return null;
+                });
+    }
 
+    /** Helper: subscribe to one column filter on the unsupported types table and verify results. */
+    private void testUnsupportedTypeFilter(
+            String tableName,
+            String typeName,
+            ServiceContractMsg.OperatorType op,
+            Object filterValue,
+            boolean useFixedFe,
+            int expectedCount,
+            Function<Integer, Void> judger)
+            throws Exception {
+        LOG.info("Testing unsupported type: type={}, op={}, fixedFe={}", typeName, op, useFixedFe);
+        HoloConfig config = buildConfig();
+        config.setUseFixedFe(useFixedFe);
+        config.setBinlogReadBatchSize(128);
+
+        try (HoloClient client = new HoloClient(config)) {
+            TableSchema schema = client.getTableSchema(tableName, true);
+            BinlogShardGroupReader reader = null;
+            try {
                 reader =
                         client.binlogSubscribe(
                                 Subscribe.newOffsetBuilder(tableName)
@@ -5157,174 +5699,46 @@ public class BinlogReaderTest extends HoloClientTestBase {
                                                 new BinlogOffset()
                                                         .setTimestamp("2021-04-12 12:12:12"))
                                         .addBinlogFilter(
-                                                schema.getColumn(schema.getColumnIndex("id")),
-                                                operatorType,
-                                                value)
+                                                schema.getColumn(
+                                                        schema.getColumnIndex("col_" + typeName)),
+                                                op,
+                                                filterValue)
                                         .build());
-
+                int pkIdx = schema.getColumnIndex("pk");
                 int count = 0;
-                BinlogRecord record;
-                int targetCount = 0;
-                Function<Integer, Void> judger;
-                switch (operatorType) {
-                    case EQUAL:
-                        targetCount = 1;
-                        judger =
-                                (pk) -> {
-                                    Assert.assertEquals(pk, filterValuePkId);
-                                    return null;
-                                };
-                        break;
-                    case NOT_EQUAL:
-                        targetCount = totalCount - 2;
-                        judger =
-                                (pk) -> {
-                                    Assert.assertTrue(pk != filterValuePkId && pk != nullValuePkId);
-                                    return null;
-                                };
-                        break;
-                    case GREATER:
-                        targetCount = 4;
-                        judger =
-                                (pk) -> {
-                                    Assert.assertTrue(pk > filterValuePkId && pk < nullValuePkId);
-                                    return null;
-                                };
-                        break;
-                    case GREATER_EQUAL:
-                        targetCount = 5;
-                        judger =
-                                (pk) -> {
-                                    Assert.assertTrue(pk >= filterValuePkId && pk < nullValuePkId);
-                                    return null;
-                                };
-                        break;
-                    case LESS:
-                        targetCount = 4;
-                        judger =
-                                (pk) -> {
-                                    Assert.assertTrue(pk < filterValuePkId);
-                                    return null;
-                                };
-                        break;
-                    case LESS_EQUAL:
-                        targetCount = 5;
-                        judger =
-                                (pk) -> {
-                                    Assert.assertTrue(pk <= filterValuePkId);
-                                    return null;
-                                };
-                        break;
-                    case IS_NULL:
-                        targetCount = 1;
-                        judger =
-                                (pk) -> {
-                                    Assert.assertTrue(pk == nullValuePkId);
-                                    return null;
-                                };
-                        break;
-                    case IS_NOT_NULL:
-                        judger =
-                                (pk) -> {
-                                    Assert.assertTrue(pk < nullValuePkId);
-                                    return null;
-                                };
-                        targetCount = totalCount - 1;
-                        break;
-                    default:
-                        throw new RuntimeException("unsupported operator type");
-                }
-                if (typeName.equalsIgnoreCase("bool")) {
-                    switch (operatorType) {
-                        case EQUAL:
-                            targetCount = 5;
-                            judger =
-                                    (pk) -> {
-                                        Assert.assertEquals(pk % 2, 0);
-                                        return null;
-                                    };
-                            break;
-                        case NOT_EQUAL:
-                            targetCount = 4;
-                            judger =
-                                    (pk) -> {
-                                        Assert.assertEquals(pk % 2, 1);
-                                        return null;
-                                    };
-                            break;
-                        case GREATER:
-                            targetCount = 0;
-                            judger =
-                                    (pk) -> {
-                                        return null;
-                                    };
-                            break;
-                        case GREATER_EQUAL:
-                            targetCount = 5;
-                            judger =
-                                    (pk) -> {
-                                        Assert.assertEquals(pk % 2, 0);
-                                        return null;
-                                    };
-                            break;
-                        case LESS:
-                            targetCount = 4;
-                            judger =
-                                    (pk) -> {
-                                        Assert.assertEquals(pk % 2, 1);
-                                        return null;
-                                    };
-                            break;
-                        case LESS_EQUAL:
-                            targetCount = 9;
-                            judger =
-                                    (pk) -> {
-                                        Assert.assertTrue(pk < nullValuePkId);
-                                        return null;
-                                    };
-                            break;
-                        case IS_NULL:
-                            targetCount = 1;
-                            judger =
-                                    (pk) -> {
-                                        Assert.assertTrue(pk == nullValuePkId);
-                                        return null;
-                                    };
-                            break;
-                        case IS_NOT_NULL:
-                            judger =
-                                    (pk) -> {
-                                        Assert.assertTrue(pk < nullValuePkId);
-                                        return null;
-                                    };
-                            targetCount = totalCount - 1;
-                            break;
+                try {
+                    while (true) {
+                        long timeout = (count < expectedCount) ? 30000L : 3000L;
+                        BinlogRecord record = reader.getBinlogRecord(timeout);
+                        int pk = (int) record.getObject(pkIdx);
+                        judger.apply(pk);
+                        count++;
+                        if (count > expectedCount) {
+                            Assert.fail(
+                                    "Filter leaked: type="
+                                            + typeName
+                                            + ", op="
+                                            + op
+                                            + ", fixedFe="
+                                            + useFixedFe);
+                        }
                     }
+                } catch (TimeoutException e) {
+                    // Expected
                 }
-                if (!isSupported) {
-                    BinlogShardGroupReader finalReader = reader;
-                    Assert.expectThrows(
-                            HoloClientException.class, () -> finalReader.getBinlogRecord());
-                    return;
-                }
-                while (targetCount > 0 && (record = reader.getBinlogRecord()) != null) {
-                    int pk = (int) record.getObject(1);
-                    if (pk != nullValuePkId) {
-                        typeCaseData.getPredicate().run(pk, record);
-                    }
-                    judger.apply(pk);
-                    count++;
-                    if (count == targetCount) {
-                        reader.cancel();
-                        break;
-                    }
-                }
-                LOG.info("reader cancel");
+                Assert.assertEquals(
+                        count,
+                        expectedCount,
+                        "Count mismatch: type="
+                                + typeName
+                                + ", op="
+                                + op
+                                + ", fixedFe="
+                                + useFixedFe);
             } finally {
                 if (reader != null) {
                     reader.cancel();
                 }
-                execute(conn, new String[] {dropSql1});
             }
         }
     }

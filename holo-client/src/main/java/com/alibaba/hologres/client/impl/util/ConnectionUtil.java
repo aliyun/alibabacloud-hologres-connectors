@@ -223,12 +223,60 @@ public class ConnectionUtil {
         }
     }
 
+    /**
+     * 获取 fixed FE 连接的 backend pid.
+     *
+     * <p>hg_fixed_conn_id() 仅支持 simple/extendedForPrepared 协议, 要求连接已经配置好对应的 PREFER_QUERY_MODE.
+     * 本方法只做普通 Statement 查询, 不强制切换协议.
+     */
     public static Long getFixedBackendPid(Connection conn) {
         try (Statement stat = conn.createStatement()) {
             return Long.parseLong(parseSingleCell(stat.executeQuery("select hg_fixed_conn_id()")));
         } catch (SQLException ignored) {
             return -1L;
         }
+    }
+
+    /**
+     * 获取 backend pid (统一入口).
+     *
+     * <p>策略: 按 preferFixed 提示先尝试一次,失败 (返回 -1) 自动回退到另一种.
+     *
+     * <ul>
+     *   <li>普通 FE: select pg_backend_pid()，返回 worker pid，可对应到实例 worker 地址；
+     *   <li>fixed FE: select hg_fixed_conn_id()（仅 simple/extendedForPrepared 协议可用）。
+     * </ul>
+     *
+     * <p><b>调用方责任</b>: 在低版本 fixed FE 上错误 SQL 会污染连接使后续 SQL 全部失败,本方法不做版本守卫.
+     * 调用方需自行保证底层场景安全:要么连接是调用方自己创建可重建的 (如 ConnectionHolder)，要么业务场景本身只在高版本可用 (如 copy)。
+     *
+     * @param conn 待查询连接
+     * @param preferFixed true 优先尝试 fixed FE 方式；false 优先普通 FE 方式。调用方有 holo-client 配置时应传入真实值
+     * @return backend pid；两种方式都失败返回 -1
+     */
+    public static long getBackendPidByConn(Connection conn, boolean preferFixed) {
+        if (preferFixed) {
+            long fixedPid = getFixedBackendPid(conn);
+            if (fixedPid != -1L) {
+                return fixedPid;
+            }
+            Integer pid = getBackendPid(conn);
+            return pid == null ? -1L : pid.longValue();
+        }
+        Integer pid = getBackendPid(conn);
+        if (pid != null && pid != -1) {
+            return pid.longValue();
+        }
+        return getFixedBackendPid(conn);
+    }
+
+    /**
+     * 获取 backend pid (无配置入口).默认先试普通 FE、失败后回退 fixed FE。
+     *
+     * <p>适用于 copy 等由用户提供连接、holo-client 无 isFixed 配置依据的场景。
+     */
+    public static long getBackendPidByConn(Connection conn) {
+        return getBackendPidByConn(conn, false);
     }
 
     // SELECT n.nspname as Schema, c.relname as Name,
@@ -610,6 +658,8 @@ public class ConnectionUtil {
         builder.setTableName(tableName);
         builder.setNotExist(false);
         builder.setSensitive(true);
+        // 用于暂存 distribution_key，处理完所有属性后过滤隐藏列 hg_dt_streaming_remaining_pk
+        String[] rawDistributionKeys = null;
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             String key = entry.getKey();
             String value = entry.getValue();
@@ -618,7 +668,7 @@ public class ConnectionUtil {
                     if ("".equals(value)) {
                         throw new SQLException("empty distribution_key is not supported.");
                     }
-                    builder.setDistributionKeys(value.split(","));
+                    rawDistributionKeys = value.split(",");
                     break;
                 case "orientation":
                     builder.setOrientation(value);
@@ -646,6 +696,18 @@ public class ConnectionUtil {
                     break;
                 default:
             }
+        }
+        // DT表可能有隐藏的 distribution key 列 hg_dt_streaming_remaining_pk，
+        // 需要从 distribution_key 中过滤掉，否则 calculateProperties 时会因找不到该列而抛 NPE。
+        if (rawDistributionKeys != null) {
+            List<String> filteredDistKeys = new ArrayList<>();
+            for (String distKey : rawDistributionKeys) {
+                if (!"hg_dt_streaming_remaining_pk".equals(distKey)) {
+                    filteredDistKeys.add(distKey);
+                }
+            }
+            rawDistributionKeys = filteredDistKeys.toArray(new String[0]);
+            builder.setDistributionKeys(rawDistributionKeys);
         }
         String partitionColumnName = getPartitionColumnName(conn, tableName);
         builder.setPartitionColumnName(partitionColumnName);
@@ -1015,7 +1077,8 @@ public class ConnectionUtil {
                                 "after create, partition child table is still not exists, tableName:"
                                         + tableName.getFullName()
                                         + ",partitionValue:"
-                                        + value);
+                                        + value,
+                                e);
                     }
                 }
                 return internalPartition;

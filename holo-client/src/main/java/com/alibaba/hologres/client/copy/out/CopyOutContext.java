@@ -26,12 +26,21 @@ public class CopyOutContext extends CopyContextCommon {
     static Set<String> needClearMetaTypes =
             new HashSet<String>() {
                 {
+                    // extra types
                     add("timetz");
                     add("bytea");
                     add("char");
                     add("bpchar");
                     add("varchar");
                     add("roaringbitmap");
+                    // stats info in metadata
+                    add("json");
+                    add("jsonb");
+                    add("int2");
+                    add("int4");
+                    add("int8");
+                    add("float4");
+                    add("float8");
                 }
             };
 
@@ -70,6 +79,7 @@ public class CopyOutContext extends CopyContextCommon {
                     jsonbColumns.add(column);
                 }
                 if (needClearMetaTypes.contains(typeName)) {
+                    LOG.info("need clear meta because column {} is type {}", column, typeName);
                     setClearMeta = true;
                 }
             }
@@ -87,6 +97,11 @@ public class CopyOutContext extends CopyContextCommon {
                     // 可能无法解析holo自定义的metadata,因此需要特别设置以下guc,使holo在返回之前清除metadata
                     try (Statement stmt = conn.createStatement()) {
                         stmt.execute("SET hg_experimental_copy_out_arrow_clear_fields_meta = true");
+                    }
+                    // 启用 expr label 传递，使 arrow schema 字段名使用 SQL 列别名（TargetEntry->resname）
+                    // 而非内部函数名（如 jsonb::text 转换产生的 jsonb_out）。
+                    try (Statement stmt = conn.createStatement()) {
+                        stmt.execute("SET hg_experimental_enable_expr_node_set_label = true");
                     }
                 } catch (SQLException e) {
                     throw new IOException(e);

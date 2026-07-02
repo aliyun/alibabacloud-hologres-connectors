@@ -21,7 +21,7 @@ public class BaseArrowBigIntCreator extends AbstractArrowVectorCreator {
         if (value == null) {
             bigIntVector.setNull(rowId);
         } else {
-            setLong(rowId, (long) value);
+            setLong(rowId, Long.parseLong(value.toString()));
         }
     }
 }

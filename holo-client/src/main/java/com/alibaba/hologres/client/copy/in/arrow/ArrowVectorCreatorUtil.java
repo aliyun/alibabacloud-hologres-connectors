@@ -1,5 +1,6 @@
 package com.alibaba.hologres.client.copy.in.arrow;
 
+import com.alibaba.hologres.client.copy.CopyUtil;
 import com.alibaba.hologres.client.copy.in.arrow.creator.*;
 import com.alibaba.hologres.client.model.Column;
 import com.alibaba.hologres.client.model.TableSchema;
@@ -39,6 +40,7 @@ public class ArrowVectorCreatorUtil {
                                     null);
                     break;
                 case Types.BIGINT:
+                    // oid also uses Int64 here, cast to oid is handled in SQL
                     field =
                             new Field(
                                     columnName,
@@ -83,7 +85,18 @@ public class ArrowVectorCreatorUtil {
                     break;
                 case Types.BOOLEAN:
                 case Types.BIT:
-                    field = new Field(columnName, FieldType.nullable(new ArrowType.Bool()), null);
+                    if ("bit".equals(column.getTypeName())) {
+                        // bit(n) is a bit string, stored as binary
+                        field =
+                                new Field(
+                                        columnName,
+                                        FieldType.nullable(new ArrowType.Binary()),
+                                        null);
+                    } else {
+                        field =
+                                new Field(
+                                        columnName, FieldType.nullable(new ArrowType.Bool()), null);
+                    }
                     break;
                 case Types.CHAR:
                     field = new Field(columnName, FieldType.nullable(new ArrowType.Utf8()), null);
@@ -228,6 +241,36 @@ public class ArrowVectorCreatorUtil {
                                         columnName,
                                         FieldType.nullable(new ArrowType.Binary()),
                                         null);
+                    } else if (column.getTypeName().equals("interval")) {
+                        field =
+                                new Field(
+                                        columnName,
+                                        FieldType.nullable(new ArrowType.FixedSizeBinary(16)),
+                                        null);
+                    } else if (column.getTypeName().equals("inet")) {
+                        field =
+                                new Field(
+                                        columnName,
+                                        FieldType.nullable(new ArrowType.Binary()),
+                                        null);
+                    } else if (column.getTypeName().equals("uuid")) {
+                        field =
+                                new Field(
+                                        columnName,
+                                        FieldType.nullable(new ArrowType.FixedSizeBinary(16)),
+                                        null);
+                    } else if (column.getTypeName().equals("varbit")) {
+                        field =
+                                new Field(
+                                        columnName,
+                                        FieldType.nullable(new ArrowType.Binary()),
+                                        null);
+                    } else if (CopyUtil.isStageTextType(column.getTypeName())) {
+                        // Types written as text in Arrow and cast back via SQL (e.g. geometry,
+                        // geography, jsonb, oid)
+                        field =
+                                new Field(
+                                        columnName, FieldType.nullable(new ArrowType.Utf8()), null);
                     } else {
                         field =
                                 new Field(
@@ -263,6 +306,11 @@ public class ArrowVectorCreatorUtil {
                         (DecimalVector) vector, column.getPrecision(), column.getScale());
             case Types.BOOLEAN:
             case Types.BIT:
+                if ("bit".equals(column.getTypeName())) {
+                    // bit(n) is a bit string, stored as binary
+                    return new BaseArrowBitStringCreator(
+                            (VarBinaryVector) vector, column.getPrecision());
+                }
                 return new BaseArrowBitCreator((BitVector) vector);
             case Types.CHAR:
                 return new BaseArrowVarCharCreator((VarCharVector) vector, column.getPrecision());
@@ -291,6 +339,15 @@ public class ArrowVectorCreatorUtil {
             case Types.OTHER:
                 if ("roaringbitmap".equals(column.getTypeName())) {
                     return new BaseArrowVarBinaryCreator((VarBinaryVector) vector);
+                } else if ("interval".equals(column.getTypeName())) {
+                    return new BaseArrowIntervalCreator((FixedSizeBinaryVector) vector);
+                } else if ("inet".equals(column.getTypeName())) {
+                    return new BaseArrowInetCreator((VarBinaryVector) vector);
+                } else if ("uuid".equals(column.getTypeName())) {
+                    return new BaseArrowUuidCreator((FixedSizeBinaryVector) vector);
+                } else if ("varbit".equals(column.getTypeName())) {
+                    return new BaseArrowBitStringCreator(
+                            (VarBinaryVector) vector, column.getPrecision());
                 } else {
                     return new BaseArrowVarCharCreator((VarCharVector) vector);
                 }

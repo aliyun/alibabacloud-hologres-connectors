@@ -31,6 +31,8 @@ public class Record implements Serializable {
     Object[] values;
     BitSet bitSet;
     BitSet onlyInsertColumnSet;
+    BitSet nullColumnSet;
+    boolean isMergeIgnoreNull = false;
     protected List<Object> attachmentList = null;
     Put.MutationType type = Put.MutationType.INSERT;
     int shardId = -1;
@@ -49,6 +51,7 @@ public class Record implements Serializable {
             Object[] values,
             BitSet bitSet,
             BitSet onlyInsertColumnSet,
+            BitSet nullColumnSet,
             List<Object> attachmentList,
             Put.MutationType type,
             long byteSize,
@@ -58,6 +61,7 @@ public class Record implements Serializable {
         this.values = values;
         this.bitSet = bitSet;
         this.onlyInsertColumnSet = onlyInsertColumnSet;
+        this.nullColumnSet = nullColumnSet;
         this.attachmentList = attachmentList;
         this.type = type;
         this.byteSize = byteSize;
@@ -71,6 +75,7 @@ public class Record implements Serializable {
                 values.clone(),
                 (BitSet) bitSet.clone(),
                 (BitSet) onlyInsertColumnSet.clone(),
+                (BitSet) nullColumnSet.clone(),
                 null,
                 type,
                 byteSize,
@@ -123,7 +128,23 @@ public class Record implements Serializable {
         this.tableName = schema.getTableNameObj();
         bitSet = new BitSet(schema.getColumnSchema().length);
         onlyInsertColumnSet = new BitSet(schema.getColumnSchema().length);
+        nullColumnSet = new BitSet(schema.getColumnSchema().length);
         values = new Object[schema.getColumnSchema().length];
+    }
+
+    /** 复制构造函数，完整拷贝所有字段（包括onlyInsertColumnSet等）. 子类可用此来保留全部信息. */
+    protected Record(Record other) {
+        this.schema = other.schema;
+        this.tableName = other.tableName;
+        this.values = other.values.clone();
+        this.bitSet = (BitSet) other.bitSet.clone();
+        this.onlyInsertColumnSet = (BitSet) other.onlyInsertColumnSet.clone();
+        this.nullColumnSet = (BitSet) other.nullColumnSet.clone();
+        this.type = other.type;
+        this.byteSize = other.byteSize;
+        this.shardId = other.shardId;
+        this.attachmentList = other.attachmentList;
+        this.putFutures = other.putFutures;
     }
 
     public boolean isSet(int index) {
@@ -222,6 +243,11 @@ public class Record implements Serializable {
         byteSize = byteSize + add - minus;
         values[index] = obj;
         bitSet.set(index);
+        if (obj == null) {
+            nullColumnSet.set(index);
+        } else {
+            nullColumnSet.clear(index);
+        }
     }
 
     public Object getObject(int index) {
@@ -256,6 +282,18 @@ public class Record implements Serializable {
         return onlyInsertColumnSet;
     }
 
+    public BitSet getNullColumnSet() {
+        return nullColumnSet;
+    }
+
+    public boolean isMergeIgnoreNull() {
+        return isMergeIgnoreNull;
+    }
+
+    public void setMergeIgnoreNull(boolean mergeIgnoreNull) {
+        isMergeIgnoreNull = mergeIgnoreNull;
+    }
+
     public void setPutFuture(CompletableFuture<Void> future) {
         if (putFutures != null) {
             throw new RuntimeException("setPutFuture should call ONLY ONCE");
@@ -276,6 +314,9 @@ public class Record implements Serializable {
         }
         for (int i = 0; i < record.getSize(); ++i) {
             if (record.isSet(i) && !record.getOnlyInsertColumnSet().get(i)) {
+                if (record.isMergeIgnoreNull() && record.getNullColumnSet().get(i)) {
+                    continue;
+                }
                 setObject(i, record.getObject(i));
             }
         }

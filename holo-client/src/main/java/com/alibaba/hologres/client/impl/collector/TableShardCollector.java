@@ -73,8 +73,10 @@ public class TableShardCollector {
             }
         }
         Integer exprHashCode = null;
+        Boolean exprDisableDeduplication = false;
         if (record instanceof RecordWithExpression) {
             exprHashCode = ((RecordWithExpression) record).getExpression().hashCode();
+            exprDisableDeduplication = !((RecordWithExpression) record).getEnableDeduplication();
             if (!verifiedExprCode.contains(exprHashCode)) {
                 ExpressionUtil.CheckExpr((RecordWithExpression) record);
                 verifiedExprCode.add(exprHashCode);
@@ -106,7 +108,7 @@ public class TableShardCollector {
         }
         // 配置不允许去重(checkAndPut Record强制不允许去重, RecordWithExpression
         // 强制不允许去重)，与之前的record主键重复时，先commit，再append
-        if ((!enableDeduplication || checkAndPutCondition != null || exprHashCode != null)
+        if ((!enableDeduplication || checkAndPutCondition != null || exprDisableDeduplication)
                 && buffer.isKeyExists(new RecordKey(record))) {
             try {
                 LOGGER.debug("Primary key Duplicate, force flush!");

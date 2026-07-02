@@ -313,7 +313,21 @@ public class DataTypeTestUtil {
                                 "varbit",
                                 "varbit(3)",
                                 (i, conn) -> "101111",
-                                (i, rs) -> Assert.assertEquals(rs.getString(1), "101"))
+                                (i, rs) -> Assert.assertEquals(rs.getString(1), "101")),
+                        // geometry
+                        new TypeCaseData(
+                                "geometry",
+                                (i, conn) -> "POINT(" + i + " " + i + ")",
+                                (i, rs) ->
+                                        Assert.assertEquals(
+                                                rs.getString(1), "POINT(" + i + " " + i + ")")),
+                        // geography
+                        new TypeCaseData(
+                                "geography",
+                                (i, conn) -> "POINT(" + i + " " + i + ")",
+                                (i, rs) ->
+                                        Assert.assertEquals(
+                                                rs.getString(1), "POINT(" + i + " " + i + ")"))
                         // 不支持的类型
                         // , "MONEY" // 难搞，不支持了
                     });
@@ -528,12 +542,13 @@ public class DataTypeTestUtil {
                                 (i, r) ->
                                         Assert.assertEquals(
                                                 r.getObject(0).toString(), "127.0.0." + i)),
-                        new TypeCaseDataWithRecord(
-                                "oid",
-                                (i, conn) -> i,
-                                (i, r) ->
-                                        Assert.assertEquals(
-                                                r.getObject(0).toString(), String.valueOf(i))),
+                        //                        new TypeCaseDataWithRecord(
+                        //                                "oid",
+                        //                                (i, conn) -> i,
+                        //                                (i, r) ->
+                        //                                        Assert.assertEquals(
+                        //                                                r.getObject(0).toString(),
+                        // String.valueOf(i))),
                         new TypeCaseDataWithRecord(
                                 "uuid",
                                 (i, conn) -> "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a1" + i,

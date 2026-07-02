@@ -28,9 +28,12 @@ import java.sql.Time;
 import java.sql.Timestamp;
 import java.text.SimpleDateFormat;
 import java.time.ZoneOffset;
-import java.util.HashMap;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
+import java.util.concurrent.Callable;
 
 public class FixedCopyTimeTypeTest extends HoloClientTestBase {
     /** time timetz timestamp timestamptz test. */
@@ -45,13 +48,20 @@ public class FixedCopyTimeTypeTest extends HoloClientTestBase {
                 new CopyFormat[] {CopyFormat.BINARY, CopyFormat.BINARYROW, CopyFormat.CSV};
         SimpleDateFormat timetzSDF = new SimpleDateFormat("HH:mm:ssZ");
         SimpleDateFormat timestamptzSDF = new SimpleDateFormat("yyyy-MM-dd HH:mm:ssZ");
+
+        // Check version once
+        HoloVersion version;
+        try (Connection conn = buildConnection()) {
+            version = ConnectionUtil.getHoloVersion(conn);
+        }
+
         for (boolean setTimeZone : setTimeZoneList) {
             TimeZone lastTimeZone = TimeZone.getDefault();
             try {
                 if (setTimeZone) {
                     TimeZone.setDefault(TimeZone.getTimeZone(ZoneOffset.ofHours(-3)));
                 }
-                Map<String, Object[]> typeCaseDataMap = new HashMap<>();
+                Map<String, Object[]> typeCaseDataMap = new LinkedHashMap<>();
                 typeCaseDataMap.put(
                         "time",
                         new Object[] {
@@ -78,124 +88,140 @@ public class FixedCopyTimeTypeTest extends HoloClientTestBase {
                             new Timestamp(
                                     timestamptzSDF.parse("1901-01-03 00:00:00+0700").getTime())
                         });
+
+                // Build parallel tasks: each task handles its own DDL + COPY IN + verify
+                List<Callable<Void>> tasks = new ArrayList<>();
                 for (CopyFormat format : formatList) {
+                    if (format == CopyFormat.BINARYROW
+                            && version.compareTo(new HoloVersion("3.2.0")) < 0) {
+                        continue;
+                    }
                     for (boolean useFixedFe : useFixedFeList) {
+                        if (useFixedFe && version.compareTo(new HoloVersion("3.1.0")) < 0) {
+                            continue;
+                        }
                         for (Map.Entry<String, Object[]> entry : typeCaseDataMap.entrySet()) {
-                            try (Connection conn = buildConnection()) {
-                                HoloVersion version = ConnectionUtil.getHoloVersion(conn);
-                                if (useFixedFe && version.compareTo(new HoloVersion("3.1.0")) < 0) {
-                                    continue;
-                                } else if (format == CopyFormat.BINARYROW
-                                        && version.compareTo(new HoloVersion("3.2.0")) < 0) {
-                                    continue;
-                                }
-                                String tableName =
-                                        "\"holo_client_copy_sql_005_"
-                                                + format
-                                                + "_"
-                                                + useFixedFe
-                                                + "_"
-                                                + setTimeZone
-                                                + "_"
-                                                + entry.getKey()
-                                                + "\"";
-                                String forceReplaySql =
-                                        "set hg_experimental_force_sync_replay = on";
-                                String dropSql = "drop table if exists " + tableName;
-                                String createSql =
-                                        "create table "
-                                                + tableName
-                                                + "(id int primary key,"
-                                                + "col "
-                                                + entry.getKey()
-                                                + ")";
-                                try {
-                                    execute(conn, new String[] {forceReplaySql});
-                                    execute(conn, new String[] {dropSql});
-                                    execute(conn, new String[] {createSql});
+                            String typeName = entry.getKey();
+                            Object[] values = entry.getValue();
+                            CopyFormat taskFormat = format;
+                            boolean taskFixedFe = useFixedFe;
+                            String tableName =
+                                    "\"holo_client_copy_sql_005_"
+                                            + format
+                                            + "_"
+                                            + useFixedFe
+                                            + "_"
+                                            + setTimeZone
+                                            + "_"
+                                            + typeName
+                                            + "\"";
+                            String createSql =
+                                    "create table "
+                                            + tableName
+                                            + "(id int primary key, col "
+                                            + typeName
+                                            + ")";
+                            tasks.add(
+                                    tableTask(
+                                            tableName,
+                                            createSql,
+                                            taskConn -> {
+                                                TableName tn = TableName.valueOf(tableName);
+                                                ConnectionUtil.checkMeta(
+                                                        taskConn, version, tn.getFullName(), 120);
+                                                TableSchema schema =
+                                                        ConnectionUtil.getTableSchema(taskConn, tn);
 
-                                    try (Connection pgConn =
-                                            buildConnection(useFixedFe)
-                                                    .unwrap(PgConnection.class)) {
-                                        TableName tn = TableName.valueOf(tableName);
-                                        ConnectionUtil.checkMeta(
-                                                conn, version, tn.getFullName(), 120);
+                                                try (Connection pgConn =
+                                                        buildConnection(taskFixedFe)
+                                                                .unwrap(PgConnection.class)) {
+                                                    CopyManager copyManager =
+                                                            new CopyManager(
+                                                                    pgConn.unwrap(
+                                                                            PgConnection.class));
 
-                                        TableSchema schema =
-                                                ConnectionUtil.getTableSchema(conn, tn);
-                                        CopyManager copyManager =
-                                                new CopyManager(pgConn.unwrap(PgConnection.class));
-                                        String copySql = null;
-                                        OutputStream os = null;
-                                        RecordOutputStream ros = null;
-                                        for (int i = 0; i < entry.getValue().length; ++i) {
-                                            Record record = new Record(schema);
-                                            record.setObject(0, i);
-                                            record.setObject(1, entry.getValue()[i]);
-                                            if (ros == null) {
-                                                copySql =
-                                                        CopyUtil.buildCopyInSql(
-                                                                record,
-                                                                format,
-                                                                OnConflictAction.INSERT_OR_UPDATE);
-                                                LOG.info("copySql : {}", copySql);
-                                                os =
-                                                        new CopyInOutputStream(
-                                                                copyManager.copyIn(copySql));
-                                                ros =
-                                                        format == CopyFormat.BINARY
-                                                                ? new RecordBinaryOutputStream(
-                                                                        os,
-                                                                        schema,
-                                                                        pgConn.unwrap(
-                                                                                BaseConnection
-                                                                                        .class),
-                                                                        1024 * 1024 * 10)
-                                                                : format == CopyFormat.BINARYROW
-                                                                        ? new RecordBinaryRowOutputStream(
-                                                                                os,
-                                                                                schema,
-                                                                                pgConn.unwrap(
-                                                                                        BaseConnection
-                                                                                                .class),
-                                                                                1024 * 1024 * 10)
-                                                                        : new RecordTextOutputStream(
-                                                                                os,
-                                                                                schema,
-                                                                                pgConn.unwrap(
-                                                                                        BaseConnection
-                                                                                                .class),
-                                                                                1024 * 1024 * 10);
-                                            }
-                                            // this record does not contain the third field address
-                                            ros.putRecord(record);
-                                        }
-                                        ros.close();
-                                    }
+                                                    // COPY IN
+                                                    RecordOutputStream ros = null;
+                                                    for (int i = 0; i < values.length; ++i) {
+                                                        Record record = new Record(schema);
+                                                        record.setObject(0, i);
+                                                        record.setObject(1, values[i]);
+                                                        if (ros == null) {
+                                                            String copySql =
+                                                                    CopyUtil.buildCopyInSql(
+                                                                            record,
+                                                                            taskFormat,
+                                                                            OnConflictAction
+                                                                                    .INSERT_OR_UPDATE);
+                                                            LOG.info("copySql : {}", copySql);
+                                                            OutputStream os =
+                                                                    new CopyInOutputStream(
+                                                                            copyManager.copyIn(
+                                                                                    copySql));
+                                                            ros =
+                                                                    taskFormat == CopyFormat.BINARY
+                                                                            ? new RecordBinaryOutputStream(
+                                                                                    os,
+                                                                                    schema,
+                                                                                    pgConn.unwrap(
+                                                                                            BaseConnection
+                                                                                                    .class),
+                                                                                    1024 * 1024
+                                                                                            * 10)
+                                                                            : taskFormat
+                                                                                            == CopyFormat
+                                                                                                    .BINARYROW
+                                                                                    ? new RecordBinaryRowOutputStream(
+                                                                                            os,
+                                                                                            schema,
+                                                                                            pgConn
+                                                                                                    .unwrap(
+                                                                                                            BaseConnection
+                                                                                                                    .class),
+                                                                                            1024
+                                                                                                    * 1024
+                                                                                                    * 10)
+                                                                                    : new RecordTextOutputStream(
+                                                                                            os,
+                                                                                            schema,
+                                                                                            pgConn
+                                                                                                    .unwrap(
+                                                                                                            BaseConnection
+                                                                                                                    .class),
+                                                                                            1024
+                                                                                                    * 1024
+                                                                                                    * 10);
+                                                        }
+                                                        ros.putRecord(record);
+                                                    }
+                                                    ros.close();
+                                                }
 
-                                    int count = 0;
-                                    try (Statement stat = conn.createStatement()) {
-                                        try (ResultSet rs =
-                                                stat.executeQuery(
-                                                        "select * from "
-                                                                + tableName
-                                                                + " order by id")) {
-                                            while (rs.next()) {
-                                                Assert.assertEquals(count, rs.getInt(1));
-                                                Assert.assertEquals(
-                                                        entry.getValue()[count], rs.getObject(2));
-                                                ++count;
-                                            }
-                                            Assert.assertEquals(entry.getValue().length, count);
-                                        }
-                                    }
-                                } finally {
-                                    execute(conn, new String[] {dropSql});
-                                }
-                            }
+                                                // Verify
+                                                int count = 0;
+                                                try (Statement stat = taskConn.createStatement()) {
+                                                    try (ResultSet rs =
+                                                            stat.executeQuery(
+                                                                    "select * from "
+                                                                            + tableName
+                                                                            + " order by id")) {
+                                                        while (rs.next()) {
+                                                            Assert.assertEquals(
+                                                                    count, rs.getInt(1));
+                                                            Assert.assertEquals(
+                                                                    values[count], rs.getObject(2));
+                                                            ++count;
+                                                        }
+                                                        Assert.assertEquals(values.length, count);
+                                                    }
+                                                }
+                                            }));
                         }
                     }
                 }
+
+                // Execute all tasks in parallel
+                runParallelTasks(tasks);
             } finally {
                 TimeZone.setDefault(lastTimeZone);
             }

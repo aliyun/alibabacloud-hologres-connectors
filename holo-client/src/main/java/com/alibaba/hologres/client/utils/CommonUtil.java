@@ -5,7 +5,9 @@ import com.alibaba.hologres.client.exception.HoloClientException;
 
 import java.sql.DriverManager;
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
 import static java.lang.Math.min;
@@ -335,6 +337,160 @@ public class CommonUtil {
                             true)); // Assuming quoteIdentifier is a method in the same class
         }
         return builder.toString();
+    }
+
+    /**
+     * Parse the comma-separated quoted logical partition column names string into an array.
+     *
+     * <p>Each column name must be wrapped in double quotes, and any embedded double quote inside a
+     * name must be escaped by doubling it. Whitespace outside double quotes is skipped.
+     *
+     * <p>Used by both binlog subscription (logical_partition_column_names slot option) and stage
+     * INSERT into a logical partition table (target partition column names).
+     *
+     * <p>Examples: {@code "ds"} -> {@code ["ds"]}; {@code "ds", "kind"} -> {@code ["ds", "kind"]};
+     * {@code "co,lu", "mn""x"} -> {@code ["co,lu", "mn\"x"]}.
+     */
+    public static String[] parseLogicalPartitionColumnNames(String columnNameStr) {
+        List<String> columnNames = new ArrayList<>();
+        StringBuilder currentIdentifier = new StringBuilder();
+        boolean insideQuotes = false;
+
+        for (int i = 0; i < columnNameStr.length(); ++i) {
+            char ch = columnNameStr.charAt(i);
+
+            if (insideQuotes) {
+                if (ch == '"') {
+                    // Check if next character is also a quote
+                    if (i + 1 < columnNameStr.length() && columnNameStr.charAt(i + 1) == '"') {
+                        currentIdentifier.append('"'); // Append a single quote
+                        i++; // Skip the next quote
+                    } else {
+                        // End of quoted identifier
+                        insideQuotes = false;
+                    }
+                } else {
+                    currentIdentifier.append(ch);
+                }
+            } else {
+                if (ch == '"') {
+                    // Start of quoted identifier
+                    insideQuotes = true;
+                } else if (ch == ',') {
+                    // Add completed identifier to the list
+                    columnNames.add(currentIdentifier.toString());
+                    currentIdentifier.setLength(0);
+                } else if (Character.isWhitespace(ch)) {
+                    // Skip whitespace outside quotes
+                } else {
+                    throw new IllegalArgumentException(
+                            String.format(
+                                    "Invalid partition column names input: %s, do you wrap each column name with double quotes?",
+                                    columnNameStr));
+                }
+            }
+        }
+
+        // Add the last identifier if there was one
+        if (!insideQuotes && currentIdentifier.length() > 0) {
+            columnNames.add(currentIdentifier.toString());
+        }
+
+        if (insideQuotes) {
+            throw new IllegalArgumentException(
+                    String.format(
+                            "Invalid partition column names input: %s, unterminated quoted identifier",
+                            columnNameStr));
+        }
+
+        if (!columnNameStr.isEmpty() && columnNames.isEmpty()) {
+            throw new IllegalArgumentException(
+                    String.format("Invalid partition column names input: %s", columnNameStr));
+        }
+
+        return columnNames.toArray(new String[0]);
+    }
+
+    /**
+     * Parse the quoted logical partition values string into a 2D array. Columns within a partition
+     * are separated by commas; multiple partitions are separated by semicolons. Each value must be
+     * wrapped in double quotes and embedded double quotes are escaped by doubling. Whitespace
+     * outside double quotes is skipped.
+     *
+     * <p>Used by both binlog subscription (logical_partition_column_values slot option) and stage
+     * INSERT into a logical partition table (target partition values).
+     *
+     * <p>Example: {@code "2025-01-11", "100"; "2025-01-12", "200"} -> {@code [["2025-01-11",
+     * "100"], ["2025-01-12", "200"]]}.
+     */
+    public static String[][] parseLogicalPartitionColumnValues(String columnValuesStr) {
+        List<List<String>> columnValuesForMultiRows = new ArrayList<>();
+        List<String> columnValues = new ArrayList<>();
+        StringBuilder currentIdentifier = new StringBuilder();
+        boolean insideQuotes = false;
+
+        for (int i = 0; i < columnValuesStr.length(); ++i) {
+            char ch = columnValuesStr.charAt(i);
+            if (insideQuotes) {
+                if (ch == '"') {
+                    // Check if the next character is also a quote
+                    if (i + 1 < columnValuesStr.length() && columnValuesStr.charAt(i + 1) == '"') {
+                        currentIdentifier.append('"'); // Append a single quote
+                        i++; // Skip the next quote
+                    } else {
+                        // End of quoted identifier
+                        insideQuotes = false;
+                    }
+                } else {
+                    currentIdentifier.append(ch);
+                }
+            } else {
+                if (ch == '"') {
+                    // Start of quoted identifier
+                    insideQuotes = true;
+                } else if (ch == ',') {
+                    // Add completed identifier to the list
+                    columnValues.add(currentIdentifier.toString());
+                    currentIdentifier.setLength(0);
+                } else if (ch == ';') {
+                    columnValues.add(currentIdentifier.toString());
+                    columnValuesForMultiRows.add(new ArrayList<>(columnValues));
+                    columnValues.clear();
+                    currentIdentifier.setLength(0);
+                } else if (Character.isWhitespace(ch)) {
+                    // Skip whitespace outside quotes
+                } else {
+                    throw new IllegalArgumentException(
+                            String.format(
+                                    "Invalid partition values input: %s, do you wrap each value with double quotes?",
+                                    columnValuesStr));
+                }
+            }
+        }
+
+        // Add the last identifier if there was one
+        if (!insideQuotes && currentIdentifier.length() > 0) {
+            columnValues.add(currentIdentifier.toString());
+            columnValuesForMultiRows.add(columnValues);
+        }
+
+        if (insideQuotes) {
+            throw new IllegalArgumentException(
+                    String.format(
+                            "Invalid partition values input: %s, unterminated quoted value",
+                            columnValuesStr));
+        }
+
+        if (!columnValuesStr.isEmpty() && columnValuesForMultiRows.isEmpty()) {
+            throw new IllegalArgumentException(
+                    String.format("Invalid partition values input: %s", columnValuesStr));
+        }
+
+        String[][] columnValuesArray = new String[columnValuesForMultiRows.size()][];
+        for (int i = 0; i < columnValuesForMultiRows.size(); i++) {
+            columnValuesArray[i] = columnValuesForMultiRows.get(i).toArray(new String[0]);
+        }
+        return columnValuesArray;
     }
 
     /**

@@ -13,6 +13,7 @@ import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.model.TableName;
 import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.utils.DataTypeTestUtil;
+import org.apache.arrow.vector.VectorSchemaRoot;
 import org.postgresql.copy.CopyManager;
 import org.postgresql.core.BaseConnection;
 import org.postgresql.jdbc.PgConnection;
@@ -290,7 +291,7 @@ public class CopyOutTest extends HoloClientTestBase {
                                 CopyFormat.ARROW_LZ4,
                                 "",
                                 Collections.singleton("name")),
-                        "copy (select id,name::text from \"holo_client_copy_out_util_001\") to stdout with (format arrow_lz4)");
+                        "copy (select id,name::text AS name from \"holo_client_copy_out_util_001\") to stdout with (format arrow_lz4)");
             } finally {
                 execute(conn, new String[] {dropSql});
             }
@@ -434,6 +435,8 @@ public class CopyOutTest extends HoloClientTestBase {
                     columns.add("address");
                     columns.add("address1");
                     columns.add("address2");
+                    // 设置较小的 batch size，使得多 batch 场景可以覆盖字段名校验
+                    execute(conn, new String[] {"set hg_experimental_query_batch_size = 8;"});
                     try (CopyOutWrapper copyOutWrapper =
                             new CopyOutWrapper(
                                     conn,
@@ -444,7 +447,22 @@ public class CopyOutTest extends HoloClientTestBase {
                                     "",
                                     1024 * 1024 * 20)) {
                         int count = 0;
+                        int batchCount = 0;
                         while (copyOutWrapper.hasNextBatch()) {
+                            batchCount++;
+                            // 校验每个 batch 的 arrow schema 字段名与原始列名一致，
+                            // 而非内部函数名（如 jsonb::text 转换产生的 jsonb_out）
+                            VectorSchemaRoot root = copyOutWrapper.getVectorSchemaRoot();
+                            Assert.assertEquals(
+                                    root.getSchema().getFields().get(0).getName(), "id");
+                            Assert.assertEquals(
+                                    root.getSchema().getFields().get(1).getName(), "name");
+                            Assert.assertEquals(
+                                    root.getSchema().getFields().get(2).getName(), "address");
+                            Assert.assertEquals(
+                                    root.getSchema().getFields().get(3).getName(), "address1");
+                            Assert.assertEquals(
+                                    root.getSchema().getFields().get(4).getName(), "address2");
                             List<Record> records = copyOutWrapper.getRecords();
                             for (Record r : records) {
                                 int pk = (int) r.getObject(0);
@@ -459,8 +477,9 @@ public class CopyOutTest extends HoloClientTestBase {
                                 count++;
                             }
                         }
-
-                        Assert.assertEquals(count, totalCount);
+                        Assert.assertTrue(
+                                batchCount > 1, "Expected multiple batches but got " + batchCount);
+                        Assert.assertEquals(totalCount, count);
                     } catch (Exception e) {
                         throw new RuntimeException(e);
                     }

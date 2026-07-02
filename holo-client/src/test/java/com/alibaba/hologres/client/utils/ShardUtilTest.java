@@ -74,7 +74,8 @@ public class ShardUtilTest extends HoloClientTestBase {
 
     /** allType. Method: put(Put put). */
     @Test(dataProvider = "typeCaseData")
-    public void testALLTypeInsert(DataTypeTestUtil.TypeCaseData typeCaseData) throws Exception {
+    public void testALLTypeShardUtilInsert(DataTypeTestUtil.TypeCaseData typeCaseData)
+            throws Exception {
         if (properties == null) {
             return;
         }
@@ -87,7 +88,11 @@ public class ShardUtilTest extends HoloClientTestBase {
         String type = typeCaseData.getColumnType();
         // 4.1 起支持interval做分布键,但解析比较复杂,先跳过
         // timetz 类型不符合预期, 跳过
-        if (typeName.equals("jsonb") || typeName.equals("interval") || typeName.equals("timetz")) {
+        if (typeName.equals("jsonb")
+                || typeName.equals("interval")
+                || typeName.equals("timetz")
+                || typeName.equals("geography")
+                || typeName.equals("geometry")) {
             // skip jsonb
             return;
         }

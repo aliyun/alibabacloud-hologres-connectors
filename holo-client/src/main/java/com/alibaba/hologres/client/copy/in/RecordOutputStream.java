@@ -9,6 +9,7 @@ import org.postgresql.jdbc.TimestampUtils;
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.Buffer;
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 
@@ -66,9 +67,9 @@ public abstract class RecordOutputStream implements Closeable {
     }
 
     protected void writeCellBuffer() throws IOException {
-        cellBuffer.flip();
+        ((Buffer) cellBuffer).flip();
         os.write(cellBuffer.array(), cellBuffer.position(), cellBuffer.remaining());
-        cellBuffer.clear();
+        ((Buffer) cellBuffer).clear();
     }
 
     protected abstract void fillByteBuffer(Record record) throws IOException;
@@ -81,9 +82,9 @@ public abstract class RecordOutputStream implements Closeable {
                                 Math.max(cellBuffer.position() + size, cellBuffer.position() * 2),
                                 maxCellBufferSize);
                 ByteBuffer temp = ByteBuffer.allocate(target);
-                cellBuffer.flip();
+                ((Buffer) cellBuffer).flip();
                 temp.put(cellBuffer);
-                cellBuffer.clear();
+                ((Buffer) cellBuffer).clear();
                 cellBuffer = temp;
             } else {
                 throw new IOException(

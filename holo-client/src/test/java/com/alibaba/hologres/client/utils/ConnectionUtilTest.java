@@ -169,4 +169,62 @@ public class ConnectionUtilTest extends HoloClientTestBase {
             }
         }
     }
+
+    /**
+     * 验证 getBackendPidByConn 在普通 FE 连接上的两种 preferFixed 取值: false (符合连接类型,直接成功)、true (先尝试 fixed
+     * 失败,fallback 到普通 FE).两种情况都应返回 >0 的有效 pid.
+     */
+    @Test
+    public void testGetBackendPidByConnNormalFe() throws Exception {
+        if (properties == null) {
+            return;
+        }
+        try (Connection conn = buildConnection(false)) {
+            long pidPreferFalse = ConnectionUtil.getBackendPidByConn(conn, false);
+            Assert.assertTrue(
+                    pidPreferFalse > 0,
+                    "normal FE + preferFixed=false should return valid pid, got " + pidPreferFalse);
+
+            long pidPreferTrue = ConnectionUtil.getBackendPidByConn(conn, true);
+            Assert.assertTrue(
+                    pidPreferTrue > 0,
+                    "normal FE + preferFixed=true should fallback to normal FE, got "
+                            + pidPreferTrue);
+
+            // 单参数版本默认 preferFixed=false
+            long pidNoHint = ConnectionUtil.getBackendPidByConn(conn);
+            Assert.assertTrue(
+                    pidNoHint > 0, "normal FE + no hint should return valid pid, got " + pidNoHint);
+        }
+    }
+
+    /**
+     * 验证 getBackendPidByConn 在 fixed FE 连接上的两种 preferFixed 取值: true (符合连接类型,直接成功)、false (先尝试 普通 FE
+     * 失败,fallback 到 fixed FE).两种情况都应返回 >0 的有效 pid.
+     */
+    @Test
+    public void testGetBackendPidByConnFixedFe() throws Exception {
+        if (properties == null) {
+            return;
+        }
+        try (Connection conn = buildConnection(true)) {
+            long pidPreferTrue = ConnectionUtil.getBackendPidByConn(conn, true);
+            Assert.assertTrue(
+                    pidPreferTrue > 0,
+                    "fixed FE + preferFixed=true should return valid pid, got " + pidPreferTrue);
+
+            long pidPreferFalse = ConnectionUtil.getBackendPidByConn(conn, false);
+            Assert.assertTrue(
+                    pidPreferFalse > 0,
+                    "fixed FE + preferFixed=false should fallback to fixed FE, got "
+                            + pidPreferFalse);
+
+            // 单参数版本: 用户连接(无配置)走默认 preferFixed=false 路径,
+            // 普通 FE 失败后回退到 fixed FE,仍然成功
+            long pidNoHint = ConnectionUtil.getBackendPidByConn(conn);
+            Assert.assertTrue(
+                    pidNoHint > 0,
+                    "fixed FE + no hint should fallback successfully, got " + pidNoHint);
+        }
+    }
 }

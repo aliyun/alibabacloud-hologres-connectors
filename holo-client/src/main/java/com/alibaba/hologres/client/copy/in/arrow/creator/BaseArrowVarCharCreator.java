@@ -28,7 +28,7 @@ public class BaseArrowVarCharCreator extends AbstractArrowVectorCreator {
         if (value == null) {
             varCharVector.setNull(rowId);
         } else {
-            String s = (String) value;
+            String s = value.toString();
             if (precision > 0 && s.length() > precision) {
                 s = s.substring(0, precision);
             }

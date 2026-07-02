@@ -9,6 +9,7 @@ import org.postgresql.copy.CopyOut;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.Buffer;
 import java.nio.ByteBuffer;
 import java.sql.SQLException;
 
@@ -31,7 +32,7 @@ public class CopyOutInputStream extends InputStream implements WithCopyResult {
         this.copyOut = copyOut;
         this.maxBufferSize = maxBufferSize;
         this.buffer = ByteBuffer.allocate(1024);
-        buffer.position(buffer.limit());
+        ((Buffer) buffer).position(buffer.limit());
     }
 
     @Override
@@ -71,17 +72,17 @@ public class CopyOutInputStream extends InputStream implements WithCopyResult {
         try {
             if (!copyOut.isActive()) {
                 // CopyDone
-                buffer.limit(0); // 设置为空，标记结束
+                ((Buffer) buffer).limit(0); // 设置为空，标记结束
                 return;
             }
             byte[] data = copyOut.readFromCopy();
             if (data == null) {
-                buffer.limit(0); // 设置为空，标记结束
+                ((Buffer) buffer).limit(0); // 设置为空，标记结束
             } else {
                 mayIncBuffer(data.length);
-                buffer.clear();
+                ((Buffer) buffer).clear();
                 buffer.put(data);
-                buffer.flip();
+                ((Buffer) buffer).flip();
             }
         } catch (Exception e) {
             throw new IOException("Error reading from CopyOut", e);
@@ -96,9 +97,9 @@ public class CopyOutInputStream extends InputStream implements WithCopyResult {
                                 Math.max(buffer.position() + size, buffer.position() * 2),
                                 maxBufferSize);
                 ByteBuffer temp = ByteBuffer.allocate(target);
-                buffer.flip();
+                ((Buffer) buffer).flip();
                 temp.put(buffer);
-                buffer.clear();
+                ((Buffer) buffer).clear();
                 buffer = temp;
             } else {
                 throw new IOException("CopyOutInputStream buffer exceed max size " + maxBufferSize);

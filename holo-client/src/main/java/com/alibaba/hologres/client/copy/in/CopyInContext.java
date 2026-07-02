@@ -5,6 +5,7 @@ import com.alibaba.hologres.client.copy.CopyFormat;
 import com.alibaba.hologres.client.copy.CopyMode;
 import com.alibaba.hologres.client.copy.CopyUtil;
 import com.alibaba.hologres.client.copy.in.binaryrow.RecordBinaryRowOutputStream;
+import com.alibaba.hologres.client.impl.util.ConnectionUtil;
 import com.alibaba.hologres.client.model.Column;
 import com.alibaba.hologres.client.model.OnConflictAction;
 import com.alibaba.hologres.client.model.TableSchema;
@@ -80,6 +81,7 @@ public class CopyInContext extends CopyContextCommon {
                             onConflictAction,
                             copyMode,
                             enableCheckSchemaVersion);
+            LOG.info("copy in backendPid: {}", ConnectionUtil.getBackendPidByConn(conn));
             LOG.info("copy in sql: {}", copySql);
             copyManager = new CopyManager(conn.unwrap(PgConnection.class));
             inOs = new CopyInOutputStream(copyManager.copyIn(copySql));

@@ -28,8 +28,11 @@ import java.time.temporal.TemporalAccessor;
 import java.time.temporal.TemporalQueries;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -44,6 +47,39 @@ public class CopyUtil {
 
     private static final int WARN_SKIP_COUNT = 10000;
     static long warnCount = WARN_SKIP_COUNT;
+
+    /**
+     * Mapping for types that need special handling in stage copy. The key is the original typeName.
+     * stageTypeName: the type to declare in external_files AS clause. castExpr: the cast expression
+     * to append in SELECT clause.
+     */
+    public static class StageTypeCast {
+        public final String stageTypeName;
+        public final String castExpr;
+
+        StageTypeCast(String stageTypeName, String castExpr) {
+            this.stageTypeName = stageTypeName;
+            this.castExpr = castExpr;
+        }
+    }
+
+    private static final Map<String, StageTypeCast> STAGE_TYPE_CAST_MAP;
+
+    static {
+        Map<String, StageTypeCast> map = new HashMap<>();
+        map.put("json", new StageTypeCast("text", "::json"));
+        map.put("jsonb", new StageTypeCast("text", "::jsonb"));
+        map.put("oid", new StageTypeCast("int8", "::oid"));
+        map.put("geometry", new StageTypeCast("text", "::geometry"));
+        map.put("geography", new StageTypeCast("text", "::geography"));
+        STAGE_TYPE_CAST_MAP = Collections.unmodifiableMap(map);
+    }
+
+    /** Check if the given type should be written as Utf8 (text) in Arrow for stage copy. */
+    public static boolean isStageTextType(String typeName) {
+        StageTypeCast cast = STAGE_TYPE_CAST_MAP.get(typeName);
+        return cast != null && "text".equals(cast.stageTypeName);
+    }
 
     static final DateTimeFormatter DATE_TIME_FORMATTER =
             new DateTimeFormatterBuilder()
@@ -85,12 +121,12 @@ public class CopyUtil {
             List<String> stages,
             OnConflictAction conflictAction) {
         return buildInsertTableSelectFromStageSql(
-                schema, columnNames, stages, conflictAction, false);
+                schema, columnNames, stages, conflictAction, false, null);
     }
 
     public static String buildInsertOverwriteTableSelectFromStageSql(
             TableSchema schema, List<String> columnNames, List<String> stages) {
-        return buildInsertTableSelectFromStageSql(schema, columnNames, stages, null, true);
+        return buildInsertTableSelectFromStageSql(schema, columnNames, stages, null, true, null);
     }
 
     public static String buildInsertTableSelectFromStageSql(
@@ -99,6 +135,138 @@ public class CopyUtil {
             List<String> stages,
             OnConflictAction conflictAction,
             boolean is_overwrite) {
+        return buildInsertTableSelectFromStageSql(
+                schema, columnNames, stages, conflictAction, is_overwrite, null);
+    }
+
+    /**
+     * Build the PARTITION clause for logical partition table INSERT. Example output: "PARTITION (ds
+     * = '2025-01-11', kind = 100) PARTITION (ds = '2025-01-12', kind = 200)"
+     *
+     * @param schema TableSchema used to determine column types for value quoting
+     * @param partitionColumnNames partition column names
+     * @param partitionValues partition values, each element is one partition combination
+     * @return partition clause string, or empty string if no partitions specified
+     */
+    public static String buildPartitionClause(
+            TableSchema schema, String[] partitionColumnNames, String[][] partitionValues) {
+        if (partitionColumnNames == null
+                || partitionColumnNames.length == 0
+                || partitionValues == null
+                || partitionValues.length == 0) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < partitionValues.length; i++) {
+            if (i > 0) {
+                sb.append(" ");
+            }
+            sb.append("PARTITION (");
+            String[] values = partitionValues[i];
+            for (int j = 0; j < partitionColumnNames.length; j++) {
+                if (j > 0) {
+                    sb.append(", ");
+                }
+                String colName = partitionColumnNames[j];
+                sb.append(IdentifierUtil.quoteIdentifier(colName, true));
+                sb.append(" = ");
+                String value = values[j];
+                if (needQuoteValue(schema, colName)) {
+                    sb.append("'").append(value.replace("'", "''")).append("'");
+                } else {
+                    sb.append(value);
+                }
+            }
+            sb.append(")");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Determine whether a partition value needs single-quote wrapping based on column type. Text,
+     * varchar, char, date, timestamp types need quotes; numeric types do not.
+     */
+    private static boolean needQuoteValue(TableSchema schema, String columnName) {
+        int colIndex =
+                schema.getColumnIndex(columnName) == null ? -1 : schema.getColumnIndex(columnName);
+        if (colIndex < 0) {
+            // column not found in schema, default to quoting
+            return true;
+        }
+        Column column = schema.getColumn(colIndex);
+        int type = column.getType();
+        switch (type) {
+            case Types.SMALLINT:
+            case Types.INTEGER:
+            case Types.BIGINT:
+            case Types.FLOAT:
+            case Types.REAL:
+            case Types.DOUBLE:
+            case Types.NUMERIC:
+            case Types.DECIMAL:
+            case Types.BOOLEAN:
+            case Types.BIT:
+                return false;
+            default:
+                return true;
+        }
+    }
+
+    /**
+     * Build insert SQL with logical partition clause support.
+     *
+     * @param schema table schema
+     * @param columnNames column names to insert
+     * @param stages stage names
+     * @param conflictAction on conflict action
+     * @param partitionColumnNames logical partition column names (similar to binlog's
+     *     logicalPartitionColumnNames)
+     * @param partitionValues logical partition values, each row is one partition combination
+     *     (similar to binlog's logicalPartitionValues)
+     * @return insert SQL with PARTITION clause
+     */
+    public static String buildInsertTableSelectFromStageSql(
+            TableSchema schema,
+            List<String> columnNames,
+            List<String> stages,
+            OnConflictAction conflictAction,
+            String[] partitionColumnNames,
+            String[][] partitionValues) {
+        String partitionClause =
+                buildPartitionClause(schema, partitionColumnNames, partitionValues);
+        return buildInsertTableSelectFromStageSql(
+                schema, columnNames, stages, conflictAction, false, partitionClause);
+    }
+
+    /**
+     * Build insert overwrite SQL with logical partition clause support.
+     *
+     * @param schema table schema
+     * @param columnNames column names to insert
+     * @param stages stage names
+     * @param partitionColumnNames logical partition column names
+     * @param partitionValues logical partition values
+     * @return insert overwrite SQL with PARTITION clause
+     */
+    public static String buildInsertOverwriteTableSelectFromStageSql(
+            TableSchema schema,
+            List<String> columnNames,
+            List<String> stages,
+            String[] partitionColumnNames,
+            String[][] partitionValues) {
+        String partitionClause =
+                buildPartitionClause(schema, partitionColumnNames, partitionValues);
+        return buildInsertTableSelectFromStageSql(
+                schema, columnNames, stages, null, true, partitionClause);
+    }
+
+    public static String buildInsertTableSelectFromStageSql(
+            TableSchema schema,
+            List<String> columnNames,
+            List<String> stages,
+            OnConflictAction conflictAction,
+            boolean is_overwrite,
+            String partitionClause) {
 
         List<String> typeNames = new ArrayList<>();
         for (String name : columnNames) {
@@ -121,7 +289,11 @@ public class CopyUtil {
         } else {
             sb.append("insert into ");
         }
-        sb.append(schema.getTableNameObj().getFullName()).append(" (");
+        sb.append(schema.getTableNameObj().getFullName());
+        if (partitionClause != null && !partitionClause.isEmpty()) {
+            sb.append(" ").append(partitionClause);
+        }
+        sb.append(" (");
         for (String colName : columnNames) {
             if (!firstCol) {
                 sb.append(",");
@@ -141,8 +313,9 @@ public class CopyUtil {
             String colName = columnNames.get(i);
             sb.append(IdentifierUtil.quoteIdentifier(colName, true));
             String typeName = typeNames.get(i);
-            if ("json".equals(typeName) || "jsonb".equals(typeName)) {
-                sb.append("::").append(typeName);
+            StageTypeCast stageTypeCast = STAGE_TYPE_CAST_MAP.get(typeName);
+            if (stageTypeCast != null) {
+                sb.append(stageTypeCast.castExpr);
             }
         }
 
@@ -168,8 +341,9 @@ public class CopyUtil {
             String colName = columnNames.get(i);
             sb.append(IdentifierUtil.quoteIdentifier(colName, true));
             String typeName = typeNames.get(i);
-            if ("json".equals(typeName) || "jsonb".equals(typeName)) {
-                typeName = "text";
+            StageTypeCast stageTypeCast = STAGE_TYPE_CAST_MAP.get(typeName);
+            if (stageTypeCast != null) {
+                typeName = stageTypeCast.stageTypeName;
             }
             sb.append(" ").append(typeName);
         }
@@ -194,6 +368,9 @@ public class CopyUtil {
                 sb.append("update set ");
                 firstCol = true;
                 for (String colName : columnNames) {
+                    if (schema.isPrimaryKey(colName)) {
+                        continue;
+                    }
                     if (!firstCol) {
                         sb.append(",");
                     }
@@ -361,9 +538,11 @@ public class CopyUtil {
             }
             first = false;
             sb.append(IdentifierUtil.quoteIdentifier(column, true));
-            // jsonb columns need to be cast to text, otherwise they cannot be decoded
+            // jsonb columns need to be cast to text, otherwise they cannot be decoded.
+            // AS alias is required so that arrow schema field names match original column names
+            // instead of the internal function name (jsonb_out).
             if (jsonbColumns.contains(column)) {
-                sb.append("::text");
+                sb.append("::text AS ").append(IdentifierUtil.quoteIdentifier(column, true));
             }
         }
         sb.append(" from ").append(tableName);

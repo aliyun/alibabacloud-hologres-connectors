@@ -8,7 +8,16 @@ import com.alibaba.hologres.client.utils.IdentifierUtil;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.Serializable;
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.sql.Connection;
+import java.util.ArrayList;
+import java.util.List;
 
 /** TableSchema Tester. */
 public class TableSchemaTest extends HoloClientTestBase {
@@ -130,6 +139,81 @@ public class TableSchemaTest extends HoloClientTestBase {
                 execute(conn, new String[] {dropSql});
             }
         }
+    }
+
+    /** 测试 TableSchema 的序列化和反序列化，确保包含 GlobalIndex 的 TableSchema 可以正常序列化. */
+    @Test
+    public void testTableSchemaSerializable() throws Exception {
+        Column col = new Column();
+        col.setName("id");
+        col.setType(4);
+        col.setTypeName("int4");
+        col.setPrimaryKey(true);
+        col.setAllowNull(false);
+
+        GlobalIndex globalIndex =
+                new GlobalIndex(
+                        TableName.valueOf("public.test_index"), new String[] {"col1", "col2"});
+
+        TableSchema schema =
+                new TableSchema.Builder("test_id", "v1")
+                        .setTableName(TableName.valueOf("public.test_table"))
+                        .addColumn(col)
+                        .setDistributionKeys(new String[] {"id"})
+                        .setGlobalIndexs(new GlobalIndex[] {globalIndex})
+                        .build();
+        schema.calculateProperties();
+
+        // 序列化
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        ObjectOutputStream oos = new ObjectOutputStream(baos);
+        oos.writeObject(schema);
+        oos.close();
+
+        // 反序列化
+        ByteArrayInputStream bais = new ByteArrayInputStream(baos.toByteArray());
+        ObjectInputStream ois = new ObjectInputStream(bais);
+        TableSchema deserialized = (TableSchema) ois.readObject();
+        ois.close();
+
+        // 验证反序列化结果
+        Assert.assertEquals(deserialized.getTableId(), "test_id");
+        Assert.assertEquals(deserialized.getSchemaVersion(), "v1");
+        Assert.assertNotNull(deserialized.getGlobalIndexs());
+        Assert.assertEquals(deserialized.getGlobalIndexs().length, 1);
+        Assert.assertEquals(
+                deserialized.getGlobalIndexs()[0].getIndexKeys(), new String[] {"col1", "col2"});
+        Assert.assertEquals(deserialized.getColumnSchema().length, 1);
+        Assert.assertEquals(deserialized.getColumnSchema()[0].getName(), "id");
+    }
+
+    /**
+     * 确保 TableSchema 的所有非静态非transient成员字段的类型都实现了 Serializable， 防止后续新增字段忘记实现 Serializable 导致线上问题.
+     */
+    @Test
+    public void testAllFieldsAreSerializable() {
+        List<String> nonSerializableFields = new ArrayList<>();
+        for (Field field : TableSchema.class.getDeclaredFields()) {
+            if (Modifier.isStatic(field.getModifiers())
+                    || Modifier.isTransient(field.getModifiers())) {
+                continue;
+            }
+            Class<?> fieldType = field.getType();
+            // 基本类型天然可序列化
+            if (fieldType.isPrimitive()) {
+                continue;
+            }
+            // 接口和抽象类(如Map、Set)跳过声明类型检查，由实际序列化测试保障
+            if (fieldType.isInterface() || Modifier.isAbstract(fieldType.getModifiers())) {
+                continue;
+            }
+            if (!Serializable.class.isAssignableFrom(fieldType)) {
+                nonSerializableFields.add(field.getName() + " (type: " + fieldType.getName() + ")");
+            }
+        }
+        Assert.assertTrue(
+                nonSerializableFields.isEmpty(),
+                "TableSchema contains non-Serializable fields: " + nonSerializableFields);
     }
 
     @Test

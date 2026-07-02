@@ -29,7 +29,20 @@ public class RecordArrowWriter extends AbstractArrowWriter<Record> {
     private transient AbstractArrowVectorCreator[] creators;
 
     public RecordArrowWriter(TableSchema schema, List<String> columns, int maxBatchSize) {
-        super(schema, columns, maxBatchSize);
+        this(schema, columns, maxBatchSize, false);
+    }
+
+    /**
+     * 创建 RecordArrowWriter，支持可选的 Arrow IPC LZ4 压缩.
+     *
+     * @param schema 表 schema
+     * @param columns 列名列表
+     * @param maxBatchSize 每批最大行数
+     * @param enableCompression 是否启用 Arrow IPC V5 buffer-level LZ4 压缩
+     */
+    public RecordArrowWriter(
+            TableSchema schema, List<String> columns, int maxBatchSize, boolean enableCompression) {
+        super(schema, columns, maxBatchSize, enableCompression);
 
         int columnCount = columns.size();
         this.columnIndexes = new int[columnCount];

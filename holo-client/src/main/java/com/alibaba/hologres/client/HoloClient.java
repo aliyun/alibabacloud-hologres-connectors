@@ -24,6 +24,7 @@ import com.alibaba.hologres.client.impl.copy.CopyContext;
 import com.alibaba.hologres.client.impl.copy.InternalPipedOutputStream;
 import com.alibaba.hologres.client.model.ExportContext;
 import com.alibaba.hologres.client.model.HoloVersion;
+import com.alibaba.hologres.client.model.IgnoreNullWhenUpdateMode;
 import com.alibaba.hologres.client.model.ImportContext;
 import com.alibaba.hologres.client.model.OnConflictAction;
 import com.alibaba.hologres.client.model.Partition;
@@ -35,8 +36,10 @@ import com.alibaba.hologres.client.model.binlog.BinlogPartitionSubscribeMode;
 import com.alibaba.hologres.client.model.checkandput.CheckAndPutCondition;
 import com.alibaba.hologres.client.model.checkandput.CheckAndPutRecord;
 import com.alibaba.hologres.client.model.checkandput.CheckCompareOp;
+import com.alibaba.hologres.client.model.expression.ExpressionUtil;
 import com.alibaba.hologres.client.model.expression.RecordWithExpression;
 import com.alibaba.hologres.client.utils.CommonUtil;
+import com.alibaba.hologres.client.utils.IdentifierUtil;
 import com.alibaba.hologres.client.utils.PartitionUtil;
 import com.alibaba.hologres.client.utils.RateLimiter;
 import com.alibaba.hologres.client.utils.Tuple;
@@ -56,6 +59,7 @@ import java.sql.Types;
 import java.time.Instant;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -193,6 +197,80 @@ public class HoloClient implements Closeable {
                                 + get.getRecord().getSchema().getColumnSchema()[index].getName());
             }
         }
+    }
+
+    /**
+     * 当config设置了ignoreNullWhenUpdateMode， 且MutationType为INSERT，且onConflictAction为INSERT_OR_UPDATE时，
+     * 根据模式将Record进行改写.
+     */
+    private Put rewritePutForIgnoreNull(Put put) throws HoloClientException {
+        Record record = put.getRecord();
+        OnConflictAction action = config.getOnConflictAction();
+        IgnoreNullWhenUpdateMode mode = config.getIgnoreNullWhenUpdateMode();
+        if (mode == IgnoreNullWhenUpdateMode.DISABLED
+                || record.getType() != Put.MutationType.INSERT
+                || action != OnConflictAction.INSERT_OR_UPDATE) {
+            return put;
+        }
+        // RecordWithExpression不支持ignoreNull转换
+        if (record instanceof RecordWithExpression || record instanceof CheckAndPutRecord) {
+            throw new HoloClientException(
+                    ExceptionCode.NOT_SUPPORTED,
+                    "ignoreNullWhenUpdateMode is not compatible with RecordWithExpression or CheckAndPutRecord.");
+        }
+        if (mode == IgnoreNullWhenUpdateMode.SKIP_NULL_COLUMN) {
+            return rewritePutBySkipNullColumn(put, record);
+        } else {
+            return rewritePutByExpression(put, record);
+        }
+    }
+
+    /** SKIP_NULL_COLUMN模式: 将null列从set中移除，不参与更新. */
+    private Put rewritePutBySkipNullColumn(Put put, Record record) {
+        BitSet nullSet = record.getNullColumnSet();
+        for (int i = nullSet.nextSetBit(0); i >= 0; i = nullSet.nextSetBit(i + 1)) {
+            record.getBitSet().clear(i);
+        }
+        return put;
+    }
+
+    /** USE_EXPRESSION模式: 使用coalesce表达式实现null值不覆盖旧值，需要Hologres 4.0+. */
+    private Put rewritePutByExpression(Put put, Record record) throws HoloClientException {
+        TableSchema schema = record.getSchema();
+        int[] keyIndex = schema.getKeyIndex();
+        BitSet keySet = new BitSet(schema.getColumnSchema().length);
+        for (int ki : keyIndex) {
+            keySet.set(ki);
+        }
+        BitSet bitSet = record.getBitSet();
+        BitSet onlyInsertColumnSet = record.getOnlyInsertColumnSet();
+        boolean isFirst = true;
+        StringBuilder conflictUpdateSet = new StringBuilder();
+        // 仅对Put中实际set过的非主键列,非only insert列生成表达式
+        for (int i = bitSet.nextSetBit(0); i >= 0; i = bitSet.nextSetBit(i + 1)) {
+            if (keySet.get(i) || onlyInsertColumnSet.get(i)) {
+                continue;
+            }
+            if (!isFirst) {
+                conflictUpdateSet.append(", ");
+            } else {
+                isFirst = false;
+            }
+            String quotedColName =
+                    IdentifierUtil.quoteIdentifier(schema.getColumnSchema()[i].getName(), true);
+            conflictUpdateSet
+                    .append(quotedColName)
+                    .append("=coalesce(excluded.")
+                    .append(quotedColName)
+                    .append(",old.")
+                    .append(quotedColName)
+                    .append(")");
+        }
+        RecordWithExpression exprRecord =
+                new RecordWithExpression(record, conflictUpdateSet.toString(), null);
+        ExpressionUtil.setEnableDeduplication(exprRecord, config.isIgnoreNullEnableDeduplication());
+        exprRecord.setMergeIgnoreNull(config.isIgnoreNullEnableDeduplication());
+        return new Put(exprRecord);
     }
 
     private void checkPut(Put put, OnConflictAction onConflictAction) throws HoloClientException {
@@ -604,6 +682,7 @@ public class HoloClient implements Closeable {
     public void put(Put put) throws HoloClientException {
         ensurePoolOpen();
         tryThrowException();
+        put = rewritePutForIgnoreNull(put);
         checkPut(put, config.getOnConflictAction());
         // Acquire rate limit token before processing
         if (rateLimiter != null) {
@@ -640,6 +719,7 @@ public class HoloClient implements Closeable {
     public CompletableFuture<Void> putAsync(Put put) throws HoloClientException {
         ensurePoolOpen();
         tryThrowException();
+        put = rewritePutForIgnoreNull(put);
         checkPut(put, config.getOnConflictAction());
         // Acquire rate limit token before processing
         if (rateLimiter != null) {
@@ -672,6 +752,7 @@ public class HoloClient implements Closeable {
         List<Put> putList = new ArrayList<>();
         for (Put put : puts) {
             try {
+                put = rewritePutForIgnoreNull(put);
                 checkPut(put, config.getOnConflictAction());
                 if (!rewriteForPartitionTable(
                         put.getRecord(),

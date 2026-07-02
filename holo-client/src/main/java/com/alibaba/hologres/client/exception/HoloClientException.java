@@ -33,21 +33,31 @@ public class HoloClientException extends Exception {
 
     public static HoloClientException fromSqlException(SQLException e, long backendPid) {
         ExceptionCode code = ExceptionCode.UNKNOWN_ERROR;
-        if (PSQLState.isConnectionError(e.getSQLState())
+        String state = e.getSQLState();
+        // 08P02 (IDLE_SESSION_TIMEOUT) 虽然属于 SQLState class 08，但语义上是服务端主动断开
+        // idle 会话超时，归类为 TIMEOUT；必须在下面的 class 08 兜底之前判断。
+        if ("08P02".equals(/*IDLE_SESSION_TIMEOUT*/ state)) {
+            code = ExceptionCode.TIMEOUT;
+        } else if (PSQLState.isConnectionError(state)
+                // SQLState class 08 即 SQL 标准的 Connection Exception 类。
+                // PSQLState.isConnectionError 只覆盖 08001/08003/08004/08006/08007，
+                // 不包含协议级错乱 08P01（"Expected command status BEGIN, got ."）等。
+                // 这种异常通常发生在 Hologres frontend/shard 缩容、server 已关闭 TCP
+                // 但客户端仍持有 PgConnection 的场景，必须强制丢弃当前连接并重建，
+                // 否则同一坏连接会被反复复用导致持续报错。
+                || (state != null && state.startsWith("08"))
                 || (e.getMessage() != null
                         && (e.getMessage().contains("This connection has been closed")
                                 || e.getMessage().contains("kConnectError")
                                 || e.getMessage().contains("Connection refused")
                                 || e.getMessage().contains("ERPC_ERROR_CONNECTION_CLOSED")
-                                || (PSQLState.INVALID_PASSWORD.getState().equals(e.getSQLState())
+                                || (PSQLState.INVALID_PASSWORD.getState().equals(state)
                                         && e.getMessage().contains("Invalid expire_time"))))) {
             code = ExceptionCode.CONNECTION_ERROR;
-        } else if ("08P02".equals(/*IDLE_SESSION_TIMEOUT*/ e.getSQLState())) {
-            code = ExceptionCode.TIMEOUT;
         } else if (e.getMessage() != null
                 && e.getMessage().contains("not allowed in readonly mode")) {
             code = ExceptionCode.READ_ONLY;
-        } else if ("53000".equalsIgnoreCase(/*INSUFFICIENT_RESOURCES*/ e.getSQLState())
+        } else if ("53000".equalsIgnoreCase(/*INSUFFICIENT_RESOURCES*/ state)
                 || (e.getMessage() != null
                         && (e.getMessage().contains("Resource busy")
                                 || e.getMessage()
@@ -73,7 +83,6 @@ public class HoloClientException extends Exception {
                 && e.getMessage().contains("Could not generate fixed plan")) {
             code = ExceptionCode.NOT_SUPPORTED;
         } else {
-            String state = e.getSQLState();
             if ("42501".equalsIgnoreCase(state)) {
                 code = ExceptionCode.PERMISSION_DENY;
             } else if (PSQLState.SYNTAX_ERROR.getState().equals(state)) {
@@ -133,7 +142,7 @@ public class HoloClientException extends Exception {
             msg += " [BackendPid:" + backendPid + "]";
         }
         if (code == ExceptionCode.UNKNOWN_ERROR) {
-            msg += "[UNKNOW:" + e.getSQLState() + "]" + e.getMessage();
+            msg += "[UNKNOW:" + state + "]" + e.getMessage();
         } else {
             // 报错返回CODE NAME，方便用户理解
             msg += "[" + code.name() + "]" + e.getMessage();

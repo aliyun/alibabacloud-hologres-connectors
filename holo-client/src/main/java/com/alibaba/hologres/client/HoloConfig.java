@@ -4,6 +4,7 @@
 
 package com.alibaba.hologres.client;
 
+import com.alibaba.hologres.client.model.IgnoreNullWhenUpdateMode;
 import com.alibaba.hologres.client.model.OnConflictAction;
 import com.alibaba.hologres.client.model.SSLMode;
 import com.alibaba.hologres.client.model.WriteFailStrategy;
@@ -144,6 +145,15 @@ public class HoloConfig implements Serializable {
 
     /** 写入限流, 每秒最多写入的记录数. -1表示不限流. int @HasGetter @HasSetter */
     int writeRps = -1;
+
+    /**
+     * 当Record中有null列时，在冲突更新场景下如何处理null值. 仅在onConflictAction为INSERT_OR_UPDATE时生效.
+     * USE_EXPRESSION模式需要Hologres 4.0及以上版本. @HasGetter @HasSetter
+     */
+    IgnoreNullWhenUpdateMode ignoreNullWhenUpdateMode = IgnoreNullWhenUpdateMode.DISABLED;
+
+    /** 在ignoreNullWhenUpdateMode为USE_EXPRESSION时，pk重复时客户端是否去重. */
+    boolean ignoreNullEnableDeduplication = true;
 
     // --------------------------read conf-------------------------------------------------
     /** 最多一次将readBatchSize条Get请求合并提交，默认128. @HasGetter @HasSetter */
@@ -829,6 +839,22 @@ public class HoloConfig implements Serializable {
 
     public void setWriteRps(int writeRps) {
         this.writeRps = writeRps;
+    }
+
+    public IgnoreNullWhenUpdateMode getIgnoreNullWhenUpdateMode() {
+        return ignoreNullWhenUpdateMode;
+    }
+
+    public void setIgnoreNullWhenUpdateMode(IgnoreNullWhenUpdateMode ignoreNullWhenUpdateMode) {
+        this.ignoreNullWhenUpdateMode = ignoreNullWhenUpdateMode;
+    }
+
+    public boolean isIgnoreNullEnableDeduplication() {
+        return ignoreNullEnableDeduplication;
+    }
+
+    public void setIgnoreNullEnableDeduplication(boolean ignoreNullEnableDeduplication) {
+        this.ignoreNullEnableDeduplication = ignoreNullEnableDeduplication;
     }
 
     public static String[] getPropertyKeys() {

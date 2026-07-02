@@ -15,6 +15,7 @@ import org.postgresql.jdbc.TimestampUtils;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.nio.Buffer;
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.sql.Date;
@@ -88,11 +89,11 @@ public class RecordOutputFormat implements Closeable {
         }
         int shardId = policy.locate(record);
         fillByteBuffer(record);
-        cellBuffer.flip();
+        ((Buffer) cellBuffer).flip();
         importContext
                 .getOutputStream(shardId)
                 .write(cellBuffer.array(), cellBuffer.position(), cellBuffer.remaining());
-        cellBuffer.clear();
+        ((Buffer) cellBuffer).clear();
     }
 
     private void fillByteBuffer(Record record) throws IOException {
@@ -231,7 +232,7 @@ public class RecordOutputFormat implements Closeable {
                 int target = Math.min(cellBuffer.position() * 2, maxCellBufferSize);
                 ByteBuffer temp = ByteBuffer.allocate(target);
                 temp.put(cellBuffer);
-                cellBuffer.clear();
+                ((Buffer) cellBuffer).clear();
                 cellBuffer = temp;
             } else {
                 throw new IOException(
@@ -254,7 +255,7 @@ public class RecordOutputFormat implements Closeable {
                                 Math.min(cellBuffer.position() * 2, maxCellBufferSize));
                 ByteBuffer temp = ByteBuffer.allocate(target);
                 temp.put(cellBuffer);
-                cellBuffer.clear();
+                ((Buffer) cellBuffer).clear();
                 cellBuffer = temp;
             } else {
                 throw new IOException(
