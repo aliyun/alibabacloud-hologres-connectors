@@ -30,7 +30,6 @@ class BaseSourceProvider() {
   val WRITE_ENABLE_STRICT_DATATYPE_CHECK = "write.strict_datatype_check"
   val WRITE_ON_CONFLICT_ACTION = "write.on_conflict_action"
   val WRITE_OVERWRITE_DROP_FORCE = "write.overwrite_drop_force"
-  val WRITE_USE_V1_WRITE = "write.use_v1_write"
   // write insert
   val WRITE_INSERT_BATCH_SIZE = "write.insert.batch_size"
   val WRITE_INSERT_BATCH_BYTE_SIZE = "write.insert.batch_byte_size"
@@ -47,6 +46,12 @@ class BaseSourceProvider() {
   val COPY_STAGE_FILE_SIZE = "write.stage.file_size"
   val COPY_STAGE_ONLY = "write.stage.only_stage"
   val COPY_STAGE_TTL = "write.stage.ttl"
+  val COPY_STAGE_COMPRESSION = "write.stage.compression"
+  // 写入逻辑分区表时指定要写入的目标分区, 字段必须用双引号包裹, 字段内的双引号用两个双引号转义.
+  // 列名 e.g. "ds", "kind"
+  val WRITE_TARGET_PARTITION_COLUMNS = "write.target_partition_columns"
+  // 分区值, 列间用逗号分隔, 多分区用分号分隔, e.g. "20250101", "100"; "20250102", "200"
+  val WRITE_TARGET_PARTITION_VALUES = "write.target_partition_values"
   val WRITE_RPS_LIMIT = "write.rps_limit"
 
   // read

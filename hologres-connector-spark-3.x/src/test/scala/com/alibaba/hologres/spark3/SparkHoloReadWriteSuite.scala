@@ -916,4 +916,287 @@ class SparkHoloReadWriteSuite extends SparkHoloSuiteBase {
 
     testUtils.dropTable(table)
   }
+
+  // -------------------- Stage partition INSERT tests --------------------
+
+  /**
+   * Create a logical partition parent table with child partitions and write via stage mode
+   * with write.target_partition_columns / write.target_partition_values options.
+   */
+  test("stage write with logical partition INSERT.") {
+    stagePartitionInsertSinglePartition()
+    stagePartitionInsertMultiplePartitions()
+    stagePartitionInsertMultiColumns()
+  }
+
+  def stagePartitionInsertSinglePartition(): Unit = {
+    val suffix = randomSuffix
+    val parentTable = s"table_for_holo_lp_test_$suffix"
+
+    // cleanup
+    testUtils.executeSql(s"DROP TABLE IF EXISTS $parentTable CASCADE")
+
+    // create LOGICAL partition parent table (not physical partition)
+    testUtils.executeSql(
+      s"""CREATE TABLE $parentTable (
+         |  pk bigint NOT NULL,
+         |  id bigint,
+         |  "NAME" text,
+         |  ds text NOT NULL,
+         |  PRIMARY KEY(pk, ds)
+         |) LOGICAL PARTITION BY LIST(ds)""".stripMargin)
+
+    val schema = StructType(Array(
+      StructField("pk", LongType),
+      StructField("id", LongType),
+      StructField("NAME", StringType),
+      StructField("ds", StringType)
+    ))
+
+    // Write data for partition ds='20250101' only
+    val data = Seq(
+      Row(1L, 100L, "phone1", "20250101"),
+      Row(2L, 200L, "phone2", "20250101")
+    )
+    val df = spark.createDataFrame(
+      spark.sparkContext.parallelize(data), schema
+    ).cache()
+
+    df.write
+      .format("hologres")
+      .option(SourceProvider.USERNAME, testUtils.username)
+      .option(SourceProvider.PASSWORD, testUtils.password)
+      .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
+      .option(SourceProvider.TABLE, parentTable)
+      .option(SourceProvider.WRITE_MODE, "stage")
+      .option(SourceProvider.WRITE_ON_CONFLICT_ACTION, "insertOrIgnore")
+      .option(SourceProvider.WRITE_TARGET_PARTITION_COLUMNS, "\"ds\"")
+      .option(SourceProvider.WRITE_TARGET_PARTITION_VALUES, "\"20250101\"")
+      .mode(SaveMode.Append)
+      .save()
+
+    // Read back and verify
+    val readDf = spark.read
+      .format("hologres")
+      .schema(schema)
+      .option(SourceProvider.USERNAME, testUtils.username)
+      .option(SourceProvider.PASSWORD, testUtils.password)
+      .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
+      .option(SourceProvider.TABLE, parentTable)
+      .load().orderBy("pk").cache()
+
+    assert(readDf.count() == 2)
+    if (df.except(readDf).count() > 0) {
+      df.show()
+      readDf.show()
+      throw new Exception("stage partition INSERT: data mismatch!")
+    }
+
+    testUtils.executeSql(s"DROP TABLE IF EXISTS $parentTable CASCADE")
+  }
+
+  def stagePartitionInsertMultiplePartitions(): Unit = {
+    val suffix = randomSuffix
+    val parentTable = s"table_for_holo_lp_multi_$suffix"
+
+    testUtils.executeSql(s"DROP TABLE IF EXISTS $parentTable CASCADE")
+
+    // create LOGICAL partition parent table
+    testUtils.executeSql(
+      s"""CREATE TABLE $parentTable (
+         |  pk bigint NOT NULL,
+         |  id bigint,
+         |  "NAME" text,
+         |  ds text NOT NULL,
+         |  PRIMARY KEY(pk, ds)
+         |) LOGICAL PARTITION BY LIST(ds)""".stripMargin)
+
+    val schema = StructType(Array(
+      StructField("pk", LongType),
+      StructField("id", LongType),
+      StructField("NAME", StringType),
+      StructField("ds", StringType)
+    ))
+
+    // Write data for both partitions
+    val data = Seq(
+      Row(1L, 100L, "phone1", "20250101"),
+      Row(2L, 200L, "phone2", "20250101"),
+      Row(3L, 300L, "phone3", "20250102"),
+      Row(4L, 400L, "phone4", "20250102")
+    )
+    val df = spark.createDataFrame(
+      spark.sparkContext.parallelize(data), schema
+    ).cache()
+
+    df.write
+      .format("hologres")
+      .option(SourceProvider.USERNAME, testUtils.username)
+      .option(SourceProvider.PASSWORD, testUtils.password)
+      .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
+      .option(SourceProvider.TABLE, parentTable)
+      .option(SourceProvider.WRITE_MODE, "stage")
+      .option(SourceProvider.WRITE_ON_CONFLICT_ACTION, "insertOrIgnore")
+      .option(SourceProvider.WRITE_TARGET_PARTITION_COLUMNS, "\"ds\"")
+      .option(SourceProvider.WRITE_TARGET_PARTITION_VALUES, "\"20250101\"; \"20250102\"")
+      .mode(SaveMode.Append)
+      .save()
+
+    val readDf = spark.read
+      .format("hologres")
+      .schema(schema)
+      .option(SourceProvider.USERNAME, testUtils.username)
+      .option(SourceProvider.PASSWORD, testUtils.password)
+      .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
+      .option(SourceProvider.TABLE, parentTable)
+      .load().orderBy("pk").cache()
+
+    assert(readDf.count() == 4)
+    if (df.except(readDf).count() > 0) {
+      df.show()
+      readDf.show()
+      throw new Exception("stage partition INSERT multi-partition: data mismatch!")
+    }
+
+    testUtils.executeSql(s"DROP TABLE IF EXISTS $parentTable CASCADE")
+  }
+
+  def stagePartitionInsertMultiColumns(): Unit = {
+    val suffix = randomSuffix
+    val parentTable = s"table_for_holo_lp_multi_col_$suffix"
+
+    testUtils.executeSql(s"DROP TABLE IF EXISTS $parentTable CASCADE")
+
+    // LOGICAL partition by (ds, kind)
+    testUtils.executeSql(
+      s"""CREATE TABLE $parentTable (
+         |  pk bigint NOT NULL,
+         |  id bigint,
+         |  ds text NOT NULL,
+         |  kind text NOT NULL,
+         |  PRIMARY KEY(pk, ds, kind)
+         |) LOGICAL PARTITION BY LIST(ds, kind)""".stripMargin)
+
+    val schema = StructType(Array(
+      StructField("pk", LongType),
+      StructField("id", LongType),
+      StructField("ds", StringType),
+      StructField("kind", StringType)
+    ))
+
+    val data = Seq(
+      Row(1L, 100L, "20250101", "a"),
+      Row(2L, 200L, "20250101", "a"),
+      Row(3L, 300L, "20250102", "b")
+    )
+    val df = spark.createDataFrame(
+      spark.sparkContext.parallelize(data), schema
+    ).cache()
+
+    df.write
+      .format("hologres")
+      .option(SourceProvider.USERNAME, testUtils.username)
+      .option(SourceProvider.PASSWORD, testUtils.password)
+      .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
+      .option(SourceProvider.TABLE, parentTable)
+      .option(SourceProvider.WRITE_MODE, "stage")
+      .option(SourceProvider.WRITE_ON_CONFLICT_ACTION, "insertOrIgnore")
+      .option(SourceProvider.WRITE_TARGET_PARTITION_COLUMNS, "\"ds\", \"kind\"")
+      .option(SourceProvider.WRITE_TARGET_PARTITION_VALUES, "\"20250101\", \"a\"; \"20250102\", \"b\"")
+      .mode(SaveMode.Append)
+      .save()
+
+    val readDf = spark.read
+      .format("hologres")
+      .schema(schema)
+      .option(SourceProvider.USERNAME, testUtils.username)
+      .option(SourceProvider.PASSWORD, testUtils.password)
+      .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
+      .option(SourceProvider.TABLE, parentTable)
+      .load().orderBy("pk").cache()
+
+    assert(readDf.count() == 3)
+    if (df.except(readDf).count() > 0) {
+      df.show()
+      readDf.show()
+      throw new Exception("stage partition INSERT multi-column: data mismatch!")
+    }
+
+    testUtils.executeSql(s"DROP TABLE IF EXISTS $parentTable CASCADE")
+  }
+
+  test("HoloTable.name() should not deadlock when called under a logging lock") {
+    val table = "table_for_holo_test_" + randomSuffix
+    testUtils.dropTable(table)
+    testUtils.createTable(defaultCreateHoloTableDDL, table)
+
+    val readDf = spark.read
+      .format("hologres")
+      .option(SourceProvider.USERNAME, testUtils.username)
+      .option(SourceProvider.PASSWORD, testUtils.password)
+      .option(SourceProvider.JDBCURL, testUtils.jdbcUrl)
+      .option(SourceProvider.TABLE, table)
+      .load()
+
+    // SLF4J in this env binds to Log4j2, so we use a Log4j2 appender to simulate
+    // Kyuubi's Log4j2DivertAppender which holds a WriteLock during append.
+    val lock = new java.util.concurrent.locks.ReentrantReadWriteLock()
+    val appender = new org.apache.logging.log4j.core.appender.AbstractAppender(
+      "deadlock-test-appender", null, null, true,
+      org.apache.logging.log4j.core.config.Property.EMPTY_ARRAY) {
+      override def append(event: org.apache.logging.log4j.core.LogEvent): Unit = {
+        lock.writeLock().lock()
+        try {} finally { lock.writeLock().unlock() }
+      }
+    }
+    appender.start()
+
+    val logCtx = org.apache.logging.log4j.LogManager.getContext(false)
+      .asInstanceOf[org.apache.logging.log4j.core.LoggerContext]
+    val rootLoggerConfig = logCtx.getConfiguration.getRootLogger
+    rootLoggerConfig.addAppender(appender, null, null)
+    logCtx.updateLoggers()
+    try {
+      // Close shared ExecutionPools so chooseBestMode must create fresh workers
+      // whose startup log ("worker start") will go through our locking appender.
+      val poolMapField = classOf[com.alibaba.hologres.client.impl.ExecutionPool]
+        .getDeclaredField("POOL_MAP")
+      poolMapField.setAccessible(true)
+      val poolMap = poolMapField.get(null)
+        .asInstanceOf[java.util.concurrent.ConcurrentHashMap[String,
+          com.alibaba.hologres.client.impl.ExecutionPool]]
+      poolMap.values().forEach(_.close())
+      poolMap.clear()
+
+      // Hold the WriteLock (same type as appender) then call plan.toString() -> HoloTable.name().
+      // WriteLock is reentrant for the same thread, so chooseBestMode()'s own logging
+      // through the appender succeeds. But the worker thread (different thread) is blocked
+      // from acquiring the WriteLock in the appender, reproducing the production deadlock.
+      val future = java.util.concurrent.CompletableFuture.supplyAsync(
+        new java.util.function.Supplier[String] {
+          override def get(): String = {
+            lock.writeLock().lock()
+            try {
+              readDf.queryExecution.logical.toString()
+            } finally {
+              lock.writeLock().unlock()
+            }
+          }
+        }
+      )
+
+      try {
+        val result = future.get(30, java.util.concurrent.TimeUnit.SECONDS)
+        assert(result.contains("HoloTable"))
+      } catch {
+        case _: java.util.concurrent.TimeoutException =>
+          fail("HoloTable.name() deadlocked: name() is likely calling chooseBestMode() " +
+            "again instead of returning cached tableType")
+      }
+    } finally {
+      rootLoggerConfig.removeAppender("deadlock-test-appender")
+      logCtx.updateLoggers()
+      testUtils.dropTable(table)
+    }
+  }
 }

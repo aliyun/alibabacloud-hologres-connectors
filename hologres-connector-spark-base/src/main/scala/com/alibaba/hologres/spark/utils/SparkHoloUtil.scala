@@ -9,6 +9,7 @@ import org.apache.spark.sql.types._
 
 import java.io.IOException
 import java.sql.Types
+import java.util.concurrent.TimeUnit
 import scala.collection.mutable.ArrayBuffer
 
 object SparkHoloUtil {
@@ -221,7 +222,7 @@ object SparkHoloUtil {
     val holoClient: HoloClient = new HoloClient(hologresConfigs.holoConfig)
     try {
       var holoVersion: HoloVersion = null
-      try holoVersion = holoClient.sql[HoloVersion](getHoloVersion).get()
+      try holoVersion = holoClient.sql[HoloVersion](getHoloVersion).get(60, TimeUnit.SECONDS)
       catch {
         case e: Exception =>
           throw new IOException("Failed to get holo version", e)

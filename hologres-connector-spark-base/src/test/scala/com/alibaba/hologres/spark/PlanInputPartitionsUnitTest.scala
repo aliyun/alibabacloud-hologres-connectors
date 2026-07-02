@@ -150,6 +150,7 @@ class PlanInputPartitionsUnitTest extends AnyFunSuite with Matchers {
     val ex = intercept[IllegalArgumentException] {
       PartitionSplitUtils.planInputPartitions(conf, schema)
     }
-    ex.getMessage should include("For range split strategy, read.split.column, read.split.lower_bound and read.split.upper_bound must be provided")
+    ex.getMessage should include("For range split strategy, read.split.column," +
+      " read.split.lower_bound and read.split.upper_bound must be provided")
   }
 }

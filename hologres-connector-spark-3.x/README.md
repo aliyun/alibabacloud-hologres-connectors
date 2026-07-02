@@ -23,7 +23,7 @@ mvn clean install -N
   mvn install package -pl hologres-connector-spark-base -DskipTests -Pscala-2.12 -Pspark-3
   ```
 
-打包结果名称为 hologres-connector-spark-3.x-1.6.2-SNAPSHOT-jar-with-dependencies.jar
+打包结果名称为 hologres-connector-spark-3.x-1.6.2-jar-with-dependencies.jar
 
 #### build jar
 
@@ -41,7 +41,7 @@ mvn clean install -N
 <dependency>
     <groupId>com.alibaba.hologres</groupId>
     <artifactId>hologres-connector-spark-3.x</artifactId>
-    <version>1.6.1</version>
+    <version>1.6.2</version>
     <classifier>jar-with-dependencies</classifier>
 </dependency>
 ```
@@ -62,6 +62,18 @@ mvn clean install -N
 | write.stage.file_size | stage 写入时每个文件的最大字节数 | 67108864（64MB） |
 | write.stage.only_stage | 是否只写入 Stage，不将数据加载到目标表（可用于数据预暂存） | false |
 | write.stage.ttl | Stage 数据的 TTL（秒），仅 `write.stage.only_stage=true` 时生效 | 7200 |
+| write.stage.compression | 是否开启 Arrow LZ4 压缩，减少 Stage 数据传输量（需 holo-client >= 2.7.6） | false |
+
+#### 逻辑分区表写入
+
+支持向 Hologres 逻辑分区表（LOGICAL PARTITION BY LIST）的指定子表写入数据。写入时通过配置目标分区列和分区值，Connector 会自动生成对应的 `PARTITION` 子句。
+
+相关参数：
+
+| 参数 | 说明 | 默认值 |
+| --- | --- | --- |
+| write.target_partition_columns | 目标分区列名，多个列以逗号分隔，列名需用双引号包裹（如 `"ds"` 或 `"ds","kind"`） | 无 |
+| write.target_partition_values | 目标分区值，多列间以逗号分隔，多分区以分号分隔（如 `"20250101"` 或 `"20250101","100";"20250102","200"`） | 无 |
 
 #### 读取分片策略
 

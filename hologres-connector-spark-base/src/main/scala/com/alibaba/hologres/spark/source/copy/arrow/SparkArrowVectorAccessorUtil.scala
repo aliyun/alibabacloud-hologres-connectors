@@ -17,8 +17,8 @@ package com.alibaba.hologres.spark.source.copy.arrow
 
 import com.alibaba.hologres.client.copy.out.arrow.accessor._
 import com.alibaba.hologres.client.model.Column
-import com.alibaba.hologres.org.apache.arrow.vector._
-import com.alibaba.hologres.org.apache.arrow.vector.complex.ListVector
+import org.apache.arrow.vector._
+import org.apache.arrow.vector.complex.ListVector
 
 import java.sql.Types
 

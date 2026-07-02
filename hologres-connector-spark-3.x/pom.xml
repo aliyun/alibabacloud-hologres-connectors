@@ -8,7 +8,7 @@
     <parent>
         <groupId>com.alibaba.hologres</groupId>
         <artifactId>hologres-connector-parent</artifactId>
-        <version>1.6.2-SNAPSHOT</version>
+        <version>${revision}</version>
     </parent>
 
     <artifactId>hologres-connector-spark-3.x</artifactId>
@@ -17,7 +17,7 @@
     <properties>
         <scala.version>2.12.21</scala.version>
         <scala.binary.version>2.12</scala.binary.version>
-        <spark.version>3.3.1</spark.version>
+        <spark.version>3.5.3</spark.version>
         <spark.release.version>3</spark.release.version>
         <scalatest.version>3.2.10</scalatest.version>
     </properties>

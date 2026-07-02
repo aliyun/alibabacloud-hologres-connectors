@@ -74,9 +74,14 @@ class HoloBatchWriter(
       if (hologresConfigs.copyStageOnly) {
         return
       }
-      JDBCUtil.insertFromStages(hologresConfigs, holoSchema, columnNames.toList.asJava,
-        commitStages.toList.asJava, hologresConfigs.holoConfig.getOnConflictAction, is_overwrite)
-      JDBCUtil.dropStages(hologresConfigs, commitStages)
+      try {
+        JDBCUtil.insertFromStages(hologresConfigs, holoSchema, columnNames.toList.asJava,
+          commitStages.toList.asJava, hologresConfigs.holoConfig.getOnConflictAction, is_overwrite,
+          hologresConfigs.writeTargetPartitionColumns,
+          hologresConfigs.writeTargetPartitionValues)
+      } finally {
+        JDBCUtil.dropStages(hologresConfigs, commitStages)
+      }
     } else if (is_overwrite) {
       if (partitionInfo.eq(null)) {
         JDBCUtil.renameTempTableForOverWrite(hologresConfigs)
@@ -88,6 +93,18 @@ class HoloBatchWriter(
 
   override def abort(messages: Array[WriterCommitMessage]): Unit = {
     logger.warn("HoloBatchWriter abort: " + LocalDateTime.now())
+    val stageNames = messages.filter(_ != null).collect {
+      case m: StageWriterCommitMessage => m.stageName
+    }
+    if (stageNames.nonEmpty) {
+      try {
+        logger.info("HoloBatchWriter abort: drop stages " + stageNames.mkString(","))
+        JDBCUtil.dropStages(hologresConfigs, stageNames)
+      } catch {
+        case e: Exception =>
+          logger.warn("Failed to drop stages on batch abort", e)
+      }
+    }
     if (is_overwrite) {
       JDBCUtil.deleteTempTableForOverWrite(hologresConfigs)
     }
@@ -142,7 +159,18 @@ case class HoloWriterFactory(
                              taskId: Long): DataWriter[InternalRow] = {
     hologresConfigs.writeMode match {
       case "stage" =>
-        val stageName: String = holoSchema.getTableName + "_spark_job_" + hologresConfigs.sparkAppId + "_task_" + taskId
+        val timestamp = System.currentTimeMillis()
+        val appId: String = Option(hologresConfigs.sparkAppId).filter(_.nonEmpty).getOrElse("unknown")
+
+        val suffix = s"_spark_job_${appId}_task_${taskId}_${timestamp}"
+        val maxStageNameLen = 127
+        var tableName = holoSchema.getTableName.replaceAll("[^a-zA-Z0-9_-]", "_")
+        if (tableName.length + suffix.length > maxStageNameLen) {
+          val maxTableLen = math.max(1, maxStageNameLen - suffix.length)
+          tableName = tableName.take(maxTableLen)
+        }
+        val stageName: String = (tableName + suffix).replaceAll("[^a-zA-Z0-9_-]", "_")
+        new LoggerWrapper(getClass).info(s"[HoloWriterFactory] createWriter stage mode: sparkAppId=${hologresConfigs.sparkAppId}, stageName=$stageName")
         JDBCUtil.createStage(hologresConfigs, stageName)
         new HoloDataStageWriter(hologresConfigs, sparkSchema, holoSchema, stageName, taskId = taskId.toString)
       case "insert" =>

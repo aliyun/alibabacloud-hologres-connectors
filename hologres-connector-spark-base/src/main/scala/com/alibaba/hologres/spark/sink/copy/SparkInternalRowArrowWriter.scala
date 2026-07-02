@@ -2,7 +2,7 @@ package com.alibaba.hologres.spark.sink.copy
 
 import com.alibaba.hologres.client.copy.in.arrow.{AbstractArrowWriter, ArrowVectorCreatorUtil}
 import com.alibaba.hologres.client.model.TableSchema
-import com.alibaba.hologres.org.apache.arrow.vector.{FieldVector, VectorSchemaRoot}
+import org.apache.arrow.vector.{FieldVector, VectorSchemaRoot}
 import com.alibaba.hologres.spark.sink.FieldWriter
 import org.apache.spark.sql.catalyst.InternalRow
 
@@ -11,7 +11,9 @@ import java.util
 class SparkInternalRowArrowWriter(schema : TableSchema,
                                   columns : java.util.List[String],
                                   batchSize : Int,
-                                  fieldWriters: Array[FieldWriter])  extends AbstractArrowWriter[InternalRow](schema, columns, batchSize) {
+                                  fieldWriters: Array[FieldWriter],
+                                  enableCompression: Boolean = false)
+  extends AbstractArrowWriter[InternalRow](schema, columns, batchSize, enableCompression) {
 
   override def fillVectorSchemaRoot(root: VectorSchemaRoot, rows: util.List[InternalRow]): Unit = {
     if (rows == null || rows.isEmpty) {

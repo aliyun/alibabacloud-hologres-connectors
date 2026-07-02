@@ -68,8 +68,8 @@ class SourceProvider extends DataSourceRegister
   override def supportsExternalMetadata = true
 
   override def createRelation(sqlContext: SQLContext, mode: SaveMode, parameters: Map[String, String], data: DataFrame): BaseRelation = {
-    val hologresConfigs = new HologresConfigs(parameters)
-    RepartitionUtil.v1Write(data, hologresConfigs, saveMode = mode)
+    val hologresConfigs = new HologresConfigs(parameters, sparkAppName, sparkAppId)
+    RepartitionUtil.reShuffleThenWrite(data, hologresConfigs, saveMode = mode)
     new HologresRelation(hologresConfigs, data.schema, mode == SaveMode.Overwrite)(sqlContext.sparkSession)
   }
 }

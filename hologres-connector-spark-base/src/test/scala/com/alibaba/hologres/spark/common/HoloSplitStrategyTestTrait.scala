@@ -49,7 +49,8 @@ trait HoloSplitStrategyTestTrait extends BeforeAndAfterAll {
     // Modify these parameters if don't skip the test.
     testUtil.username = prop.getProperty("USERNAME", System.getenv("HOLO_ACCESS_ID"))
     testUtil.password = prop.getProperty("PASSWORD", System.getenv("HOLO_ACCESS_KEY"))
-    testUtil.jdbcUrl = prop.getProperty("JDBCURL", String.format("jdbc:postgresql://%s/%s", System.getenv("HOLO_ENDPOINT"), System.getenv("HOLO_TEST_DB")))
+    testUtil.jdbcUrl = prop.getProperty("JDBCURL", String.format("jdbc:postgresql://%s/%s", System.getenv("HOLO_ENDPOINT"),
+      System.getenv("HOLO_TEST_DB")))
     testUtil.init()
   }
 

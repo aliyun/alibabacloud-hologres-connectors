@@ -13,9 +13,9 @@ import org.apache.commons.lang3.exception.ExceptionUtils
 
 import java.sql.{Connection, DriverManager, ResultSet, SQLException}
 import java.util.Properties
+import java.util.concurrent.{Executors, TimeUnit}
 import scala.collection.mutable.ArrayBuffer
 import java.util
-import java.util.Properties
 
 /** JDBC utils. */
 object JDBCUtil {
@@ -137,9 +137,11 @@ object JDBCUtil {
       logger.info("execute sql success: " + sql)
     } catch {
       case e: SQLException =>
-        logger.error("execute sql failed: " + sql, e)
         if (!ignoreException) {
+          logger.error("execute sql failed: " + sql, e)
           throw new RuntimeException(e)
+        } else {
+          logger.warn("execute sql failed (ignored): " + sql + " - " + e.getMessage)
         }
     }
   }
@@ -453,19 +455,42 @@ object JDBCUtil {
     logger.setSparkAppId(hologresConfigs.sparkAppId)
     logger.setHoloTableName(hologresConfigs.table)
 
-    var conn: Connection = null
+    if (stages.isEmpty) {
+      return
+    }
+
+    val parallelism = Math.min(stages.length, 5)
+    val executor = Executors.newFixedThreadPool(parallelism)
+
     try {
-      conn = createConnection(hologresConfigs)
-      for (stage <- stages) {
-        JDBCUtil.executeSql(conn,"call hologres.hg_drop_internal_stage('" + stage + "');")
+      // 将 stages 分片，每个线程用一个连接处理自己的分片
+      for (threadIdx <- 0 until parallelism) {
+        val startIdx = threadIdx
+        executor.submit(new Runnable {
+          override def run(): Unit = {
+            var conn: Connection = null
+            try {
+              conn = createConnection(hologresConfigs)
+              var i = startIdx
+              while (i < stages.length) {
+                // ignoreException=true: drop 是幂等操作，stage 不存在时静默跳过
+                JDBCUtil.executeSql(conn, "call hologres.hg_drop_internal_stage('" + stages(i) + "');", ignoreException = true)
+                i += parallelism
+              }
+            } catch {
+              case e: Exception =>
+                logger.warn("Failed to create connection for drop stages", e)
+            } finally {
+              if (conn != null) {
+                try { conn.close() } catch { case _: Exception => }
+              }
+            }
+          }
+        })
       }
-    } catch {
-      case e: SQLException =>
-        throw new RuntimeException(e)
     } finally {
-      if (conn != null) {
-        conn.close()
-      }
+      executor.shutdown()
+      executor.awaitTermination(300, TimeUnit.SECONDS)
     }
   }
 
@@ -474,7 +499,9 @@ object JDBCUtil {
                        columnNames: util.List[String],
                        stages: util.List[String],
                        conflictAction: OnConflictAction,
-                       isOverwrite: Boolean): Unit = {
+                       isOverwrite: Boolean,
+                       partitionColumnNames: Array[String] = Array.empty,
+                       partitionValues: Array[Array[String]] = Array.empty): Unit = {
     logger.setSparkAppName(hologresConfigs.sparkAppName)
     logger.setSparkAppId(hologresConfigs.sparkAppId)
     logger.setHoloTableName(hologresConfigs.table)
@@ -488,11 +515,16 @@ object JDBCUtil {
         JDBCUtil.executeSql(conn, s"set hg_experimental_serverless_tasks_required_cores = ${hologresConfigs.serverlessComputingRequiredCores}")
         JDBCUtil.executeSql(conn, s"SET hg_experimental_serverless_computing_query_priority = ${hologresConfigs.serverlessComputingQueryPriority}")
       }
-      if (!isOverwrite) {
-        JDBCUtil.executeSql(conn, CopyUtil.buildInsertTableSelectFromStageSql(schema, columnNames, stages, conflictAction))
+      // 分区父表 + overwrite 已在 createBatchWriterFactory 阶段被拒绝, 所以这里 hasPartition 与 isOverwrite 不会同时为 true
+      val sql = if (partitionColumnNames.nonEmpty) {
+        CopyUtil.buildInsertTableSelectFromStageSql(schema, columnNames, stages, conflictAction, partitionColumnNames, partitionValues)
+      } else if (!isOverwrite) {
+        CopyUtil.buildInsertTableSelectFromStageSql(schema, columnNames, stages, conflictAction, false)
       } else {
-        JDBCUtil.executeSql(conn, CopyUtil.buildInsertOverwriteTableSelectFromStageSql(schema, columnNames, stages))
+        CopyUtil.buildInsertTableSelectFromStageSql(schema, columnNames, stages, null, true)
       }
+      logger.info(s"Insert from stages sql: $sql")
+      JDBCUtil.executeSql(conn, sql)
     } catch {
       case e: SQLException =>
         throw new RuntimeException(e)

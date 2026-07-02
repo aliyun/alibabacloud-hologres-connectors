@@ -30,19 +30,15 @@ object RepartitionUtil {
 
   private val logger = new LoggerWrapper(getClass)
 
-  def v1Write(inputDf: DataFrame, hologresConfigs: HologresConfigs, saveMode: SaveMode): Unit = {
+  def reShuffleThenWrite(inputDf: DataFrame, hologresConfigs: HologresConfigs, saveMode: SaveMode): Unit = {
     logger.setSparkAppName(hologresConfigs.sparkAppName)
     logger.setSparkAppId(hologresConfigs.sparkAppId)
     logger.setHoloTableName(hologresConfigs.table)
 
-    val dfToWrite = if (hologresConfigs.needReshuffle) {
-      reShuffleByHoloDistributionKey(inputDf,
-        hologresConfigs.username, hologresConfigs.password, hologresConfigs.jdbcUrl, hologresConfigs.table)
-    } else {
-      inputDf
-    }
-
-    val writer = dfToWrite.write
+    val reShuffledDf = reShuffleByHoloDistributionKey(inputDf,
+      hologresConfigs.username, hologresConfigs.password, hologresConfigs.jdbcUrl, hologresConfigs.table)
+    // 将shuffle之后的DataFrame写入到Hologres中, 原样传入所有写入和通用参数
+    reShuffledDf.write
       .format("hologres")
       .option("username", hologresConfigs.username)
       .option("password", hologresConfigs.password)
@@ -72,12 +68,9 @@ object RepartitionUtil {
       .option("write.insert.thread_size", hologresConfigs.holoConfig.getWriteThreadSize)
       .option("write.insert.use_legacy_put_handler", hologresConfigs.holoConfig.isUseLegacyPutHandler)
       .option("write.overwrite_drop_force", hologresConfigs.overWriteDropForce)
-
-    if (hologresConfigs.needReshuffle) {
-      writer.option("write.reshuffle_by_holo_distribution_key", "true")
-    }
-
-    writer.mode(saveMode).save()
+      .option("write.reshuffle_by_holo_distribution_key", "true")
+      .mode(saveMode)
+      .save()
   }
 
   @deprecated()
@@ -100,7 +93,7 @@ object RepartitionUtil {
     logger.setSparkAppId(hologresConfigs.sparkAppId)
     logger.setHoloTableName(hologresConfigs.table)
 
-    v1Write(inputDf, hologresConfigs, saveMode)
+    reShuffleThenWrite(inputDf, hologresConfigs, saveMode)
   }
 
   /**

@@ -23,36 +23,48 @@ class HoloTable(
   logger.setSparkAppId(hologresConfigs.sparkAppId)
   logger.setHoloTableName(hologresConfigs.table)
   private var optimizeConfigs: HologresConfigs = hologresConfigs
-
-  logger.info(s"Initial ${name()}")
-
-  override def name(): String = {
-    if (tableType() == HoloTableType.QUERY) {
-      "HoloTableQuery(" + optimizeConfigs.jdbcUrl + ", " + optimizeConfigs.query + ")"
-    } else if (tableType() == HoloTableType.TABLE_V1) {
-      "HoloTableV1(" + optimizeConfigs.jdbcUrl + ", " + optimizeConfigs.table + ")"
-    } else {
-      "HoloTableV2(" + optimizeConfigs.jdbcUrl + ", " + optimizeConfigs.table + ")"
-    }
-  }
-
+  private var cachedTableType: Option[HoloTableType.Value] = None
 
   object HoloTableType extends Enumeration {
     val TABLE_V1, TABLE_V2, QUERY, VIEW = Value
   }
 
-  def tableType(): HoloTableType.Value = {
-    optimizeConfigs = SparkHoloUtil.chooseBestMode(sparkSchema, holoSchema, hologresConfigs)
+  optimizeConfigs = SparkHoloUtil.chooseBestMode(sparkSchema, holoSchema, hologresConfigs)
+  cachedTableType = Some(computeTableType())
+
+  logger.info(s"Initial ${name()}")
+
+  override def name(): String = {
+    tableType() match {
+      case HoloTableType.QUERY =>
+        "HoloTableQuery(" + optimizeConfigs.jdbcUrl + ", " + optimizeConfigs.query + ")"
+      case HoloTableType.TABLE_V1 =>
+        "HoloTableV1(" + optimizeConfigs.jdbcUrl + ", " + optimizeConfigs.table + ")"
+      case _ =>
+        "HoloTableV2(" + optimizeConfigs.jdbcUrl + ", " + optimizeConfigs.table + ")"
+    }
+  }
+
+  private def computeTableType(): HoloTableType.Value = {
     if (hologresConfigs.sourceType.equals("QUERY")) {
       HoloTableType.QUERY
     } else if (hologresConfigs.sourceType.equals("VIEW")) {
       HoloTableType.VIEW
     } else {
-      if (optimizeConfigs.needReshuffle || optimizeConfigs.useV1Write) {
+      if (optimizeConfigs.needReshuffle) {
         HoloTableType.TABLE_V1
       } else {
         HoloTableType.TABLE_V2
       }
+    }
+  }
+
+  def tableType(): HoloTableType.Value = {
+    cachedTableType.getOrElse {
+      optimizeConfigs = SparkHoloUtil.chooseBestMode(sparkSchema, holoSchema, hologresConfigs)
+      val t = computeTableType()
+      cachedTableType = Some(t)
+      t
     }
   }
 
@@ -67,12 +79,17 @@ class HoloTable(
   ).asJava
 
   override def newWriteBuilder(info: LogicalWriteInfo): WriteBuilder = {
+    // 写入时过滤掉生成列，生成列由Hologres自动计算，不需要也不能由用户写入
+    val writeSparkSchema = StructType(sparkSchema.fields.filter { field =>
+      val colIndex = holoSchema.getColumnIndex(field.name)
+      colIndex == null || !java.lang.Boolean.TRUE.equals(holoSchema.getColumn(colIndex).isGeneratedColumn)
+    })
+    // 检查plan中的schema是否与writeSparkSchema一致, plan中的schema只需要检查字段数量和类型
+    SparkHoloUtil.checkSparkTableSchema(optimizeConfigs, writeSparkSchema, info.schema())
     if (tableType() == HoloTableType.TABLE_V1) {
-      new HoloWriterBuilderV1(optimizeConfigs, sparkSchema)
+      new HoloWriterBuilderV1(optimizeConfigs, writeSparkSchema)
     } else {
-      // 对于Table V2检查plan中的schema是否与sparkSchema一致, plan中的schema只需要检查字段数量和类型
-      SparkHoloUtil.checkSparkTableSchema(optimizeConfigs, sparkSchema, info.schema())
-      new HoloWriterBuilder(optimizeConfigs, sparkSchema)
+      new HoloWriterBuilder(optimizeConfigs, writeSparkSchema)
     }
   }
 

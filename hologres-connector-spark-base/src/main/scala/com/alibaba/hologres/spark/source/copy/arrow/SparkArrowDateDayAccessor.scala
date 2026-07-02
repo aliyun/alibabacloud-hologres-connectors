@@ -16,7 +16,7 @@
 package com.alibaba.hologres.spark.source.copy.arrow
 
 import com.alibaba.hologres.client.copy.out.arrow.accessor.BaseArrowDateDayAccessor
-import com.alibaba.hologres.org.apache.arrow.vector.DateDayVector
+import org.apache.arrow.vector.DateDayVector
 
 class SparkArrowDateDayAccessor(dateVector: DateDayVector) extends BaseArrowDateDayAccessor(dateVector) {
 

@@ -109,48 +109,43 @@ class SparkHoloTableCatalogSuite extends SparkHoloSuiteBase {
     testUtils.dropTable(table)
   }
 
+  test("Holo Table Catalog write table with generated column") {
+    spark.conf.set("spark.sql.catalog.hologres_external", "com.alibaba.hologres.spark3.HoloTableCatalog")
+    spark.conf.set("spark.sql.catalog.hologres_external.username", testUtils.username)
+    spark.conf.set("spark.sql.catalog.hologres_external.password", testUtils.password)
+    spark.conf.set("spark.sql.catalog.hologres_external.jdbcurl", testUtils.jdbcUrl)
+    spark.conf.set("spark.sql.catalog.hologres_external.read.max_task_count", 20)
+    spark.conf.set("spark.sql.catalog.hologres_external.write.mode", "stage")
 
-  test("Holo Table Catalog partial columns write with v1 and v2 Test") {
-    val ddl = "create table TABLE_NAME (pk int primary key, c1 int, c2 int);"
     val table = "table_for_holo_test_" + randomSuffix
     testUtils.dropTable(table)
-    testUtils.createTable(ddl, table, hasPk = true)
+    // 建表包含生成列 v_time_bucket
+    val ddl = "create table TABLE_NAME (" +
+      "    pk bigint primary key," +
+      "    v_time bigint not null," +
+      "    name text," +
+      "    v_time_bucket bigint GENERATED ALWAYS AS (v_time / 600000) STORED NOT NULL);"
+    testUtils.createTable(ddl, table)
 
-    // 1. 全列写入
-    spark.conf.set("spark.sql.catalog.hologres_full", "com.alibaba.hologres.spark3.HoloTableCatalog")
-    spark.conf.set("spark.sql.catalog.hologres_full.username", testUtils.username)
-    spark.conf.set("spark.sql.catalog.hologres_full.password", testUtils.password)
-    spark.conf.set("spark.sql.catalog.hologres_full.jdbcurl", testUtils.jdbcUrl)
-    spark.sql(s"insert into hologres_full.public.$table select 1 as pk, 1 as c1, 1 as c2")
-    checkAnswer(spark.sql(s"select * from hologres_full.public.$table"), Seq(Row(1, 1, 1)))
+    spark.sql("use hologres_external")
 
-    // 2. V2 部分列写入 -> 报错
-    spark.conf.set("spark.sql.catalog.hologres_v2", "com.alibaba.hologres.spark3.HoloTableCatalog")
-    spark.conf.set("spark.sql.catalog.hologres_v2.username", testUtils.username)
-    spark.conf.set("spark.sql.catalog.hologres_v2.password", testUtils.password)
-    spark.conf.set("spark.sql.catalog.hologres_v2.jdbcurl", testUtils.jdbcUrl)
-    spark.conf.set("spark.sql.catalog.hologres_v2.write.mode", "insert")
-    spark.conf.set("spark.sql.catalog.hologres_v2.write.on_conflict_action", "INSERT_OR_UPDATE")
-    spark.conf.set("spark.sql.catalog.hologres_v2.write.use_v1_write", "false")
-    val ex = intercept[Exception] {
-      spark.sql(s"insert into hologres_v2.public.$table select 1 as pk, 10 as c1")
-    }
-    assert(ex.getMessage.contains("schema length not match"))
+    // 通过catalog写入，源数据不包含生成列（模拟用户从源表SELECT写入目标表的场景）
+    spark.sql("CREATE OR REPLACE TEMP VIEW gen_col_source AS " +
+      "SELECT cast(1 as bigint) as pk, cast(1200000 as bigint) as v_time, 'aaa' as name " +
+      "UNION ALL SELECT cast(2 as bigint), cast(1800000 as bigint), 'bbb' " +
+      "UNION ALL SELECT cast(3 as bigint), cast(600000 as bigint), 'ccc'")
+    spark.sql(s"insert into $table select * from gen_col_source;")
 
-    // 2. V1 部分列写入 -> 成功，部分列更新 pk=1 的 c1
-    spark.conf.set("spark.sql.catalog.hologres_v1", "com.alibaba.hologres.spark3.HoloTableCatalog")
-    spark.conf.set("spark.sql.catalog.hologres_v1.username", testUtils.username)
-    spark.conf.set("spark.sql.catalog.hologres_v1.password", testUtils.password)
-    spark.conf.set("spark.sql.catalog.hologres_v1.jdbcurl", testUtils.jdbcUrl)
-    spark.conf.set("spark.sql.catalog.hologres_v1.write.mode", "insert")
-    spark.conf.set("spark.sql.catalog.hologres_v1.write.on_conflict_action", "INSERT_OR_UPDATE")
-    spark.conf.set("spark.sql.catalog.hologres_v1.write.use_v1_write", "true")
-    spark.sql(s"insert into hologres_v1.public.$table select 1 as pk, 10 as c1")
-    checkAnswer(
-      spark.sql(s"select * from hologres_v1.public.$table"),
-      Seq(Row(1, 10, 1))
-    )
+    // 读取验证生成列计算正确
+    val df = spark.sql(s"select * from $table order by pk;").cache()
+    val result = df.collect()
+    assert(result.length == 3)
+    // v_time_bucket = v_time / 600000
+    assert(result(0).getAs[Long]("v_time_bucket") == 2L) // 1200000 / 600000 = 2
+    assert(result(1).getAs[Long]("v_time_bucket") == 3L) // 1800000 / 600000 = 3
+    assert(result(2).getAs[Long]("v_time_bucket") == 1L) // 600000 / 600000 = 1
 
     testUtils.dropTable(table)
   }
+
 }

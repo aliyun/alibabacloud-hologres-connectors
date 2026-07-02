@@ -18,7 +18,7 @@ package com.alibaba.hologres.spark.source.copy
 import com.alibaba.hologres.client.copy.CopyFormat
 import com.alibaba.hologres.client.copy.out.CopyOutWrapper
 import com.alibaba.hologres.client.model.TableSchema
-import com.alibaba.hologres.org.apache.arrow.vector.VectorSchemaRoot
+import org.apache.arrow.vector.VectorSchemaRoot
 import com.alibaba.hologres.spark.config.HologresConfigs
 import com.alibaba.hologres.spark.exception.SparkHoloException
 import com.alibaba.hologres.spark.source.copy.arrow.SparkArrowVectorAccessorUtil

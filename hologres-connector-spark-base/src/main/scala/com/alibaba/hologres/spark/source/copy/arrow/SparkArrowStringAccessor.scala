@@ -16,7 +16,7 @@
 package com.alibaba.hologres.spark.source.copy.arrow
 
 import com.alibaba.hologres.client.copy.out.arrow.accessor.BaseArrowVarCharAccessor
-import com.alibaba.hologres.org.apache.arrow.vector.VarCharVector
+import org.apache.arrow.vector.VarCharVector
 import org.apache.spark.unsafe.types.UTF8String
 
 class SparkArrowStringAccessor(varCharVector: VarCharVector, precision: Int = -1) extends BaseArrowVarCharAccessor(varCharVector, precision) {

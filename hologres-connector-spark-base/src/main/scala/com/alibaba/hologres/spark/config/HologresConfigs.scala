@@ -3,6 +3,7 @@ package com.alibaba.hologres.spark.config
 import com.alibaba.hologres.client.HoloConfig
 import com.alibaba.hologres.client.copy.CopyMode
 import com.alibaba.hologres.client.model.OnConflictAction
+import com.alibaba.hologres.client.utils.CommonUtil
 import com.alibaba.hologres.spark.ConfigUtils
 import com.alibaba.hologres.spark.utils.JDBCUtil
 import com.alibaba.hologres.spark.utils.JDBCUtil._
@@ -110,8 +111,37 @@ class HologresConfigs(sourceOptions: Map[String, String], val sparkAppName: Stri
   val copyStageOnly: Boolean = sourceOptions.getOrElse("write.stage.only_stage", "false").toBoolean
   // 仅only_stage时才可以设置ttl
   val copyStageTtl: Int = sourceOptions.getOrElse("write.stage.ttl", "7200").toInt
+  // stage模式写入时是否启用Arrow LZ4压缩（依赖holo-client >= 2.7.6）
+  val copyStageCompression: Boolean = sourceOptions.getOrElse("write.stage.compression", "false").toBoolean
+  // 逻辑分区表写入时指定目标分区
+  // write.target_partition_columns: 形如 "ds" 或 "ds", "kind"
+  // write.target_partition_values: 列间逗号分隔, 多分区分号分隔, 形如 "20250101" 或 "20250101", "100"; "20250102", "200"
+  // 字段必须用双引号包裹, 字段内的双引号用两个双引号转义. 详见 CommonUtil.parseLogicalPartitionColumn*
+  val (writeTargetPartitionColumns: Array[String],
+       writeTargetPartitionValues: Array[Array[String]]) = {
+    val rawCols = sourceOptions.get("write.target_partition_columns").map(_.trim).filter(_.nonEmpty)
+    val rawVals = sourceOptions.get("write.target_partition_values").map(_.trim).filter(_.nonEmpty)
+    (rawCols, rawVals) match {
+      case (None, None) =>
+        (Array.empty[String], Array.empty[Array[String]])
+      case (Some(_), None) | (None, Some(_)) =>
+        throw new IllegalArgumentException(
+          "write.target_partition_columns and write.target_partition_values must be set together")
+      case (Some(cn), Some(vs)) =>
+        val parsedCols = CommonUtil.parseLogicalPartitionColumnNames(cn)
+        val parsedVals = CommonUtil.parseLogicalPartitionColumnValues(vs)
+        parsedVals.zipWithIndex.foreach { case (row, idx) =>
+          if (row.length != parsedCols.length) {
+            throw new IllegalArgumentException(
+              s"write.target_partition_values row #$idx has ${row.length} fields, " +
+                s"but write.target_partition_columns has ${parsedCols.length} columns. " +
+                s"target_partition_columns='$cn', target_partition_values='$vs'")
+          }
+        }
+        (parsedCols, parsedVals)
+    }
+  }
   sourceOptions.get("write.rps_limit").map(v => holoConfig.setWriteRps(v.toInt))
-  val useV1Write: Boolean = sourceOptions.getOrElse("write.use_v1_write", "false").toBoolean
 
   // -------------------------------------read----------------------------------------
   private val readModeStr: String = sourceOptions.getOrElse("read.mode", "auto").toLowerCase

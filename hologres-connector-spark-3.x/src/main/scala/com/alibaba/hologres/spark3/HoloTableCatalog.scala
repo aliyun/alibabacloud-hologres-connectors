@@ -3,6 +3,7 @@ package com.alibaba.hologres.spark3
 import com.alibaba.hologres.client.model.TableName
 import com.alibaba.hologres.spark.config.HologresConfigs
 import com.alibaba.hologres.spark.utils.{JDBCUtil, LoggerWrapper, SparkHoloUtil}
+import org.apache.spark.SparkContext
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.connector.catalog._
 import org.apache.spark.sql.connector.expressions.Transform
@@ -30,7 +31,16 @@ class HoloTableCatalog extends TableCatalog with SupportsNamespaces with Logging
     assert(catalogName == null, "The Holo table catalog is already initialed")
     catalogName = name
     currentHoloSchema = options.getOrDefault(SourceProvider.DEFAULT_DATABASE, currentHoloSchema)
-    hologresConfigs = new HologresConfigs(options.asScala.toMap)
+    var sparkAppName: String = SparkContext.getOrCreate().appName
+    if (sparkAppName == null || sparkAppName.isEmpty) {
+      sparkAppName = "default"
+    }
+    var sparkAppId: String = SparkContext.getOrCreate().applicationId
+    if (sparkAppId == null) {
+      sparkAppId = ""
+    }
+    hologresConfigs = new HologresConfigs(options.asScala.toMap, sparkAppName, sparkAppId)
+    logger.info(s"HoloTableCatalog initialized with sparkAppName=$sparkAppName, sparkAppId=$sparkAppId")
   }
 
   override def name(): String = {
