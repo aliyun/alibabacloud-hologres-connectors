@@ -7,7 +7,7 @@
 
     <groupId>com.alibaba.hologres</groupId>
     <artifactId>hologres-connector-flink-examples</artifactId>
-    <version>1.6.2-SNAPSHOT</version>
+    <version>1.6.3-SNAPSHOT</version>
 
     <properties>
         <java.version>11</java.version>
@@ -23,7 +23,7 @@
         <dependency>
             <groupId>com.alibaba.hologres</groupId>
             <artifactId>hologres-connector-flink-1.19</artifactId>
-            <version>1.6.2-SNAPSHOT</version>
+            <version>1.6.3-SNAPSHOT</version>
             <classifier>jar-with-dependencies</classifier>
         </dependency>
         <dependency>
@@ -103,7 +103,7 @@
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
-            <version>1.7.25</version>
+            <version>1.7.36</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
