@@ -15,6 +15,8 @@ import java.io.PipedOutputStream;
 import java.util.*;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class HoloDBShipper {
     public static final Logger LOGGER = LoggerFactory.getLogger(HoloDBShipper.class);
@@ -230,6 +232,15 @@ public class HoloDBShipper {
             String sinkParentName = HoloUtils.getTableNameWithQuotes(getSinkTableName(parentName));
             tableDDL = tableDDL.replace(quotedParentName, sinkParentName);
         }
+        String regex = "(?i)from\\s+((\\w+)\\.(\\w+))";
+        Pattern pattern = Pattern.compile(regex);
+        Matcher matcher = pattern.matcher(tableDDL);
+        if (matcher.find()) {
+            String tableWithSchema = matcher.group(1);
+            String innerSinkTableName = HoloUtils.getTableNameWithQuotes(getSinkTableName(tableWithSchema));
+            tableDDL = tableDDL.replace(tableWithSchema, innerSinkTableName);
+        }
+
         String rectifiedDDL = "";
         for(String line: tableDDL.split("\n")) {
             if(line.contains("OWNER TO")) {
