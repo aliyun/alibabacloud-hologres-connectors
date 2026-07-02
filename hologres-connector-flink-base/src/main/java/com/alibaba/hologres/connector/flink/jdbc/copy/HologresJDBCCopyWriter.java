@@ -90,7 +90,7 @@ public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
                         fieldNames,
                         fieldTypes,
                         param,
-                        new HologresJDBCRecordWriter(param),
+                        new HologresJDBCRecordWriter(param, hologresTableSchema),
                         new HologresJDBCRecordReader(fieldNames, hologresTableSchema),
                         hologresTableSchema),
                 hologresTableSchema.getShardCount());

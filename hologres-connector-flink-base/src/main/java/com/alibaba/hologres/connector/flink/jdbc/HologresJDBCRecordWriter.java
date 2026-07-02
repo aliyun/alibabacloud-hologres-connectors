@@ -21,15 +21,17 @@ import java.util.Objects;
 
 /** Transform RowData to Record. */
 public class HologresJDBCRecordWriter implements RowDataWriter<Record> {
-    private transient HologresTableSchema tableSchema;
+    private final HologresTableSchema tableSchema;
     private final HologresConnectionParam param;
     private transient Record record;
     private final boolean isCheckAndPutRecord;
     private transient CheckAndPutCondition checkAndPutCondition;
 
-    public HologresJDBCRecordWriter(HologresConnectionParam param) {
+    public HologresJDBCRecordWriter(
+            HologresConnectionParam param, HologresTableSchema tableSchema) {
         this.param = param;
         this.isCheckAndPutRecord = Objects.nonNull(param.getCheckColumn());
+        this.tableSchema = tableSchema;
     }
 
     @Override
@@ -37,9 +39,6 @@ public class HologresJDBCRecordWriter implements RowDataWriter<Record> {
 
     @Override
     public void newRecord() {
-        if (tableSchema == null) {
-            tableSchema = HologresTableSchema.get(param.getJdbcOptions());
-        }
         if (isCheckAndPutRecord) {
             if (checkAndPutCondition == null) {
                 checkAndPutCondition =
@@ -197,6 +196,6 @@ public class HologresJDBCRecordWriter implements RowDataWriter<Record> {
 
     @Override
     public RowDataWriter<Record> copy() {
-        return new HologresJDBCRecordWriter(param);
+        return new HologresJDBCRecordWriter(param, tableSchema);
     }
 }

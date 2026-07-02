@@ -60,7 +60,7 @@ public class HologresJDBCReader<T> extends HologresReader<T> {
                         fieldNames,
                         fieldTypes,
                         param,
-                        new HologresJDBCRecordWriter(param),
+                        new HologresJDBCRecordWriter(param, hologresTableSchema),
                         new HologresJDBCRecordReader(fieldNames, hologresTableSchema),
                         hologresTableSchema));
     }
