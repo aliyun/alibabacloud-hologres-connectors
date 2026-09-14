@@ -2,6 +2,7 @@
 
 hologres-connectors 各版本的功能更新与缺陷修复记录。
 
+- [1.6.3](#163)
 - [1.6.2](#162)
 - [1.6.1](#161)
 - [1.6.0](#160)
@@ -16,10 +17,17 @@ hologres-connectors 各版本的功能更新与缺陷修复记录。
 
 ---
 
+## 1.6.3
+
+| 模块 | 新功能 | 缺陷修复 |
+| --- | --- | --- |
+| Spark connector | • 逻辑分区表写入增强：stage 模式支持分区级 INSERT OVERWRITE；不配置分区参数时自动从表元数据解析分区列、从数据采集分区值<br>• 支持 Spark SQL 的 `INSERT [OVERWRITE] ... PARTITION` 语法指定目标分区（需使用 Hologres Catalog）<br>• 支持动态分区覆盖（`partitionOverwriteMode=dynamic`、`writeTo().overwritePartitions()`），仅 stage 模式<br>• COPY 类模式（stream/bulk_load/bulk_load_on_conflict）支持写入指定分区（需 Hologres >= 5.0），bulk_load 可将表锁降为分区锁<br>• 分区参数增加能力校验：COPY 类模式下实例版本 < 5.0，或 insert 模式下配置分区参数会直接报错，而非静默忽略<br>• write.mode=auto 时 Hologres 实例版本大于等于4.2.16（或4.1分支大于等于4.1.35）默认选择 stage 模式 | |
+
 ## 1.6.2
 
 | 模块 | 新功能 | 缺陷修复 |
 | --- | --- | --- |
+| Flink connector | • 支持通过 internal stage 进行批量和流式写入 | |
 | Spark connector | • Stage 写入稳定性与性能优化：分离 abort/close、并发 drop stage、stageName 唯一化<br>• 升级 Spark 3.5.3 与 SLF4J 2.0.9<br>• Arrow 方式读取支持 LZ4 压缩<br>• Catalog 写入支持 Hologres 生成列<br>• 支持通过 defaultdatabase 指定 Catalog 默认数据库<br>• Spark connector 支持指定逻辑分区表分区<br>• 增加 Spark stage abort 清理逻辑 | • 修复 v1Write 路径丢失 write.insert.* 配置导致分区表写入失败的问题 |
 | holo-client | • holo-client 不再 shaded Arrow | • 修复 HoloTable.name() 在 logging appender 上下文中的死锁<br>• 修复 read null 字符串报错 |
 | holo-client-py | • 新增 holo-client-py Python 客户端 | |

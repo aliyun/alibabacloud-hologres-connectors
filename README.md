@@ -23,6 +23,9 @@ Connectors for Hologres
 * [holo-client](./holo-client)
 
     holo-client源码以及使用holo-client读写Hologres的文档
+* [holo-dataframe-py](./holo-dataframe-py/)
+
+    面向Hologres的Python DataFrame API，可通过`pip install hologres-dataframe`安装。支持使用DataFrame链式接口进行过滤、聚合、Join等查询和OLAP分析，并将计算编译为SQL下推到Hologres执行；同时支持Hologres表、pandas、本地文件及OSS文件读取，数据写入，以及Dynamic Table、Serverless Computing、AI Function和Function Compute UDF/UDTF等能力。
 * [holo-client-c](./holo-client-c)
     
     介绍如何通过holo-client-c读写Hologres
@@ -84,9 +87,11 @@ Connectors for Hologres
 * [hologres-connector-spark-2.x](./hologres-connector-spark-2.x)
 
     依赖hologres-connector-spark-base，实现了Spark2.x版本的Connector
-* [hologres-connector-spark-3.x](./hologres-connector-spark-3.x)
+* [hologres-connector-spark](./hologres-connector-spark)
 
-    依赖hologres-connector-spark-base，实现了Spark3.x版本的Connector<br/><br/>
+    统一的 Spark Connector 模块，通过 Maven profile 切换 Spark 3.x / 4.x 编译。
+    默认 profile (spark-3): Scala 2.12 + Spark 3.5.3
+    `-Pscala-2.13,spark-4`: Scala 2.13 + Spark 4.1.3（需要 JDK 17+）<br/><br/>
 
 
 * [hologres-connector-kafka](./hologres-connector-kafka)
@@ -97,6 +102,9 @@ Connectors for Hologres
 * [hologres-connector-datax-writer](./hologres-connector-datax-writer)
 
     依赖[DataX框架](https://github.com/alibaba/DataX)，实现了写hologres插件<br/><br/>
+
+# Release Note
+详见 [RELEASE_NOTE.md](./RELEASE_NOTE.md)
 
 # 使用
 目前connector的Release版本已经发布到maven中央仓库，详见[hologres-connectors](https://search.maven.org/search?q=com.alibaba.hologres)
