@@ -199,14 +199,37 @@ class ArrowBatchWriter:
         if len(self._batch) >= self._max_batch_size:
             self._write_batch()
 
+    def put_table(self, table: "pa.Table") -> None:
+        """Add a whole Arrow table to the stream, bypassing per-row conversion.
+
+        The table is projected onto the writer's column list and cast to the
+        target schema, so callers may pass extra columns or a different column
+        order.  Any records buffered by put() are written first to preserve
+        ordering.
+        """
+        # Records already buffered by put() must land before this table.
+        self._write_batch()
+
+        table = table.select(self._column_names).cast(self._arrow_schema)
+        if table.num_rows == 0:
+            return
+
+        self._ensure_writer()
+        self._writer.write_table(table)
+        self._data_size = self._buffer.tell()
+
+    def _ensure_writer(self) -> None:
+        """Open the IPC stream on first use."""
+        if self._buffer is None:
+            self._buffer = io.BytesIO()
+            self._writer = self._pa.ipc.new_stream(self._buffer, self._arrow_schema)
+
     def _write_batch(self) -> None:
         """Convert the current batch to an Arrow RecordBatch and write it."""
         if not self._batch:
             return
 
-        if self._buffer is None:
-            self._buffer = io.BytesIO()
-            self._writer = self._pa.ipc.new_stream(self._buffer, self._arrow_schema)
+        self._ensure_writer()
 
         # Build column arrays
         arrays = []

@@ -1865,8 +1865,10 @@ class TestShardUtil:
         return client.sql(query)
 
     def _run_shard_test(self, client, table_name, col_type, values, dk_cols="id,col1"):
-        """Create table with distribution key, insert values, verify hg_shard_id matches."""
-        from hologres._shard import compute_shard
+        """Create table with distribution key, insert values, and verify Holo's
+        hg_shard_id matches BOTH client implementations: the Record-based
+        compute_shard and the value-based compute_shard_for_values."""
+        from hologres._shard import compute_shard, compute_shard_for_values
 
         def setup(conn):
             with conn.cursor() as cur:
@@ -1880,17 +1882,27 @@ class TestShardUtil:
 
         schema = client.get_table_schema(table_name, no_cache=True)
         shard_count = self._get_shard_count(client, schema)
+        # shard_count loaded into the schema (via _SHARD_COUNT_SQL) must agree
+        # with the value queried independently.
+        assert schema.shard_count == shard_count
 
-        # Insert records and compute expected shards
+        dk_indices = schema.distribution_key_index or schema.pk_index
+        dk_columns = [schema.get_column(i) for i in dk_indices]
+
+        # Insert records and compute expected shards two ways.
         expected = {}
+        expected_fv = {}
         for i, val in enumerate(values):
             record_id = f"row_{i}"
             put = Put(schema)
             put.set_object("id", record_id)
             put.set_object("col1", val)
             client.put(put)
-            # Compute expected shard using our Python implementation
             expected[record_id] = compute_shard(put.record, shard_count)
+            dk_values = [put.record.values[idx] for idx in dk_indices]
+            expected_fv[record_id] = compute_shard_for_values(
+                dk_values, dk_columns, shard_count
+            )
         client.flush()
 
         # Query actual hg_shard_id from database
@@ -1909,7 +1921,12 @@ class TestShardUtil:
         )
         for record_id, expected_shard in expected.items():
             assert actual[record_id] == expected_shard, (
-                f"{record_id}: expected shard {expected_shard}, got {actual[record_id]}"
+                f"{record_id}: compute_shard expected {expected_shard}, "
+                f"got {actual[record_id]}"
+            )
+            assert actual[record_id] == expected_fv[record_id], (
+                f"{record_id}: compute_shard_for_values expected "
+                f"{expected_fv[record_id]}, got {actual[record_id]}"
             )
 
     def test_shard_int_dk(self, client):
@@ -1968,12 +1985,17 @@ class TestShardUtil:
 
         client.sql(setup)
 
-        from hologres._shard import compute_shard
+        from hologres._shard import compute_shard, compute_shard_for_values
 
         schema = client.get_table_schema("test_shard_decimal", no_cache=True)
         shard_count = self._get_shard_count(client, schema)
+        assert schema.shard_count == shard_count
+
+        dk_indices = schema.distribution_key_index or schema.pk_index
+        dk_columns = [schema.get_column(i) for i in dk_indices]
 
         expected = {}
+        expected_fv = {}
         total = 10
         for i in range(total):
             record_id = f"dec_{i}"
@@ -2005,6 +2027,10 @@ class TestShardUtil:
                 put.set_object("col4", Decimal("0.123456789"))
             client.put(put)
             expected[record_id] = compute_shard(put.record, shard_count)
+            dk_values = [put.record.values[idx] for idx in dk_indices]
+            expected_fv[record_id] = compute_shard_for_values(
+                dk_values, dk_columns, shard_count
+            )
         client.flush()
 
         actual = {}
@@ -2020,7 +2046,12 @@ class TestShardUtil:
         assert len(actual) == total
         for record_id, expected_shard in expected.items():
             assert actual[record_id] == expected_shard, (
-                f"{record_id}: expected shard {expected_shard}, got {actual[record_id]}"
+                f"{record_id}: compute_shard expected {expected_shard}, "
+                f"got {actual[record_id]}"
+            )
+            assert actual[record_id] == expected_fv[record_id], (
+                f"{record_id}: compute_shard_for_values expected "
+                f"{expected_fv[record_id]}, got {actual[record_id]}"
             )
 
     def test_shard_uuid_dk(self, client):

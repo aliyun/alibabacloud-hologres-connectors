@@ -18,6 +18,7 @@ class TableSchema:
         distribution_keys: Optional[List[str]] = None,
         partition_column: Optional[str] = None,
         clustering_keys: Optional[List[str]] = None,
+        shard_count: int = 0,
     ):
         self.table_name_obj = table_name
         self.columns = columns
@@ -26,6 +27,7 @@ class TableSchema:
         self.distribution_keys = distribution_keys or []
         self.partition_column = partition_column
         self.clustering_keys = clustering_keys or []
+        self.shard_count = shard_count
 
         # Derived properties (computed once)
         self._column_name_to_index: Dict[str, int] = {}

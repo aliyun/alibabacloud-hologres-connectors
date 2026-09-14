@@ -60,6 +60,16 @@ WHERE table_namespace = {} AND table_name = {}
   AND property_key IN ('distribution_key', 'table_id', 'schema_version')
 """)
 
+_SHARD_COUNT_SQL = sql.SQL("""\
+SELECT g.property_value
+FROM hologres.hg_table_properties t
+JOIN hologres.hg_table_group_properties g
+  ON t.property_value = g.tablegroup_name
+WHERE t.property_key = 'table_group'
+  AND g.property_key = 'shard_count'
+  AND t.table_namespace = {} AND t.table_name = {}
+""")
+
 _PARTITION_SQL = sql.SQL("""\
 SELECT a.attname
 FROM pg_catalog.pg_class c
@@ -176,6 +186,17 @@ def load_table_schema_sync(
         if row:
             partition_column = row[0]
 
+    # Load shard count
+    shard_count = 0
+    with conn.cursor() as cur:
+        cur.execute(_SHARD_COUNT_SQL.format(schema_id, table_id_lit))
+        row = cur.fetchone()
+        if row and row[0]:
+            try:
+                shard_count = int(row[0])
+            except (ValueError, TypeError):
+                pass
+
     return TableSchema(
         table_name=table_name,
         columns=columns,
@@ -183,6 +204,7 @@ def load_table_schema_sync(
         schema_version=schema_version,
         distribution_keys=dist_keys,
         partition_column=partition_column,
+        shard_count=shard_count,
     )
 
 
@@ -246,6 +268,17 @@ async def load_table_schema_async(
         if row:
             partition_column = row[0]
 
+    # Load shard count
+    shard_count = 0
+    async with conn.cursor() as cur:
+        await cur.execute(_SHARD_COUNT_SQL.format(schema_id, table_id_lit))
+        row = await cur.fetchone()
+        if row and row[0]:
+            try:
+                shard_count = int(row[0])
+            except (ValueError, TypeError):
+                pass
+
     return TableSchema(
         table_name=table_name,
         columns=columns,
@@ -253,4 +286,5 @@ async def load_table_schema_async(
         schema_version=schema_version,
         distribution_keys=dist_keys,
         partition_column=partition_column,
+        shard_count=shard_count,
     )

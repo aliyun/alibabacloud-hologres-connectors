@@ -43,6 +43,11 @@ Basic usage (async)::
         await client.flush()
 """
 
+# Allow sibling distributions (e.g. hologres-dataframe) to install subpackages
+# such as hologres.dataframe into this namespace. A regular package's __path__
+# is not extended across sys.path entries without this.
+__path__ = __import__("pkgutil").extend_path(__path__, __name__)
+
 from .async_client import AsyncHoloClient
 from .client import HoloClient
 from .column import Column

@@ -192,6 +192,48 @@ class AsyncHoloClient:
             self._bg_exception = None
             raise exc
 
+    # ── Table Existence ─────────────────────────────────────────────────
+
+    async def table_exists(self, table_name: str, schema_name: str = "public") -> bool:
+        """Check if a table exists in the database."""
+        self._check_state()
+        try:
+            conn = await self._ensure_meta_conn()
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT 1 FROM information_schema.tables "
+                    "WHERE table_schema = %s AND table_name = %s",
+                    (schema_name, table_name),
+                )
+                return (await cur.fetchone()) is not None
+        except psycopg.Error as e:
+            raise HoloClientException.from_pg_error(e) from e
+
+    # ── Version Detection ────────────────────────────────────────────
+
+    _HG_VERSION_PATTERN = __import__("re").compile(r"Hologres ([^ -]*)")
+
+    async def get_holo_version(self) -> tuple:
+        """Detect Hologres version. Returns (major, minor, fix) tuple."""
+        self._check_state()
+        try:
+            conn = await self._ensure_meta_conn()
+            async with conn.cursor() as cur:
+                await cur.execute("SELECT hg_version()")
+                row = await cur.fetchone()
+                if row is None:
+                    return (0, 0, 0)
+                match = self._HG_VERSION_PATTERN.search(str(row[0]))
+                if not match:
+                    return (0, 0, 0)
+                parts = match.group(1).split(".", 2)
+                major = int(parts[0]) if len(parts) > 0 else 0
+                minor = int(parts[1]) if len(parts) > 1 else 0
+                fix = int(parts[2]) if len(parts) > 2 else 0
+                return (major, minor, fix)
+        except psycopg.Error as e:
+            raise HoloClientException.from_pg_error(e) from e
+
     # ── Table Schema ──────────────────────────────────────────────────
 
     async def get_table_schema(
@@ -426,6 +468,7 @@ class AsyncHoloClient:
         file_size_limit: int = 64 * 1024 * 1024,
         max_batch_size: int = 4096,
         is_overwrite: bool = False,
+        auto_commit: bool = True,
     ) -> AsyncCopyStageWriter:
         """Create a stage-based COPY writer for bulk data loading (Hologres >= 4.1.0).
 
@@ -449,6 +492,9 @@ class AsyncHoloClient:
             file_size_limit: Max Arrow file size in bytes before splitting.
             max_batch_size: Number of records per Arrow batch.
             is_overwrite: Use INSERT OVERWRITE instead of INSERT INTO.
+            auto_commit: Run commit() on context manager exit. Set False for
+                distributed writes where many writers upload to one shared
+                stage and a single coordinator commits once at the end.
         """
         self._check_state()
         schema = await self.get_table_schema(table_name)
@@ -461,6 +507,7 @@ class AsyncHoloClient:
             file_size_limit=file_size_limit,
             max_batch_size=max_batch_size,
             is_overwrite=is_overwrite,
+            auto_commit=auto_commit,
         )
 
     # ── Get (Read) — Queue-based batching ────────────────────────────

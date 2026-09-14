@@ -24,6 +24,11 @@ Usage (async)::
         put = Put(writer.schema)
         put.set_object("id", 1)
         await writer.write(put)
+
+Distributed writes: pass auto_commit=False so exiting the context manager only
+flushes to the stage, and have a single coordinator call commit() once every
+writer has finished.  commit() loads every file in the stage, so committing per
+writer would re-load the other writers' data.
 """
 
 from __future__ import annotations
@@ -87,6 +92,7 @@ class CopyStageWriter:
         file_size_limit: int = _DEFAULT_FILE_SIZE_LIMIT,
         max_batch_size: int = 4096,
         is_overwrite: bool = False,
+        auto_commit: bool = True,
     ):
         self._config = config
         self._conn: Optional[psycopg.Connection] = None
@@ -96,6 +102,7 @@ class CopyStageWriter:
         self._on_conflict = on_conflict
         self._file_size_limit = file_size_limit
         self._is_overwrite = is_overwrite
+        self._auto_commit = auto_commit
         self._count = 0
         self._file_index = 0
 
@@ -166,6 +173,20 @@ class CopyStageWriter:
         for r in records:
             self.write(r)
 
+    def write_table(self, table) -> None:
+        """Write a pyarrow Table without per-row conversion.
+
+        The table is projected onto the writer's columns and cast to the target
+        schema, so extra columns and a different column order are tolerated.
+        Much faster than building a Put per row when the caller already holds
+        Arrow data.
+        """
+        self._arrow_writer.put_table(table)
+        self._count += table.num_rows
+
+        if self._arrow_writer.data_size >= self._file_size_limit:
+            self._flush_to_stage()
+
     def flush(self) -> None:
         """Flush remaining Arrow data to the stage."""
         data = self._arrow_writer.end_and_get_bytes()
@@ -216,7 +237,8 @@ class CopyStageWriter:
         try:
             if exc_type is None:
                 self.flush()
-                self.commit()
+                if self._auto_commit:
+                    self.commit()
                 logger.debug(
                     "CopyStageWriter completed: %d records in %d files",
                     self._count,
@@ -250,6 +272,7 @@ class AsyncCopyStageWriter:
         file_size_limit: int = _DEFAULT_FILE_SIZE_LIMIT,
         max_batch_size: int = 4096,
         is_overwrite: bool = False,
+        auto_commit: bool = True,
     ):
         self._config = config
         self._conn: Optional[psycopg.AsyncConnection] = None
@@ -259,6 +282,7 @@ class AsyncCopyStageWriter:
         self._on_conflict = on_conflict
         self._file_size_limit = file_size_limit
         self._is_overwrite = is_overwrite
+        self._auto_commit = auto_commit
         self._count = 0
         self._file_index = 0
 
@@ -326,6 +350,20 @@ class AsyncCopyStageWriter:
         for r in records:
             await self.write(r)
 
+    async def write_table(self, table) -> None:
+        """Write a pyarrow Table without per-row conversion.
+
+        The table is projected onto the writer's columns and cast to the target
+        schema, so extra columns and a different column order are tolerated.
+        Much faster than building a Put per row when the caller already holds
+        Arrow data.
+        """
+        self._arrow_writer.put_table(table)
+        self._count += table.num_rows
+
+        if self._arrow_writer.data_size >= self._file_size_limit:
+            await self._flush_to_stage()
+
     async def flush(self) -> None:
         """Flush remaining Arrow data to the stage."""
         data = self._arrow_writer.end_and_get_bytes()
@@ -378,7 +416,8 @@ class AsyncCopyStageWriter:
         try:
             if exc_type is None:
                 await self.flush()
-                await self.commit()
+                if self._auto_commit:
+                    await self.commit()
                 logger.debug(
                     "AsyncCopyStageWriter completed: %d records in %d files",
                     self._count,

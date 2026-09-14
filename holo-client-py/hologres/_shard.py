@@ -348,10 +348,50 @@ def compute_shard(record: Record, num_shards: int) -> int:
     raw_hash = hash_record(record, dk_indices)
     unsigned = raw_hash & 0xFFFFFFFF
     slot = unsigned % RANGE_END
+    return _slot_to_shard(slot, num_shards)
 
+
+def _slot_to_shard(slot: int, num_shards: int) -> int:
+    """Map a hash slot [0, RANGE_END) to a shard index."""
     base = RANGE_END // num_shards
     remain = RANGE_END % num_shards
     threshold = remain * (base + 1)
     if slot < threshold:
         return slot // (base + 1)
     return remain + (slot - threshold) // base
+
+
+def compute_shard_for_values(
+    values: list,
+    columns: "List[Column]",
+    num_shards: int,
+) -> int:
+    """Compute shard index from raw Python values and their Column metadata.
+
+    Unlike ``compute_shard`` which requires a Record, this function accepts
+    plain values and their corresponding Column objects. Useful when computing
+    shards for DataFrame rows without constructing Record instances.
+
+    Args:
+        values: Distribution key values in column order.
+        columns: Corresponding Column objects for type-aware hashing.
+        num_shards: Total number of shards.
+    """
+    if num_shards <= 1:
+        return 0
+    if not values:
+        return 0
+
+    h = 0
+    first = True
+    for val, col in zip(values, columns):
+        obj = _get_storage_value(val, col)
+        if first:
+            h = _hash_object(obj)
+            first = False
+        else:
+            h ^= _hash_object(obj)
+
+    unsigned = h & 0xFFFFFFFF
+    slot = unsigned % RANGE_END
+    return _slot_to_shard(slot, num_shards)

@@ -109,6 +109,150 @@ class TestCopyStageWriterFileNaming:
         assert writer._file_index == 0
 
 
+class TestWriteTable:
+    """Test the Arrow-table fast path (write_table / put_table)."""
+
+    def _make_writer(self, schema=None, **kwargs):
+        from hologres import HoloConfig
+        from hologres.copy_stage import CopyStageWriter
+
+        config = HoloConfig(
+            host="localhost",
+            port=5432,
+            database="test",
+            username="user",
+            password="pass",
+        )
+        return CopyStageWriter(
+            config=config,
+            schema=schema or _make_schema(),
+            stage_name="test_stage",
+            **kwargs,
+        )
+
+    def test_write_table_counts_rows_without_uploading(self):
+        pa = pytest.importorskip("pyarrow")
+
+        writer = self._make_writer()
+        writer.write_table(pa.table({"id": [1, 2, 3], "name": ["a", "b", "c"]}))
+
+        assert writer.count == 3
+        # Well under the file size limit, so nothing is flushed to the stage yet.
+        assert writer._file_index == 0
+        assert writer._arrow_writer.data_size > 0
+
+    def test_write_table_casts_and_reorders_columns(self):
+        pa = pytest.importorskip("pyarrow")
+
+        writer = self._make_writer()
+        # Reversed order, int64 id (schema wants int32), and an extra column that
+        # is not part of the table — all three must be handled.
+        table = pa.table(
+            {
+                "extra": [9, 9],
+                "name": pa.array(["x", "y"], type=pa.large_string()),
+                "id": pa.array([1, 2], type=pa.int64()),
+            }
+        )
+        writer.write_table(table)
+
+        assert writer.count == 2
+        data = writer._arrow_writer.end_and_get_bytes()
+        got = pa.ipc.open_stream(data).read_all()
+        assert got.column_names == ["id", "name"]
+        assert got.schema.field("id").type == pa.int32()
+        assert got.to_pydict() == {"id": [1, 2], "name": ["x", "y"]}
+
+    def test_write_table_preserves_order_with_interleaved_puts(self):
+        pa = pytest.importorskip("pyarrow")
+
+        from hologres import Put
+
+        writer = self._make_writer()
+        put = Put(writer.schema)
+        put.set_object("id", 1)
+        put.set_object("name", "from_put")
+        writer.write(put)
+        writer.write_table(pa.table({"id": [2], "name": ["from_table"]}))
+
+        data = writer._arrow_writer.end_and_get_bytes()
+        got = pa.ipc.open_stream(data).read_all()
+        assert got.to_pydict()["name"] == ["from_put", "from_table"]
+        assert writer.count == 2
+
+    def test_write_table_ignores_empty_table(self):
+        pa = pytest.importorskip("pyarrow")
+
+        writer = self._make_writer()
+        writer.write_table(
+            pa.table(
+                {
+                    "id": pa.array([], type=pa.int32()),
+                    "name": pa.array([], type=pa.string()),
+                }
+            )
+        )
+
+        assert writer.count == 0
+        assert writer._arrow_writer.end_and_get_bytes() == b""
+
+    def test_write_table_rejects_missing_column(self):
+        pa = pytest.importorskip("pyarrow")
+
+        writer = self._make_writer()
+        with pytest.raises(KeyError):
+            writer.write_table(pa.table({"id": [1]}))
+
+
+class TestAutoCommit:
+    """auto_commit=False lets many writers share one stage with a single commit."""
+
+    def _make_writer(self, **kwargs):
+        from hologres import HoloConfig
+        from hologres.copy_stage import CopyStageWriter
+
+        config = HoloConfig(
+            host="localhost",
+            port=5432,
+            database="test",
+            username="user",
+            password="pass",
+        )
+        return CopyStageWriter(
+            config=config,
+            schema=_make_schema(),
+            stage_name="test_stage",
+            **kwargs,
+        )
+
+    def test_defaults_to_true(self):
+        assert self._make_writer()._auto_commit is True
+
+    def test_exit_skips_commit_when_disabled(self):
+        from unittest import mock
+
+        writer = self._make_writer(auto_commit=False)
+        with mock.patch.object(writer, "commit") as commit, mock.patch.object(
+            writer, "flush"
+        ) as flush:
+            writer.__exit__(None, None, None)
+
+        flush.assert_called_once()
+        commit.assert_not_called()
+
+    def test_exit_commits_when_enabled(self):
+        from unittest import mock
+
+        writer = self._make_writer(auto_commit=True)
+        with mock.patch.object(writer, "commit") as commit, mock.patch.object(
+            writer, "flush"
+        ) as flush:
+            writer.__exit__(None, None, None)
+
+        flush.assert_called_once()
+        commit.assert_called_once()
+
+
 class TestPyarrowImportError:
     """Test behavior when pyarrow is not available."""
 

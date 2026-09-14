@@ -57,6 +57,26 @@ class HoloConfig:
     connection_max_idle_ms: int = 60_000  # 1 minute
     meta_cache_ttl_ms: int = 60_000  # 1 minute
 
+    @classmethod
+    def from_connection_uri(cls, uri: str, **overrides) -> HoloConfig:
+        """Create a HoloConfig from a PostgreSQL connection URI.
+
+        Parses ``postgresql://user:password@host:port/database`` format.
+        Any additional keyword arguments override the parsed values.
+        """
+        from urllib.parse import unquote, urlparse
+
+        parsed = urlparse(uri)
+        kwargs = {
+            "host": parsed.hostname or "localhost",
+            "port": parsed.port or 80,
+            "database": parsed.path.lstrip("/") if parsed.path else "",
+            "username": unquote(parsed.username) if parsed.username else "",
+            "password": unquote(parsed.password) if parsed.password else "",
+        }
+        kwargs.update(overrides)
+        return cls(**kwargs)
+
     def validate(self) -> None:
         """Validate the config, raising ValueError on invalid settings."""
         if not self.host:

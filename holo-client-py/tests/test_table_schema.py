@@ -186,3 +186,13 @@ class TestTableSchema:
         assert (
             str(schema) == 'TableSchema("public"."test_table", columns=2, pk=[\'id\'])'
         )
+
+    def test_shard_count_default_is_zero(self):
+        """shard_count defaults to 0 when not provided."""
+        assert self._create_simple_schema().shard_count == 0
+
+    def test_shard_count_stored(self):
+        """shard_count is stored when provided."""
+        tn = TableName.valueOf("test_table")
+        columns = [Column(name="id", type_name="int4", type=INTEGER)]
+        assert TableSchema(tn, columns, shard_count=48).shard_count == 48

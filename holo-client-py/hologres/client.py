@@ -8,7 +8,10 @@ import multiprocessing
 import queue
 import threading
 import time
-from typing import Any, Callable, Dict, List, Optional, TypeVar
+from typing import Any, Callable, Dict, List, Optional, TypeVar, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 import psycopg
 import psycopg.errors
@@ -397,6 +400,96 @@ class HoloClient:
                     f"Use regular FE (use_fixed_fe=False) instead.",
                 )
 
+    # ── Table Existence ─────────────────────────────────────────────────
+
+    def table_exists(self, table_name: str, schema_name: str = "public") -> bool:
+        """Check if a table exists in the database."""
+        self._check_state()
+        try:
+            conn = self._ensure_meta_conn()
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT 1 FROM information_schema.tables "
+                    "WHERE table_schema = %s AND table_name = %s",
+                    (schema_name, table_name),
+                )
+                return cur.fetchone() is not None
+        except psycopg.Error as e:
+            raise HoloClientException.from_pg_error(e) from e
+
+    # ── Version Detection ────────────────────────────────────────────
+
+    _HG_VERSION_PATTERN = __import__("re").compile(r"Hologres ([^ -]*)")
+
+    def get_holo_version(self) -> tuple:
+        """Detect Hologres version. Returns (major, minor, fix) tuple."""
+        self._check_state()
+        try:
+            conn = self._ensure_meta_conn()
+            with conn.cursor() as cur:
+                cur.execute("SELECT hg_version()")
+                row = cur.fetchone()
+                if row is None:
+                    return (0, 0, 0)
+                match = self._HG_VERSION_PATTERN.search(str(row[0]))
+                if not match:
+                    return (0, 0, 0)
+                parts = match.group(1).split(".", 2)
+                major = int(parts[0]) if len(parts) > 0 else 0
+                minor = int(parts[1]) if len(parts) > 1 else 0
+                fix = int(parts[2]) if len(parts) > 2 else 0
+                return (major, minor, fix)
+        except psycopg.Error as e:
+            raise HoloClientException.from_pg_error(e) from e
+
+    # ── COPY TO (bulk read) ──────────────────────────────────────────
+
+    def copy_to(self, query: str, format: str = "arrow_lz4") -> "pa.Table":
+        """Execute COPY TO STDOUT to read data in bulk.
+
+        Uses the Hologres-specific COPY ... TO STDOUT WITH (FORMAT ...)
+        protocol. Supports ARROW_LZ4 (default) and ARROW formats.
+
+        Args:
+            query: A SELECT query to export.
+            format: "arrow_lz4" (default, LZ4-compressed Arrow IPC) or "arrow".
+
+        Returns:
+            A PyArrow Table with the query results.
+        """
+        import io
+        import struct
+
+        import lz4.block
+        import pyarrow as pa
+
+        self._check_state()
+
+        is_compressed = format.lower() == "arrow_lz4"
+        fmt_str = "ARROW_LZ4" if is_compressed else "ARROW"
+        copy_query = f"COPY ({query}) TO STDOUT WITH (FORMAT {fmt_str})"
+
+        try:
+            conn = self._ensure_sql_conn()
+            with conn.cursor() as cursor:
+                with cursor.copy(copy_query) as copy:
+                    tables = []
+                    for row in copy.rows():
+                        data = row[0]
+                        if is_compressed:
+                            decompressed_size = struct.unpack(">I", data[:4])[0]
+                            data = lz4.block.decompress(
+                                data[4:], uncompressed_size=decompressed_size
+                            )
+                        with pa.ipc.open_stream(io.BytesIO(data)) as reader:
+                            tables.append(reader.read_all())
+
+                    if not tables:
+                        return pa.table({})
+                    return pa.concat_tables(tables)
+        except psycopg.Error as e:
+            raise HoloClientException.from_pg_error(e) from e
+
     # ── Table Schema ──────────────────────────────────────────────────
 
     def get_table_schema(self, table_name: str, no_cache: bool = False) -> TableSchema:
@@ -634,6 +727,7 @@ class HoloClient:
         file_size_limit: int = 64 * 1024 * 1024,
         max_batch_size: int = 4096,
         is_overwrite: bool = False,
+        auto_commit: bool = True,
     ) -> CopyStageWriter:
         """Create a stage-based COPY writer for bulk data loading (Hologres >= 4.1.0).
 
@@ -661,6 +755,9 @@ class HoloClient:
             file_size_limit: Max Arrow file size in bytes before splitting.
             max_batch_size: Number of records per Arrow batch.
             is_overwrite: Use INSERT OVERWRITE instead of INSERT INTO.
+            auto_commit: Run commit() on context manager exit. Set False for
+                distributed writes where many writers upload to one shared
+                stage and a single coordinator commits once at the end.
         """
         self._check_state()
         schema = self.get_table_schema(table_name)
@@ -673,6 +770,7 @@ class HoloClient:
             file_size_limit=file_size_limit,
             max_batch_size=max_batch_size,
             is_overwrite=is_overwrite,
+            auto_commit=auto_commit,
         )
 
     # ── Get (Read) ────────────────────────────────────────────────────
