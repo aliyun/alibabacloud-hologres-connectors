@@ -68,7 +68,10 @@ class DateFieldReader extends FieldReader {
 
 class TimestampFieldReader extends FieldReader {
   override def readValue(resultSet: ResultSet, idx: Int): Long = {
-    resultSet.getTimestamp(idx).getTime * 1000
+    // 转为 Spark TimestampType 所需的 epoch 微秒. getTime 仅毫秒精度,
+    // 用 getNanos 补齐微秒; floorDiv 避免 1970 年之前负值向零截断.
+    val timestamp = resultSet.getTimestamp(idx)
+    Math.floorDiv(timestamp.getTime, 1000L) * 1000000L + timestamp.getNanos / 1000
   }
 }
 

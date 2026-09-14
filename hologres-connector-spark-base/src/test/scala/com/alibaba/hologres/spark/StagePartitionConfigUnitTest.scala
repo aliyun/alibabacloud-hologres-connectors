@@ -3,7 +3,7 @@ package com.alibaba.hologres.spark
 import com.alibaba.hologres.spark.config.HologresConfigs
 import org.junit.runner.RunWith
 import org.scalatest.funsuite.AnyFunSuite
-import org.scalatest.junit.JUnitRunner
+import org.scalatestplus.junit.JUnitRunner
 import org.scalatest.matchers.should.Matchers
 
 /**
@@ -70,21 +70,23 @@ class StagePartitionConfigUnitTest extends AnyFunSuite with Matchers {
     ex.getMessage should include("target_partition_columns has 2")
   }
 
-  test("partition config: only columns without values throws") {
+  test("partition config: only columns without values -> throws (must be set together)") {
     val ex = intercept[IllegalArgumentException] {
       new HologresConfigs(defaultConfig() ++ Map(
         "write.target_partition_columns" -> "\"ds\""
       ))
     }
     ex.getMessage should include("must be set together")
+    ex.getMessage should include("target_partition_values=<unset>")
   }
 
-  test("partition config: only values without columns throws") {
+  test("partition config: only values without columns -> throws (must be set together)") {
     val ex = intercept[IllegalArgumentException] {
       new HologresConfigs(defaultConfig() ++ Map(
         "write.target_partition_values" -> "\"20250602\""
       ))
     }
     ex.getMessage should include("must be set together")
+    ex.getMessage should include("target_partition_columns=<unset>")
   }
 }

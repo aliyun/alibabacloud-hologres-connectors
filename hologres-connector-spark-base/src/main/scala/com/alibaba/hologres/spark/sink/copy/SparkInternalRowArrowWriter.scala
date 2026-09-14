@@ -1,19 +1,48 @@
 package com.alibaba.hologres.spark.sink.copy
 
 import com.alibaba.hologres.client.copy.in.arrow.{AbstractArrowWriter, ArrowVectorCreatorUtil}
-import com.alibaba.hologres.client.model.TableSchema
-import org.apache.arrow.vector.{FieldVector, VectorSchemaRoot}
+import com.alibaba.hologres.client.copy.in.arrow.creator.AbstractArrowVectorCreator
+import com.alibaba.hologres.client.model.{Column, TableSchema}
 import com.alibaba.hologres.spark.sink.FieldWriter
+import org.apache.arrow.vector.{FieldVector, VectorSchemaRoot}
 import org.apache.spark.sql.catalyst.InternalRow
 
 import java.util
 
-class SparkInternalRowArrowWriter(schema : TableSchema,
-                                  columns : java.util.List[String],
-                                  batchSize : Int,
+/** Arrow writer for Spark InternalRow. */
+class SparkInternalRowArrowWriter(schema: TableSchema,
+                                  columns: java.util.List[String],
+                                  batchSize: Int,
                                   fieldWriters: Array[FieldWriter],
                                   enableCompression: Boolean = false)
   extends AbstractArrowWriter[InternalRow](schema, columns, batchSize, enableCompression) {
+
+  private val columnCount: Int = columns.size
+  private val holoColumns: Array[Column] = new Array[Column](columnCount)
+
+  for (i <- 0 until columnCount) {
+    holoColumns(i) = schema.getColumn(schema.getColumnIndex(columns.get(i)))
+  }
+
+  @transient private var boundRoot: VectorSchemaRoot = _
+  @transient private var vectorCreators: Array[AbstractArrowVectorCreator] = _
+
+  private def ensureVectorCreators(root: VectorSchemaRoot): Unit = {
+    if (root ne boundRoot) {
+      val fieldVectors: util.List[FieldVector] = root.getFieldVectors
+      if (fieldVectors.size != columnCount) {
+        throw new IllegalArgumentException(
+          s"Column count mismatch, vectors=${fieldVectors.size}, columns=$columnCount")
+      }
+
+      vectorCreators = new Array[AbstractArrowVectorCreator](columnCount)
+      for (i <- 0 until columnCount) {
+        vectorCreators(i) = ArrowVectorCreatorUtil.createColumnVectorCreator(
+          fieldVectors.get(i), holoColumns(i))
+      }
+      boundRoot = root
+    }
+  }
 
   override def fillVectorSchemaRoot(root: VectorSchemaRoot, rows: util.List[InternalRow]): Unit = {
     if (rows == null || rows.isEmpty) {
@@ -21,29 +50,23 @@ class SparkInternalRowArrowWriter(schema : TableSchema,
       return
     }
 
-    root.clear();
+    root.clear()
     val fieldVectors: util.List[FieldVector] = root.getFieldVectors
-    for(i <- 0 until fieldVectors.size()) {
+    for (i <- 0 until fieldVectors.size()) {
       fieldVectors.get(i).allocateNew()
     }
 
-    if (fieldVectors.size != columns.size) throw new IllegalArgumentException("Column count mismatch")
+    ensureVectorCreators(root)
 
-    // Step 3: Fill each vector// Step 3: Fill each vector
-    for (i <- 0 until rows.size()) {
+    val rowCount = rows.size()
+    for (i <- 0 until rowCount) {
       val row = rows.get(i)
-      for (j <- 0 until columns.size) {
-        val columnName = columns.get(j)
-        val index = schema.getColumnIndex(columnName)
-        val column = schema.getColumn(index)
-        val vector = fieldVectors.get(j)
-        val columnVectorCreator = ArrowVectorCreatorUtil.createColumnVectorCreator(vector, column)
-        val value = if (!row.isNullAt(j)) fieldWriters.apply(j).writeValue(row, j) else null
-        columnVectorCreator.set(i, value)
+      for (j <- 0 until columnCount) {
+        val value = if (!row.isNullAt(j)) fieldWriters(j).writeValue(row, j) else null
+        vectorCreators(j).set(i, value)
       }
     }
 
-    // Step 4: Set row count
-    root.setRowCount(rows.size())
+    root.setRowCount(rowCount)
   }
 }

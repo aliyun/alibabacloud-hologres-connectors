@@ -1,6 +1,6 @@
 ## Hologres Spark Connector的通用核心代码
 
-无法直接使用，编译安装至本地作为 ***hologres-connector-spark-3.x*** 的依赖
+无法直接使用，编译安装至本地作为 ***hologres-connector-spark*** 的依赖
 
 ### hologres-connector-spark-base编译
 

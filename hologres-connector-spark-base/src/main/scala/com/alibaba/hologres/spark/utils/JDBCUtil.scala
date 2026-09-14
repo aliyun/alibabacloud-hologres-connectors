@@ -81,14 +81,25 @@ object JDBCUtil {
     }
   }
 
+  /**
+   * 构造投影列表. Spark 做列裁剪后 selectFields 可能为空(如 select count(*)), 此时不能
+   * 生成 "select  from t" —— 服务端仍会返回一列, 列数对不上. 塞一个常量列更可控:
+   * 行数不变, reader 侧按 sparkSchema 的 0 列读取, 该常量列不会被消费.
+   */
+  private def buildSelectExpressions(selectFields: Array[String]): String = {
+    if (selectFields.isEmpty) {
+      "1"
+    } else {
+      selectFields.map(field => "\"" + field + "\"").mkString(", ")
+    }
+  }
+
   def getSimpleSelectFromTable(table: String, selectFields: Array[String]): String = {
-    val selectExpressions: String = selectFields.map(field => "\"" + field + "\"").mkString(", ")
-    s"select $selectExpressions from $table"
+    s"select ${buildSelectExpressions(selectFields)} from $table"
   }
 
   def getSimpleSelectFromQuery(query: String, selectFields: Array[String]): String = {
-    val selectExpressions: String = selectFields.map(field => "\"" + field + "\"").mkString(", ")
-    s"select $selectExpressions from ($query) t"
+    s"select ${buildSelectExpressions(selectFields)} from ($query) t"
   }
 
   def createConnection(hologresConfigs: HologresConfigs, database: String = null, simple: Boolean = false): Connection = {
@@ -506,18 +517,33 @@ object JDBCUtil {
     logger.setSparkAppId(hologresConfigs.sparkAppId)
     logger.setHoloTableName(hologresConfigs.table)
 
+    if (isOverwrite && partitionColumnNames.nonEmpty && partitionValues.isEmpty) {
+      throw new IllegalArgumentException(
+        "insert overwrite with target_partition_columns set requires non-empty partition values, " +
+          "no partition data was collected from the written data")
+    }
+
     var conn: Connection = null
     try {
       conn = createConnection(hologresConfigs, database = null , simple = true)
       JDBCUtil.executeSql(conn, "set hg_experimental_affect_row_multiple_times_keep_last = on")
+      if (isOverwrite) {
+        // 原生INSERT OVERWRITE不支持生成Binlog, 对开启Binlog的表需session级关闭
+        JDBCUtil.executeSql(conn, "set hg_experimental_generate_binlog = off")
+      }
       if (hologresConfigs.enableServerlessComputing) {
         JDBCUtil.executeSql(conn, "set hg_computing_resource = 'serverless'")
         JDBCUtil.executeSql(conn, s"set hg_experimental_serverless_tasks_required_cores = ${hologresConfigs.serverlessComputingRequiredCores}")
         JDBCUtil.executeSql(conn, s"SET hg_experimental_serverless_computing_query_priority = ${hologresConfigs.serverlessComputingQueryPriority}")
       }
-      // 分区父表 + overwrite 已在 createBatchWriterFactory 阶段被拒绝, 所以这里 hasPartition 与 isOverwrite 不会同时为 true
+      // 物理分区父表 + overwrite 已在 createBatchWriterFactory 阶段被拒绝;
+      // 逻辑分区表(target_partition_columns)支持 insert into / insert overwrite + PARTITION 子句
       val sql = if (partitionColumnNames.nonEmpty) {
-        CopyUtil.buildInsertTableSelectFromStageSql(schema, columnNames, stages, conflictAction, partitionColumnNames, partitionValues)
+        if (isOverwrite) {
+          CopyUtil.buildInsertOverwriteTableSelectFromStageSql(schema, columnNames, stages, partitionColumnNames, partitionValues)
+        } else {
+          CopyUtil.buildInsertTableSelectFromStageSql(schema, columnNames, stages, conflictAction, partitionColumnNames, partitionValues)
+        }
       } else if (!isOverwrite) {
         CopyUtil.buildInsertTableSelectFromStageSql(schema, columnNames, stages, conflictAction, false)
       } else {

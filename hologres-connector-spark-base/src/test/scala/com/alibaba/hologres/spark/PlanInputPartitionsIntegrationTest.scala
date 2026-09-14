@@ -5,7 +5,7 @@ import com.alibaba.hologres.spark.source.{HoloInputPartitionSplitByPartition, Ho
 import com.alibaba.hologres.spark.utils.{PartitionSplitUtils, SparkHoloUtil}
 import org.junit.runner.RunWith
 import org.scalatest.funsuite.AnyFunSuite
-import org.scalatest.junit.JUnitRunner
+import org.scalatestplus.junit.JUnitRunner
 import org.scalatest.matchers.should.Matchers
 
 /**

@@ -9,6 +9,7 @@ import org.apache.spark.sql.types._
 
 import java.io.IOException
 import java.sql.Types
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 import scala.collection.mutable.ArrayBuffer
 
@@ -25,7 +26,7 @@ object SparkHoloUtil {
         throw new IllegalArgumentException(String.format("column %s does not exist in hologres table %s", column.name, holoSchema.getTableName))
       }
       val holoColumn = holoSchema.getColumn(holoSchema.getColumnIndex(column.name))
-      if (column.dataType != getSparkDataType(holoColumn)) {
+      if (!isSameDataType(column.dataType, getSparkDataType(holoColumn))) {
         if (!hologresConfigs.writeStrictDataTypeCheck &&
           getSparkDataTypesSupportImplicitCast(getSparkDataType(holoColumn), column.dataType).contains(column.dataType)) {
           logger.warn(String.format("column %s in hologres table %s type does not match: spark type: %s," +
@@ -61,7 +62,7 @@ object SparkHoloUtil {
     for (i <- 0 until planSchema.length) {
       val planType = planSchema.fields.apply(i).dataType
       val sparkType = sparkSchema.fields.apply(i).dataType
-      if (planType != sparkType) {
+      if (!isSameDataType(planType, sparkType)) {
         if (!hologresConfigs.writeStrictDataTypeCheck && getSparkDataTypesSupportImplicitCast(sparkType, planType).contains(planType)) {
           logger.warn(String.format("column %s in hologres catalog table type does not match: spark type: %s," +
             " plan type: %s, but will be casted because write.strict_datatype_check is false",
@@ -74,6 +75,92 @@ object SparkHoloUtil {
     }
   }
 
+  /**
+   * 解析 Catalog 写入实际使用的 schema。
+   * 默认保持按位置全列写入；开启 write.catalog.by_name 后，按 plan 字段名映射 Hologres 列并允许部分列。
+   */
+  def resolveCatalogWriteSchema(
+      hologresConfigs: HologresConfigs,
+      sparkSchema: StructType,
+      planSchema: StructType,
+      holoSchema: TableSchema): StructType = {
+    if (!hologresConfigs.writeCatalogByName) {
+      checkSparkTableSchema(hologresConfigs, sparkSchema, planSchema)
+      return sparkSchema
+    }
+    if (planSchema.isEmpty) {
+      throw new IllegalArgumentException("write schema must contain at least one column when write.catalog.by_name is true")
+    }
+
+    val holoColumns = holoSchema.getColumnSchema
+    val columnsByLowerName = holoColumns.groupBy(_.getName.toLowerCase(Locale.ROOT))
+    val resolvedNames = scala.collection.mutable.HashSet.empty[String]
+    val resolvedFields = planSchema.fields.map { planField =>
+      val exactMatches = holoColumns.filter(_.getName == planField.name)
+      val matches = if (exactMatches.nonEmpty) {
+        exactMatches
+      } else {
+        columnsByLowerName.getOrElse(planField.name.toLowerCase(Locale.ROOT), Array.empty[Column])
+      }
+      if (matches.isEmpty) {
+        throw new IllegalArgumentException(
+          s"column ${planField.name} does not exist in hologres table ${holoSchema.getTableName}")
+      }
+      if (matches.length > 1) {
+        throw new IllegalArgumentException(
+          s"column ${planField.name} is ambiguous in hologres table ${holoSchema.getTableName}")
+      }
+
+      val holoColumn = matches.head
+      if (java.lang.Boolean.TRUE.equals(holoColumn.isGeneratedColumn)) {
+        throw new IllegalArgumentException(
+          s"generated column ${holoColumn.getName} can not be written in hologres table ${holoSchema.getTableName}")
+      }
+      if (!resolvedNames.add(holoColumn.getName)) {
+        throw new IllegalArgumentException(
+          s"column ${holoColumn.getName} is specified more than once in catalog write schema")
+      }
+
+      val targetType = getSparkDataType(holoColumn)
+      val sourceType = planField.dataType
+      if (!isSameDataType(sourceType, targetType)) {
+        if (!hologresConfigs.writeStrictDataTypeCheck &&
+          getSparkDataTypesSupportImplicitCast(targetType, sourceType).contains(sourceType)) {
+          logger.warn(String.format("column %s in hologres catalog table type does not match: spark type: %s," +
+            " plan type: %s, but will be casted because write.strict_datatype_check is false",
+            holoColumn.getName, targetType, sourceType))
+        } else {
+          throw new IllegalArgumentException(
+            s"schema not match for column ${holoColumn.getName}, \nspark schema type: ${targetType}," +
+              s" \nwrite schema type: ${sourceType}, \nwrite schema: ${planSchema}")
+        }
+      }
+      StructField(holoColumn.getName, sourceType, planField.nullable, planField.metadata)
+    }
+
+    val requiredColumns = ArrayBuffer.empty[String]
+    requiredColumns ++= holoSchema.getPrimaryKeys
+    if (holoSchema.isPartitionParentTable) {
+      requiredColumns += holoSchema.getColumn(holoSchema.getPartitionIndex).getName
+    }
+    val missingRequiredColumns = requiredColumns.distinct.filterNot(resolvedNames.contains)
+    if (missingRequiredColumns.nonEmpty) {
+      throw new IllegalArgumentException(
+        s"catalog write schema is missing required column(s): ${missingRequiredColumns.mkString(", ")}")
+    }
+
+    StructType(resolvedFields.toSeq)
+  }
+
+  private[spark] def isSameDataType(left: DataType, right: DataType): Boolean = {
+    (left, right) match {
+      case (ArrayType(leftElementType, _), ArrayType(rightElementType, _)) =>
+        leftElementType == rightElementType
+      case _ =>
+        left == right
+    }
+  }
+
   // 如果未传入spark的DDL，则根据holo表或者查询的query推断一个默认的spark schema
   def inferSparkTableSchema(holoSchema: TableSchema = null): StructType = {
     val fields = ArrayBuffer[StructField]()
@@ -81,7 +168,8 @@ object SparkHoloUtil {
       fields += StructField(column.getName, getSparkDataType(column))
     })
 
-    StructType(fields)
+    // Scala 2.13 下 ArrayBuffer 不再隐式转换为 Seq, 需显式 toSeq; 2.12 同样接受
+    StructType(fields.toSeq)
   }
 
   /**
@@ -237,13 +325,14 @@ object SparkHoloUtil {
       }
 
       // choose best read mode
-      if ("auto" == hologresConfigs.readMode) {
+      val supportCopyOutArrow = isCopyOutArrowSupported(holoVersion)
+      if (!supportCopyOutArrow && Set("auto", "bulk_read", "bulk_read_compressed").contains(hologresConfigs.readMode)) {
+        logger.warn(s"bulk read requires Hologres >= 4.1.0 or >= 4.0.18 on the 4.0 branch, " +
+          s"but current version is $holoVersion, fallback to select")
+        hologresConfigs.readMode = "select"
+      } else if ("auto" == hologresConfigs.readMode) {
         val supportCompressed = holoVersion.compareTo(new HoloVersion(3, 0, 24)) >= 0
-        if (supportCompressed) {
-          hologresConfigs.readMode = "bulk_read_compressed"
-        } else {
-          hologresConfigs.readMode = "bulk_read"
-        }
+        hologresConfigs.readMode = if (supportCompressed) "bulk_read_compressed" else "bulk_read"
         logger.info(s"choose best read mode: ${hologresConfigs.readMode}")
       }
 
@@ -261,7 +350,13 @@ object SparkHoloUtil {
       val couldReshuffle = holoSchema.getDistributionKeys.length > 0
       // choose best write mode
       if ("auto" == hologresConfigs.writeMode) {
-        if (supportBulkLoadOnConflict) {
+        // Hologres >= 4.2.16, 或 4.1.x 分支 >= 4.1.35, 默认使用 stage 模式
+        val defaultStage = holoVersion.compareTo(new HoloVersion(4, 2, 16)) >= 0 ||
+          (holoVersion.getMajorVersion == 4 && holoVersion.getMinorVersion == 1 &&
+            holoVersion.compareTo(new HoloVersion(4, 1, 35)) >= 0)
+        if (defaultStage) {
+          hologresConfigs.writeMode = "stage"
+        } else if (supportBulkLoadOnConflict) {
           hologresConfigs.writeMode = CopyMode.BULK_LOAD_ON_CONFLICT
           // 数据未经过reshuffle, 则将needReshuffle设置为true
           if (!hologresConfigs.reshuffleByHoloDistributionKey && !hologresConfigs.needReshuffle && couldReshuffle) {
@@ -284,12 +379,37 @@ object SparkHoloUtil {
         }
       }
 
+      // 显式指定目标分区(write.target_partition_columns/values)的能力门控.
+      // 此处 columns 非空即表示用户显式配置(成对校验已在 HologresConfigs 完成),
+      // stage 自动模式从表元数据填充发生在更后阶段, 不受此处门控影响.
+      // - stage 模式的 INSERT ... PARTITION 为通用 SQL 能力, 不依赖 Hologres 5.0
+      // - COPY 类模式的 PARTITION 子句需 Hologres V5.0+
+      // - insert(jdbc) 模式逐行写入, 无 PARTITION 子句概念, 不支持指定目标分区
+      if (hologresConfigs.writeTargetPartitionColumns.nonEmpty) {
+        if ("stage" != hologresConfigs.writeMode && holoVersion.compareTo(new HoloVersion(5, 0, 0)) < 0) {
+          throw new IOException(
+            "write.target_partition_columns/values in " + hologresConfigs.writeMode + " mode requires Hologres version >= 5.0, " +
+              s"current version is ${hologresConfigs.holoVersion}")
+        }
+        if ("insert" == hologresConfigs.writeMode) {
+          throw new IOException(
+            "write.target_partition_columns/values is not supported in insert(jdbc) write mode, " +
+              "please use stage/stream/bulk_load/bulk_load_on_conflict mode")
+        }
+      }
+
       hologresConfigs
     } finally {
       if (holoClient != null) {
         holoClient.close()
       }
     }
+  }
+
+  private[spark] def isCopyOutArrowSupported(version: HoloVersion): Boolean = {
+    version.compareTo(new HoloVersion(4, 1, 0)) >= 0 ||
+      (version.getMajorVersion == 4 && version.getMinorVersion == 0 &&
+        version.compareTo(new HoloVersion(4, 0, 18)) >= 0)
   }
 
 }

@@ -27,7 +27,9 @@ class SparkArrowTimeStampMicroAccessor(timeStampMicroVector: TimeStampMicroVecto
     if (this.isNullAt(index)) {
       null
     } else {
-      Long.box((this.getMicroSeconds(index) / 1000 - TIMEZONE_OFFSET) * 1000)
+      // 直接在微秒粒度上减去时区偏移, 避免 /1000*1000 的截断(丢微秒)
+      // 与 1970 年之前负值向零截断; TIMEZONE_OFFSET 为毫秒, 转为微秒后相减.
+      Long.box(this.getMicroSeconds(index) - TIMEZONE_OFFSET.toLong * 1000L)
     }
   }
 }

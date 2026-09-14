@@ -7,7 +7,7 @@ import com.alibaba.hologres.spark.utils.PartitionSplitUtils
 import org.junit.runner.RunWith
 import org.mockito.Mockito._
 import org.scalatest.funsuite.AnyFunSuite
-import org.scalatest.junit.JUnitRunner
+import org.scalatestplus.junit.JUnitRunner
 import org.scalatest.matchers.should.Matchers
 
 import java.sql.Types

@@ -38,7 +38,7 @@ object RepartitionUtil {
     val reShuffledDf = reShuffleByHoloDistributionKey(inputDf,
       hologresConfigs.username, hologresConfigs.password, hologresConfigs.jdbcUrl, hologresConfigs.table)
     // 将shuffle之后的DataFrame写入到Hologres中, 原样传入所有写入和通用参数
-    reShuffledDf.write
+    val writer = reShuffledDf.write
       .format("hologres")
       .option("username", hologresConfigs.username)
       .option("password", hologresConfigs.password)
@@ -69,8 +69,20 @@ object RepartitionUtil {
       .option("write.insert.use_legacy_put_handler", hologresConfigs.holoConfig.isUseLegacyPutHandler)
       .option("write.overwrite_drop_force", hologresConfigs.overWriteDropForce)
       .option("write.reshuffle_by_holo_distribution_key", "true")
-      .mode(saveMode)
-      .save()
+    if (hologresConfigs.writeTargetPartitionColumns.nonEmpty) {
+      writer.option("write.target_partition_columns",
+        hologresConfigs.writeTargetPartitionColumns.map(quotePartitionField).mkString(", "))
+    }
+    if (hologresConfigs.writeTargetPartitionValues.nonEmpty) {
+      writer.option("write.target_partition_values",
+        hologresConfigs.writeTargetPartitionValues
+          .map(row => row.map(quotePartitionField).mkString(", ")).mkString("; "))
+    }
+    writer.mode(saveMode).save()
+  }
+
+  private def quotePartitionField(value: String): String = {
+    "\"" + value.replace("\"", "\"\"") + "\""
   }
 
   @deprecated()

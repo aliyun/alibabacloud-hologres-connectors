@@ -2,7 +2,7 @@ package com.alibaba.hologres.spark.sink.copy
 
 import com.alibaba.hologres.client.Put
 import com.alibaba.hologres.client.copy.in.CopyInWrapper
-import com.alibaba.hologres.client.copy.{CopyFormat, CopyMode}
+import com.alibaba.hologres.client.copy.{CopyFormat, CopyMode, CopyUtil}
 import com.alibaba.hologres.client.exception.{HoloClientException, HoloClientWithDetailsException}
 import com.alibaba.hologres.client.model.{Record, TableSchema}
 import com.alibaba.hologres.client.utils.{RateLimiter, RecordChecker}
@@ -37,6 +37,14 @@ abstract class BaseHoloDataCopyWriter(
   }
   private val copyFormat: CopyFormat = if (hologresConfigs.writeCopyFormat == "binary" && copyMode == CopyMode.STREAM) CopyFormat.BINARY else CopyFormat.CSV
   private val conn = initConnection(hologresConfigs, targetShardList)
+  // 逻辑分区表: 用户显式配置了 target_partition_columns/values 时生成 PARTITION 子句 (Hologres V5.0+).
+  // COPY 是流式写入, SQL 必须在发送第一批数据前确定, 因此无法像 stage 那样从实际数据自动采集分区值;
+  // 未配置时不带 PARTITION 子句写入. 对 bulk_load/bulk_load_on_conflict: 指定分区可将表锁降为分区锁.
+  private val partitionClause: String = CopyUtil.buildPartitionClause(
+    holoSchema, hologresConfigs.writeTargetPartitionColumns, hologresConfigs.writeTargetPartitionValues)
+  if (partitionClause.nonEmpty) {
+    logger.info(s"copy with partition clause: $partitionClause")
+  }
   private val copyInWrapper: CopyInWrapper = new CopyInWrapper(
     conn,
     holoSchema,
@@ -47,7 +55,8 @@ abstract class BaseHoloDataCopyWriter(
       case _ => CopyMode.STREAM
     },
     hologresConfigs.onConflictAction,
-    hologresConfigs.writeCopyMaxBufferSize
+    hologresConfigs.writeCopyMaxBufferSize,
+    partitionClause
   )
   if(hologresConfigs.holoConfig.getWriteRps() > 0) {
     copyInWrapper.setRateLimiter(new RateLimiter(hologresConfigs.holoConfig.getWriteRps()))
@@ -138,7 +147,9 @@ abstract class BaseHoloDataCopyWriter(
     }
   }
 
-  protected def close(): Unit = {
+  // DataWriter (java.io.Closeable) 要求 close() 为 public, Scala 2.13 会对 protected 覆写报
+  // "weaker access privileges in overriding", 因此声明为 public; 2.12 同样接受
+  def close(): Unit = {
     if (copyInWrapper != null) {
       try copyInWrapper.close()
       catch {

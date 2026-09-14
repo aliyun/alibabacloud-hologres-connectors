@@ -29,6 +29,7 @@ class BaseSourceProvider() {
   val RESHUFFLE_BY_HOLO_DISTRIBUTION_KEY = "write.reshuffle_by_holo_distribution_key"
   val WRITE_ENABLE_STRICT_DATATYPE_CHECK = "write.strict_datatype_check"
   val WRITE_ON_CONFLICT_ACTION = "write.on_conflict_action"
+  val WRITE_CATALOG_BY_NAME = "write.catalog.by_name"
   val WRITE_OVERWRITE_DROP_FORCE = "write.overwrite_drop_force"
   // write insert
   val WRITE_INSERT_BATCH_SIZE = "write.insert.batch_size"
@@ -58,6 +59,7 @@ class BaseSourceProvider() {
   val READ_MODE = "read.mode"
   val READ_QUERY = "read.query"
   val READ_MAX_TASK_COUNT = "read.max_task_count"
+  val MAP_DEFAULT_NAMESPACE_TO_PUBLIC = "read.map_default_namespace_to_public"
   val READ_PUSH_DOWN_PREDICATE = "read.push_down_predicate"
   val READ_PUSH_DOWN_LIMIT = "read.push_down_limit"
   // read scan
@@ -65,6 +67,7 @@ class BaseSourceProvider() {
   val READ_SELECT_TIMEOUT_SECONDS = "read.select.timeout_seconds"
   // read copy
   val READ_COPY_MAX_BUFFER_SIZE = "read.copy.max_buffer_size"
+  val READ_ENABLE_COLUMNAR_READ = "read.enable_columnar_read"
   // split strategy
   val SPLIT_STRATEGY = "read.split.strategy"
   val SPLIT_COLUMN = "read.split.column"

@@ -12,9 +12,17 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.connector.write.WriterCommitMessage
 import org.apache.spark.sql.types._
 
+import java.sql.{Date, Timestamp}
+import java.time.LocalDate
 import scala.collection.JavaConverters.seqAsJavaListConverter
+import scala.collection.mutable
 
-case class StageWriterCommitMessage(stageName : String) extends WriterCommitMessage {}
+/**
+ * stage写入的commit message. partitionValues为该task实际写入数据中出现的分区值组合,
+ * 用于在driver端自动确定 PARTITION 子句, 实现"有数据才写入/覆盖"的分区级语义
+ */
+case class StageWriterCommitMessage(stageName : String,
+                                    partitionValues: Array[Array[String]] = Array.empty) extends WriterCommitMessage {}
 
 abstract class BaseHoloDataCopyStageWriter(hologresConfigs: HologresConfigs,
                                            sparkSchema: StructType,
@@ -55,10 +63,28 @@ abstract class BaseHoloDataCopyStageWriter(hologresConfigs: HologresConfigs,
     stageWrapper.setRateLimiter(new RateLimiter(hologresConfigs.holoConfig.getWriteRps()))
   }
 
+  // 配置了target_partition_columns时, 解析分区列在spark schema中的下标, 写入时自动采集实际分区值
+  private val partitionColumnIndexes: Array[Int] = {
+    if (hologresConfigs.writeTargetPartitionColumns.isEmpty) {
+      Array.empty[Int]
+    } else {
+      hologresConfigs.writeTargetPartitionColumns.map { col =>
+        val idx = sparkSchema.fields.indexWhere(_.name == col)
+        if (idx < 0) {
+          throw new IllegalArgumentException(
+            s"write.target_partition_columns contains column '$col' which is missing in the input DataFrame's schema: $sparkSchema")
+        }
+        idx
+      }
+    }
+  }
+  private val collectedPartitionValues: mutable.HashSet[Seq[String]] = mutable.HashSet.empty
+
   def commit(): StageWriterCommitMessage = {
     logger.debug("Commit....")
     stageWrapper.flush()
-    val message : StageWriterCommitMessage = StageWriterCommitMessage(stageName)
+    val message : StageWriterCommitMessage = StageWriterCommitMessage(stageName,
+      collectedPartitionValues.map(_.toArray).toArray)
     message
   }
 
@@ -66,7 +92,41 @@ abstract class BaseHoloDataCopyStageWriter(hologresConfigs: HologresConfigs,
     if (null == row) {
       return
     }
+    collectPartitionValues(row)
     stageWrapper.putRecord(row.copy())
+  }
+
+  private def collectPartitionValues(row: InternalRow): Unit = {
+    if (partitionColumnIndexes.isEmpty) {
+      return
+    }
+    val values = new Array[String](partitionColumnIndexes.length)
+    var i = 0
+    while (i < partitionColumnIndexes.length) {
+      val idx = partitionColumnIndexes(i)
+      if (row.isNullAt(idx)) {
+        throw new IllegalArgumentException(
+          s"Partition column '${hologresConfigs.writeTargetPartitionColumns(i)}' can not be null when writing logical partition table with target_partition_columns set")
+      }
+      values(i) = formatPartitionValue(row, idx)
+      i += 1
+    }
+    collectedPartitionValues += values.toSeq
+  }
+
+  private def formatPartitionValue(row: InternalRow, idx: Int): String = {
+    sparkSchema.fields(idx).dataType match {
+      case DataTypes.DateType =>
+        Date.valueOf(LocalDate.ofEpochDay(row.getInt(idx))).toString
+      case DataTypes.TimestampType =>
+        // 保留微秒精度, 并正确处理 1970 年之前的负微秒值(向零截断会导致时间偏移)
+        val micros = row.getLong(idx)
+        val ts = new Timestamp(Math.floorDiv(micros, 1000L))
+        ts.setNanos(ts.getNanos + (Math.floorMod(micros, 1000L) * 1000L).toInt)
+        ts.toString
+      case dataType =>
+        row.get(idx, dataType).toString
+    }
   }
 
   def abort(): Unit = {
@@ -87,7 +147,9 @@ abstract class BaseHoloDataCopyStageWriter(hologresConfigs: HologresConfigs,
     }
   }
 
-  protected def close(): Unit = {
+  // DataWriter (java.io.Closeable) 要求 close() 为 public, Scala 2.13 会对 protected 覆写报
+  // "weaker access privileges in overriding", 因此声明为 public; 2.12 同样接受
+  def close(): Unit = {
     if (stageWrapper != null) {
       try {
         stageWrapper.close()

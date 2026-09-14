@@ -71,7 +71,12 @@ class DateFieldWriter extends FieldWriter {
 
 class TimestampFieldWriter extends FieldWriter {
   override def writeValue(row: InternalRow, idx: Int): Timestamp = {
-    new Timestamp(row.getLong(idx) / 1000)
+    // Spark TimestampType 内部为 epoch 微秒. 使用 floorDiv/floorMod 而非 / 和 %,
+    // 避免 1970 年之前的负值向零截断导致时间偏移; 再通过 setNanos 补齐微秒, 避免亚毫秒精度丢失.
+    val micros = row.getLong(idx)
+    val timestamp = new Timestamp(Math.floorDiv(micros, 1000L))
+    timestamp.setNanos((Math.floorMod(micros, 1000000L) * 1000L).toInt)
+    timestamp
   }
 }
 

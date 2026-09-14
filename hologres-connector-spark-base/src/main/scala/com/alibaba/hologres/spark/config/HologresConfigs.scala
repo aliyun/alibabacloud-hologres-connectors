@@ -103,6 +103,7 @@ class HologresConfigs(sourceOptions: Map[String, String], val sparkAppName: Stri
   val writeCopyDirtyDataCheck: Boolean = sourceOptions.getOrElse("write.copy.dirty_data_check", "false").toBoolean
   val writeCopyMaxBufferSize: Int = sourceOptions.getOrElse("write.copy.max_buffer_size", "52428800").toInt
   val writeStrictDataTypeCheck: Boolean = sourceOptions.getOrElse("write.strict_datatype_check", "false").toBoolean
+  val writeCatalogByName: Boolean = sourceOptions.getOrElse("write.catalog.by_name", "false").toBoolean
   val disableRightJoinInCopy: Boolean = sourceOptions.getOrElse("write.copy.disable_right_join", "false").toBoolean
   val overWriteDropForce: Boolean = sourceOptions.getOrElse("write.overwrite_drop_force", "true").toBoolean
   val copyStageBatchSize: Int = sourceOptions.getOrElse("write.stage.batch_size", "8192").toInt
@@ -117,16 +118,20 @@ class HologresConfigs(sourceOptions: Map[String, String], val sparkAppName: Stri
   // write.target_partition_columns: 形如 "ds" 或 "ds", "kind"
   // write.target_partition_values: 列间逗号分隔, 多分区分号分隔, 形如 "20250101" 或 "20250101", "100"; "20250102", "200"
   // 字段必须用双引号包裹, 字段内的双引号用两个双引号转义. 详见 CommonUtil.parseLogicalPartitionColumn*
-  val (writeTargetPartitionColumns: Array[String],
+  // 两个参数必须成对设置, 只设置其中一个会报错. 语义:
+  // - 都设置: 严格按声明生成 PARTITION 子句(字面执行, 不与实际数据求交), 对所有写入模式生效.
+  //   overwrite 时声明但无数据的分区会被清空(与 Hive INSERT OVERWRITE PARTITION 语义一致);
+  //   不属于声明分区的数据会被服务端丢弃.
+  // - 都不设置: stage 模式由 writer 从表元数据自动解析分区列, 并从实际写入数据中采集分区值;
+  //   其他模式(stream/bulk_load/insert)不带 PARTITION 子句写入.
+  // columns 在 stage 自动模式下由 writer 赋值, 因此声明为 var
+  var (writeTargetPartitionColumns: Array[String],
        writeTargetPartitionValues: Array[Array[String]]) = {
     val rawCols = sourceOptions.get("write.target_partition_columns").map(_.trim).filter(_.nonEmpty)
     val rawVals = sourceOptions.get("write.target_partition_values").map(_.trim).filter(_.nonEmpty)
     (rawCols, rawVals) match {
       case (None, None) =>
         (Array.empty[String], Array.empty[Array[String]])
-      case (Some(_), None) | (None, Some(_)) =>
-        throw new IllegalArgumentException(
-          "write.target_partition_columns and write.target_partition_values must be set together")
       case (Some(cn), Some(vs)) =>
         val parsedCols = CommonUtil.parseLogicalPartitionColumnNames(cn)
         val parsedVals = CommonUtil.parseLogicalPartitionColumnValues(vs)
@@ -139,6 +144,11 @@ class HologresConfigs(sourceOptions: Map[String, String], val sparkAppName: Stri
           }
         }
         (parsedCols, parsedVals)
+      case _ =>
+        throw new IllegalArgumentException(
+          "write.target_partition_columns and write.target_partition_values must be set together, got " +
+            s"target_partition_columns=${rawCols.getOrElse("<unset>")}, " +
+            s"target_partition_values=${rawVals.getOrElse("<unset>")}")
     }
   }
   sourceOptions.get("write.rps_limit").map(v => holoConfig.setWriteRps(v.toInt))
@@ -153,11 +163,16 @@ class HologresConfigs(sourceOptions: Map[String, String], val sparkAppName: Stri
     case _ =>
       throw new IllegalArgumentException("Could not recognize read.mode " + readModeStr)
   }
+  val mapDefaultNamespaceToPublic: Boolean =
+    java.lang.Boolean.parseBoolean(sourceOptions.getOrElse("read.map_default_namespace_to_public", "true"))
   val readPushDownPredicate: Boolean = sourceOptions.getOrElse("read.push_down_predicate", "true").toBoolean
   val readPushDownLimit: Boolean = sourceOptions.getOrElse("read.push_down_limit", "true").toBoolean
   val readSelectBatchSize: Int = sourceOptions.getOrElse("read.select.batch_size", "256").toInt
   val readSelectTimeoutSeconds: Int = sourceOptions.getOrElse("read.select.timeout_seconds", "28800").toInt
   val readCopyMaxBufferSize: Int = sourceOptions.getOrElse("read.copy.max_buffer_size", "52428800").toInt
+  // bulk read时是否将Arrow batch直接包装为ColumnarBatch进行列式读取, 默认开启;
+  // 仅对schema中均为支持类型的查询生效, 否则自动回退行式读取
+  val readEnableColumnarRead: Boolean = sourceOptions.getOrElse("read.enable_columnar_read", "true").toBoolean
 
   // -------------------------------------view split parameters----------------------------------------
   val splitStrategy: String = sourceOptions.getOrElse("read.split.strategy", "shard")

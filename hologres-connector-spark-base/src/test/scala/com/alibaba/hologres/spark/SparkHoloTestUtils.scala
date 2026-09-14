@@ -1,6 +1,7 @@
 package com.alibaba.hologres.spark
 
-import com.alibaba.hologres.client.{HoloClient, HoloConfig}
+import com.alibaba.hologres.client.model.HoloVersion
+import com.alibaba.hologres.client.{Command, HoloClient, HoloConfig}
 import org.apache.spark.sql.types._
 
 import java.sql.{DriverManager, SQLException}
@@ -182,5 +183,12 @@ class SparkHoloTestUtils {
         throw ex
       }
     }
+  }
+
+  def getHoloVersion: HoloVersion = {
+    if (client == null) {
+      init()
+    }
+    Command.getHoloVersion(client)
   }
 }

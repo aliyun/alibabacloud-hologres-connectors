@@ -102,7 +102,9 @@ abstract class BaseHoloDataWriter(
     }
   }
 
-  protected def close(): Unit = {
+  // DataWriter (java.io.Closeable) 要求 close() 为 public, Scala 2.13 会对 protected 覆写报
+  // "weaker access privileges in overriding", 因此声明为 public; 2.12 同样接受
+  def close(): Unit = {
     if (client != null) {
       try {
         client.flush()
