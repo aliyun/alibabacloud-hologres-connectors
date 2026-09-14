@@ -33,6 +33,7 @@ import com.alibaba.hologres.connector.flink.config.HologresConnectionParam;
 import com.alibaba.hologres.connector.flink.config.WriteMode;
 import com.alibaba.hologres.connector.flink.jdbc.HologresJDBCWriter;
 import com.alibaba.hologres.connector.flink.jdbc.copy.HologresJDBCCopyWriter;
+import com.alibaba.hologres.connector.flink.sink.repartition.RowDataShardUtil;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -52,6 +53,12 @@ public class HologresSinkWriter<InputT> implements StatefulSinkWriter<InputT, Lo
 
     private HologresWriter hologresWriter;
     private final HologresConnectionParam param;
+    private final int shardCount;
+    private final Integer[] distributionKeyIndexes;
+    private final LogicalType[] routingFieldTypes;
+    private final int subtaskId;
+    private final int numberOfParallelSubtasks;
+    private boolean routingInitialized;
 
     private final Counter numRecordsOutCounter;
     private final Counter numBytesOutCounter;
@@ -66,6 +73,9 @@ public class HologresSinkWriter<InputT> implements StatefulSinkWriter<InputT, Lo
             LogicalType[] targetFieldTypes,
             Integer[] targetColumnIndexs,
             Map<String, LogicalType> primarykeys,
+            int shardCount,
+            Integer[] distributionKeyIndexes,
+            LogicalType[] routingFieldTypes,
             Sink.InitContext initContext)
             throws IOException {
         this.param = hologresConnectionParam;
@@ -73,34 +83,65 @@ public class HologresSinkWriter<InputT> implements StatefulSinkWriter<InputT, Lo
         this.targetFieldTypes = targetFieldTypes;
         this.targetColumnIndexs = targetColumnIndexs;
         this.primarykeys = primarykeys;
+        this.shardCount = shardCount;
+        this.distributionKeyIndexes = distributionKeyIndexes;
+        this.routingFieldTypes = routingFieldTypes;
+        this.subtaskId = initContext.getTaskInfo().getIndexOfThisSubtask();
+        this.numberOfParallelSubtasks = initContext.getTaskInfo().getNumberOfParallelSubtasks();
         this.numBytesOutCounter =
                 initContext.metricGroup().getIOMetricGroup().getNumBytesOutCounter();
         this.numRecordsOutCounter =
                 initContext.metricGroup().getIOMetricGroup().getNumRecordsOutCounter();
         this.sinkSkipCounter = initContext.metricGroup().getNumRecordsOutErrorsCounter();
         this.hologresWriter = getHologresWriter();
-        this.hologresWriter.open(
-                initContext.getTaskInfo().getIndexOfThisSubtask(),
-                initContext.getTaskInfo().getNumberOfParallelSubtasks());
+        this.hologresWriter.open(subtaskId, numberOfParallelSubtasks);
         this.dirtyDataStrategy = param.getDirtyDataStrategy();
     }
 
     @Override
     public void write(InputT input, Context context) throws IOException {
         long byteSize = 0;
+        Object record = input;
+        Integer targetShard = null;
+        boolean addRecord =
+                !(input instanceof RowData)
+                        || ((RowData) input).getRowKind().equals(RowKind.INSERT)
+                        || ((RowData) input).getRowKind().equals(RowKind.UPDATE_AFTER);
+        if (addRecord
+                && !routingInitialized
+                && input instanceof RowData
+                && param.isEnableReshuffleByHolo()) {
+            if (distributionKeyIndexes.length > 0) {
+                targetShard =
+                        RowDataShardUtil.getShardId(
+                                (RowData) input,
+                                distributionKeyIndexes,
+                                routingFieldTypes,
+                                shardCount);
+            } else if (shardCount > 0) {
+                targetShard = subtaskId % shardCount;
+                LOG.info(
+                        "HologresSinkWriter: table has no distribution key, using subtask fallback"
+                                + " targetShard={}, subtaskId={}, parallelism={}",
+                        targetShard,
+                        subtaskId,
+                        numberOfParallelSubtasks);
+            }
+            routingInitialized = true;
+        }
         try {
-            if (input instanceof RowData) {
-                RowKind kind = ((RowData) input).getRowKind();
+            if (record instanceof RowData) {
+                RowKind kind = ((RowData) record).getRowKind();
                 if (kind.equals(RowKind.INSERT) || kind.equals(RowKind.UPDATE_AFTER)) {
-                    byteSize = hologresWriter.writeAddRecord(input);
+                    byteSize = writeAddRecord(record, targetShard);
                 } else if ((kind.equals(RowKind.DELETE) || kind.equals(RowKind.UPDATE_BEFORE))
                         && !param.isIgnoreDelete()) {
-                    byteSize = hologresWriter.writeDeleteRecord(input);
+                    byteSize = hologresWriter.writeDeleteRecord(record);
                 } else {
-                    LOG.debug("Ignore rowdata {}.", input);
+                    LOG.debug("Ignore rowdata {}.", record);
                 }
             } else {
-                byteSize = hologresWriter.writeAddRecord(input);
+                byteSize = hologresWriter.writeAddRecord(record);
             }
         } catch (HoloClientException e) {
             LOG.error(
@@ -125,6 +166,16 @@ public class HologresSinkWriter<InputT> implements StatefulSinkWriter<InputT, Lo
         }
         numRecordsOutCounter.inc();
         numBytesOutCounter.inc(byteSize);
+    }
+
+    @SuppressWarnings("unchecked")
+    private long writeAddRecord(Object record, Integer targetShard)
+            throws IOException, HoloClientException {
+        if (targetShard != null && hologresWriter instanceof HologresJDBCCopyWriter) {
+            return ((HologresJDBCCopyWriter<Object>) hologresWriter)
+                    .writeAddRecord(record, targetShard);
+        }
+        return hologresWriter.writeAddRecord(record);
     }
 
     @Override

@@ -33,6 +33,8 @@ public class HologresConnectionParam implements Serializable {
     private static final long serialVersionUID = 1371382980680745051L;
 
     private final JDBCOptions options;
+    private final boolean copyOutArrowSupported;
+    private final String holoVersionString;
 
     // connection
     private final int jdbcRetryCount;
@@ -44,6 +46,7 @@ public class HologresConnectionParam implements Serializable {
     private boolean enableFixedConnectionMode;
     private final boolean enableServerlessComputing;
     private final Integer serverlessComputingQueryPriority;
+    private final Integer serverlessComputingRequiredCores;
     private final Integer statementTimeoutSeconds;
     private boolean directConnect;
 
@@ -81,6 +84,23 @@ public class HologresConnectionParam implements Serializable {
     private final boolean dataTypeTolerant;
     private final boolean extraColumnTolerant;
 
+    // Scan read mode
+    private final String scanReadMode;
+    private final int scanBulkReadMaxBufferSize;
+    private final boolean scanBulkReadCompressionEnabled;
+
+    // STAGE mode
+    private final int stageTtl;
+    private final int maxArrowBatchSize;
+    private final int stageFileSizeLimit;
+    private final long stageCommitIntervalS;
+    private final int stageMaxFilesPerStage;
+    private final long stageFlushTimeoutMs;
+    private final boolean stageCheckpointAsyncCommitEnabled;
+    private final int stageMaxPendingInserts;
+    private final Boolean stageInternalStageSerialReadEnabled;
+    private final boolean stageCompressionEnabled;
+
     // JDBC dim
     private final boolean insertIfNotExists;
     private final int jdbcReadBatchSize;
@@ -88,7 +108,9 @@ public class HologresConnectionParam implements Serializable {
 
     public HologresConnectionParam(ReadableConfig properties) {
         this.options = JDBCUtils.getJDBCOptions(properties);
-        HoloVersion version = JDBCUtils.getHoloVersion(options);
+        HoloVersion holoVersion = JDBCUtils.getHoloVersion(options);
+        this.copyOutArrowSupported = HologresUtils.isCopyOutArrowSupported(holoVersion);
+        this.holoVersionString = holoVersion.toString();
         this.onConflictAction = getOnConflictActionInternal(properties);
 
         this.createMissingPartTable =
@@ -109,6 +131,8 @@ public class HologresConnectionParam implements Serializable {
                 properties.get(HologresConfigs.ENABLE_SERVERLESS_COMPUTING);
         this.serverlessComputingQueryPriority =
                 properties.get(HologresConfigs.SERVERLESS_COMPUTING_QUERY_PRIORITY);
+        this.serverlessComputingRequiredCores =
+                properties.get(HologresConfigs.SERVERLESS_COMPUTING_REQUIRED_CORES);
         this.statementTimeoutSeconds = properties.get(HologresConfigs.STATEMENT_TIMEOUT_SECONDS);
 
         this.jdbcReadBatchSize = properties.get(HologresConfigs.READ_BATCH_SIZE);
@@ -144,7 +168,7 @@ public class HologresConnectionParam implements Serializable {
                         properties.get(HologresConfigs.INSERT_CONFLICT_UPDATE_SET),
                         properties.get(HologresConfigs.INSERT_CONFLICT_WHERE));
         this.ignoreNullByExpr =
-                Expression.isVersionSupport(version)
+                Expression.isVersionSupport(holoVersion)
                         && !this.insertExpression.hasExpr()
                         && ignoreNullWhenUpdate;
         this.dirtyDataStrategy = properties.get(HologresConfigs.INSERT_DIRTY_DATA_STRATEGY);
@@ -153,6 +177,33 @@ public class HologresConnectionParam implements Serializable {
                 properties.get(HologresConfigs.ENABLE_MULTI_TABLE_DATATYPE_TOLERANT);
         this.extraColumnTolerant =
                 properties.get(HologresConfigs.ENABLE_MULTI_TABLE_EXTRA_COLUMN_TOLERANT);
+
+        this.scanReadMode = properties.get(HologresConfigs.SCAN_READ_MODE);
+        this.scanBulkReadMaxBufferSize =
+                properties.get(HologresConfigs.SCAN_BULK_READ_MAX_BUFFER_SIZE);
+        this.scanBulkReadCompressionEnabled =
+                properties.get(HologresConfigs.SCAN_BULK_READ_COMPRESSION_ENABLED);
+
+        // STAGE mode
+        this.stageTtl = properties.get(HologresConfigs.STAGE_TTL);
+        this.maxArrowBatchSize = properties.get(HologresConfigs.MAX_ARROW_BATCH_SIZE);
+        this.stageFileSizeLimit = properties.get(HologresConfigs.STAGE_FILE_SIZE_LIMIT);
+        this.stageCommitIntervalS = properties.get(HologresConfigs.STAGE_COMMIT_INTERVAL);
+        this.stageMaxFilesPerStage = properties.get(HologresConfigs.STAGE_MAX_FILES_PER_STAGE);
+        this.stageFlushTimeoutMs = properties.get(HologresConfigs.STAGE_FLUSH_TIMEOUT_MS);
+        this.stageCheckpointAsyncCommitEnabled =
+                properties.get(HologresConfigs.STAGE_CHECKPOINT_ASYNC_COMMIT_ENABLED);
+        this.stageMaxPendingInserts = properties.get(HologresConfigs.STAGE_MAX_PENDING_INSERTS);
+        this.stageInternalStageSerialReadEnabled =
+                properties
+                        .getOptional(HologresConfigs.STAGE_INTERNAL_STAGE_SERIAL_READ_ENABLED)
+                        .orElse(null);
+        this.stageCompressionEnabled =
+                resolveStageCompressionEnabled(
+                        properties
+                                .getOptional(HologresConfigs.STAGE_COMPRESSION_ENABLED)
+                                .orElse(null),
+                        holoVersion);
     }
 
     private static OnConflictAction getOnConflictActionInternal(ReadableConfig tableProperties) {
@@ -187,6 +238,14 @@ public class HologresConnectionParam implements Serializable {
 
     public JDBCOptions getJdbcOptions() {
         return this.options;
+    }
+
+    public boolean isCopyOutArrowSupported() {
+        return copyOutArrowSupported;
+    }
+
+    public String getHoloVersionString() {
+        return holoVersionString;
     }
 
     public int getConnectionPoolSize() {
@@ -389,12 +448,81 @@ public class HologresConnectionParam implements Serializable {
         return serverlessComputingQueryPriority;
     }
 
+    public Integer getServerlessComputingRequiredCores() {
+        return serverlessComputingRequiredCores;
+    }
+
     public Integer getStatementTimeoutSeconds() {
         return statementTimeoutSeconds;
     }
 
     public boolean isEnableFilterPushDown() {
         return enableFilterPushDown;
+    }
+
+    public String getScanReadMode() {
+        return scanReadMode;
+    }
+
+    public int getScanBulkReadMaxBufferSize() {
+        return scanBulkReadMaxBufferSize;
+    }
+
+    public boolean isScanBulkReadCompressionEnabled() {
+        return scanBulkReadCompressionEnabled;
+    }
+
+    public int getStageTtl() {
+        return stageTtl;
+    }
+
+    public int getMaxArrowBatchSize() {
+        return maxArrowBatchSize;
+    }
+
+    public int getStageFileSizeLimit() {
+        return stageFileSizeLimit;
+    }
+
+    public long getStageCommitIntervalMs() {
+        return stageCommitIntervalS * 1000;
+    }
+
+    public int getStageMaxFilesPerStage() {
+        return stageMaxFilesPerStage;
+    }
+
+    public long getStageFlushTimeoutMs() {
+        return stageFlushTimeoutMs;
+    }
+
+    public boolean isStageCheckpointAsyncCommitEnabled() {
+        return stageCheckpointAsyncCommitEnabled;
+    }
+
+    public int getStageMaxPendingInserts() {
+        return stageMaxPendingInserts;
+    }
+
+    public boolean isStageInternalStageSerialReadEnabled(boolean isBounded) {
+        return resolveStageInternalStageSerialReadEnabled(
+                stageInternalStageSerialReadEnabled, isBounded);
+    }
+
+    public boolean isStageCompressionEnabled() {
+        return stageCompressionEnabled;
+    }
+
+    static boolean resolveStageCompressionEnabled(Boolean configuredValue, HoloVersion version) {
+        if (configuredValue != null) {
+            return configuredValue;
+        }
+        return version != null && version.compareTo(new HoloVersion(4, 2, 8)) >= 0;
+    }
+
+    static boolean resolveStageInternalStageSerialReadEnabled(
+            Boolean configuredValue, boolean isBounded) {
+        return configuredValue != null ? configuredValue : !isBounded;
     }
 
     @Override
@@ -463,6 +591,24 @@ public class HologresConnectionParam implements Serializable {
                 .append(HologresConfigs.ENABLE_FILTER_PUSH_DOWN.key())
                 .append("=")
                 .append(enableFilterPushDown)
+                .append(",\n");
+
+        sb.append("\t")
+                .append(HologresConfigs.SCAN_READ_MODE.key())
+                .append("=")
+                .append(scanReadMode)
+                .append(",\n");
+
+        sb.append("\t")
+                .append(HologresConfigs.SCAN_BULK_READ_MAX_BUFFER_SIZE.key())
+                .append("=")
+                .append(scanBulkReadMaxBufferSize)
+                .append(",\n");
+
+        sb.append("\t")
+                .append(HologresConfigs.SCAN_BULK_READ_COMPRESSION_ENABLED.key())
+                .append("=")
+                .append(scanBulkReadCompressionEnabled)
                 .append(",\n");
 
         sb.append("\t")
@@ -640,9 +786,81 @@ public class HologresConnectionParam implements Serializable {
                 .append(",\n");
 
         sb.append("\t")
+                .append(HologresConfigs.SERVERLESS_COMPUTING_REQUIRED_CORES.key())
+                .append("=")
+                .append(
+                        serverlessComputingRequiredCores != null
+                                ? serverlessComputingRequiredCores
+                                : "auto")
+                .append(",\n");
+
+        sb.append("\t")
                 .append(HologresConfigs.STATEMENT_TIMEOUT_SECONDS.key())
                 .append("=")
                 .append(statementTimeoutSeconds)
+                .append(",\n");
+
+        sb.append("\t")
+                .append(HologresConfigs.STAGE_TTL.key())
+                .append("=")
+                .append(stageTtl)
+                .append(",\n");
+
+        sb.append("\t")
+                .append(HologresConfigs.MAX_ARROW_BATCH_SIZE.key())
+                .append("=")
+                .append(maxArrowBatchSize)
+                .append(",\n");
+
+        sb.append("\t")
+                .append(HologresConfigs.STAGE_FILE_SIZE_LIMIT.key())
+                .append("=")
+                .append(stageFileSizeLimit)
+                .append(",\n");
+
+        sb.append("\t")
+                .append(HologresConfigs.STAGE_COMMIT_INTERVAL.key())
+                .append("=")
+                .append(stageCommitIntervalS)
+                .append("s,\n");
+
+        sb.append("\t")
+                .append(HologresConfigs.STAGE_MAX_FILES_PER_STAGE.key())
+                .append("=")
+                .append(stageMaxFilesPerStage)
+                .append(",\n");
+
+        sb.append("\t")
+                .append(HologresConfigs.STAGE_FLUSH_TIMEOUT_MS.key())
+                .append("=")
+                .append(stageFlushTimeoutMs)
+                .append("ms,\n");
+
+        sb.append("\t")
+                .append(HologresConfigs.STAGE_CHECKPOINT_ASYNC_COMMIT_ENABLED.key())
+                .append("=")
+                .append(stageCheckpointAsyncCommitEnabled)
+                .append(",\n");
+
+        sb.append("\t")
+                .append(HologresConfigs.STAGE_MAX_PENDING_INSERTS.key())
+                .append("=")
+                .append(stageMaxPendingInserts)
+                .append(",\n");
+
+        sb.append("\t")
+                .append(HologresConfigs.STAGE_INTERNAL_STAGE_SERIAL_READ_ENABLED.key())
+                .append("=")
+                .append(
+                        stageInternalStageSerialReadEnabled != null
+                                ? stageInternalStageSerialReadEnabled
+                                : "auto")
+                .append(",\n");
+
+        sb.append("\t")
+                .append(HologresConfigs.STAGE_COMPRESSION_ENABLED.key())
+                .append("=")
+                .append(stageCompressionEnabled)
                 .append(",\n");
 
         sb.append("}\n");

@@ -8,7 +8,8 @@ public enum WriteMode {
     INSERT,
     COPY_STREAM,
     COPY_BULK_LOAD,
-    COPY_BULK_LOAD_ON_CONFLICT;
+    COPY_BULK_LOAD_ON_CONFLICT,
+    STAGE;
 
     public CopyMode toCopyMode() {
         switch (this) {

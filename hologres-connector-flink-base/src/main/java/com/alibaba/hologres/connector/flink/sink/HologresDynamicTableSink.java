@@ -9,6 +9,7 @@ import org.apache.flink.table.connector.sink.SinkFunctionProvider;
 import org.apache.flink.table.connector.sink.SinkV2Provider;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.types.logical.LogicalType;
+import org.apache.flink.table.types.logical.RowType;
 import org.apache.flink.types.RowKind;
 
 import com.alibaba.hologres.client.model.Column;
@@ -19,15 +20,19 @@ import com.alibaba.hologres.connector.flink.api.HologresWriter;
 import com.alibaba.hologres.connector.flink.config.DirtyDataStrategy;
 import com.alibaba.hologres.connector.flink.config.HologresConfigs;
 import com.alibaba.hologres.connector.flink.config.HologresConnectionParam;
+import com.alibaba.hologres.connector.flink.config.StageExecutionMode;
 import com.alibaba.hologres.connector.flink.config.WriteMode;
 import com.alibaba.hologres.connector.flink.jdbc.HologresJDBCWriter;
 import com.alibaba.hologres.connector.flink.jdbc.copy.HologresJDBCCopyWriter;
 import com.alibaba.hologres.connector.flink.sink.v1.HologresSinkFunction;
 import com.alibaba.hologres.connector.flink.sink.v2.HologresSink;
+import com.alibaba.hologres.connector.flink.sink.v2.stage.HologresStageSink;
 import com.alibaba.hologres.connector.flink.utils.SchemaUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -123,15 +128,64 @@ public class HologresDynamicTableSink implements DynamicTableSink {
             Expression ignoreNullExpr = new Expression(sb.toString(), null);
             param.setInsertExpression(ignoreNullExpr);
         }
-        if (param.isUseSinkV2() || param.isEnableReshuffleByHolo()) {
+        // STAGE streaming mode reshuffles through Sink V2 pre-write topology.
+        if (param.getWriteMode() == WriteMode.STAGE) {
+            String[] targetFieldNames =
+                    SchemaUtil.getTargetFieldNames(tableSchema, targetColumnIndexs);
+            RowType rowType = SchemaUtil.getRowType(tableSchema, targetFieldNames);
+            LogicalType[] targetFieldTypes =
+                    SchemaUtil.getLogicalTypes(tableSchema, targetFieldNames);
+            String qualifiedTableName = param.getTable();
+            boolean isBounded = resolveStageBoundedMode(config, context);
+            int shardCount = hologresTableSchema.getShardCount();
+            Integer[] distributionKeyIndexes =
+                    isBounded
+                            ? new Integer[0]
+                            : getDistributionKeyIndexes(targetFieldNames, hologresTableSchema);
+            Integer sinkParallelism = config.getOptional(SINK_PARALLELISM).orElse(null);
+
+            HologresStageSink stageSink =
+                    new HologresStageSink(
+                            param,
+                            qualifiedTableName,
+                            rowType,
+                            hologresTableSchema,
+                            isBounded,
+                            distributionKeyIndexes,
+                            targetFieldTypes);
+            stageSink.setParallelism(sinkParallelism);
+            return sinkParallelism == null
+                    ? SinkV2Provider.of(stageSink)
+                    : SinkV2Provider.of(stageSink, sinkParallelism);
+        }
+        if (param.isEnableReshuffleByHolo()) {
+            String[] targetFieldNames =
+                    SchemaUtil.getTargetFieldNames(tableSchema, targetColumnIndexs);
+            RowType rowType = SchemaUtil.getRowType(tableSchema, targetFieldNames);
+            LogicalType[] targetFieldTypes =
+                    SchemaUtil.getLogicalTypes(tableSchema, targetFieldNames);
+            int shardCount = hologresTableSchema.getShardCount();
+            Integer[] distributionKeyIndexes =
+                    getDistributionKeyIndexes(targetFieldNames, hologresTableSchema);
+            Integer sinkParallelism = config.getOptional(SINK_PARALLELISM).orElse(null);
             HologresSink<RowData> sink =
-                    new HologresSink<>(param, tableSchema, hologresTableSchema, targetColumnIndexs);
-            if (config.getOptional(SINK_PARALLELISM).isPresent()) {
-                sink.setParallelism(config.getOptional(SINK_PARALLELISM).get());
-                return SinkV2Provider.of(sink, config.getOptional(SINK_PARALLELISM).get());
-            } else {
-                return SinkV2Provider.of(sink);
-            }
+                    new HologresSink<>(
+                            param,
+                            tableSchema,
+                            targetColumnIndexs,
+                            shardCount,
+                            distributionKeyIndexes,
+                            targetFieldTypes);
+            sink.setParallelism(sinkParallelism);
+            return sinkParallelism == null
+                    ? SinkV2Provider.of(sink)
+                    : SinkV2Provider.of(sink, sinkParallelism);
+        }
+        if (param.isUseSinkV2()) {
+            HologresSink<RowData> sink = new HologresSink<>(param, tableSchema, targetColumnIndexs);
+            return config.getOptional(SINK_PARALLELISM)
+                    .map(parallelism -> SinkV2Provider.of(sink, parallelism))
+                    .orElseGet(() -> SinkV2Provider.of(sink));
         }
         HologresWriter<RowData> hologresWriter;
         String[] targetFieldNames = SchemaUtil.getTargetFieldNames(tableSchema, targetColumnIndexs);
@@ -158,5 +212,40 @@ public class HologresDynamicTableSink implements DynamicTableSink {
     @Override
     public String asSummaryString() {
         return "Hologres-" + tableName;
+    }
+
+    private static Integer[] getDistributionKeyIndexes(
+            String[] inputFieldNames, HologresTableSchema hologresTableSchema) {
+        Map<String, Integer> columnNameToIndex = new HashMap<>();
+        for (int i = 0; i < inputFieldNames.length; i++) {
+            columnNameToIndex.put(inputFieldNames[i], i);
+        }
+        String[] distributionKeys = hologresTableSchema.get().getDistributionKeys();
+        Integer[] indexes = new Integer[distributionKeys.length];
+        for (int i = 0; i < distributionKeys.length; i++) {
+            indexes[i] = columnNameToIndex.get(distributionKeys[i]);
+            if (indexes[i] == null) {
+                throw new IllegalArgumentException(
+                        String.format(
+                                "Hologres distribution key '%s' is missing from sink input fields",
+                                distributionKeys[i]));
+            }
+        }
+        return indexes;
+    }
+
+    static boolean resolveStageBoundedMode(ReadableConfig config, Context context) {
+        StageExecutionMode stageExecutionMode = config.get(HologresConfigs.STAGE_EXECUTION_MODE);
+        switch (stageExecutionMode) {
+            case BATCH:
+                return true;
+            case STREAMING:
+                return false;
+            case AUTO:
+                return context != null && context.isBounded();
+            default:
+                throw new ValidationException(
+                        "Unsupported sink.stage.execution-mode: " + stageExecutionMode);
+        }
     }
 }

@@ -112,6 +112,10 @@ public class HologresBulkReader implements Serializable {
                                 "set hg_experimental_serverless_computing_query_priority = '%d';",
                                 connectionParam.getServerlessComputingQueryPriority()));
             }
+            // Must stay false: pgjdbc only enables the server side cursor (QUERY_FORWARD_CURSOR)
+            // when autoCommit is off, otherwise setFetchSize below is ignored and the whole result
+            // set is materialized in the TaskManager heap. The transaction it opens is ended by
+            // close(), which closes the connection.
             conn.setAutoCommit(false);
             statement =
                     conn.prepareStatement(
@@ -119,7 +123,12 @@ public class HologresBulkReader implements Serializable {
             statement.setFetchSize(connectionParam.getScanFetchSize());
             statement.setQueryTimeout(connectionParam.getScanTimeoutSeconds());
             resultSet = statement.executeQuery();
-        } catch (SQLException e) {
+        } catch (SQLException | RuntimeException e) {
+            // JDBCUtils.executeSql rethrows SQLException as RuntimeException, so both have to be
+            // caught here. Without this the connection leaks: the socket lives until socketTimeout,
+            // and a transaction already started above keeps the backend session idle in transaction
+            // until idle_in_transaction_session_timeout, which is set to 1h above.
+            closeConnection();
             throw new IOException(
                     String.format(
                             "Failed to execute query \"%s\" because %s",
@@ -247,13 +256,27 @@ public class HologresBulkReader implements Serializable {
     }
 
     public void close() throws IOException {
+        closeConnection();
+    }
+
+    /**
+     * Closes the connection, which is all that is needed to release the bulk read: the connection
+     * is created per reader by {@code DriverManager} and never pooled, so closing it drops the
+     * cursor and makes the backend abort the open transaction. Neither an explicit commit nor
+     * restoring autoCommit is required.
+     *
+     * <p>A failure here is only logged. Flink closes the input format from the {@code finally}
+     * block that rethrows the job failure, so an exception raised here would replace the real root
+     * cause instead of being suppressed.
+     */
+    private void closeConnection() {
         if (conn != null) {
             try {
                 conn.close();
-                conn = null;
             } catch (SQLException e) {
-                throw new RuntimeException(e);
+                LOG.warn("Failed to close bulk read connection", e);
             }
+            conn = null;
         }
     }
 }

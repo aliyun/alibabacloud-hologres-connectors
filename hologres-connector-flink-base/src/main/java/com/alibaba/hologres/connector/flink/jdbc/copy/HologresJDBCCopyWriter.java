@@ -25,6 +25,7 @@ import com.alibaba.hologres.connector.flink.config.HologresConnectionParam;
 import com.alibaba.hologres.connector.flink.jdbc.HologresJDBCClientProvider;
 import com.alibaba.hologres.connector.flink.jdbc.HologresJDBCRecordReader;
 import com.alibaba.hologres.connector.flink.jdbc.HologresJDBCRecordWriter;
+import com.alibaba.hologres.connector.flink.sink.repartition.RowDataShardUtil;
 import com.alibaba.hologres.connector.flink.sink.v1.multi.InternalHologresMapRecordConverter;
 import com.alibaba.hologres.connector.flink.utils.JDBCUtils;
 import com.alibaba.hologres.org.postgresql.copy.CopyIn;
@@ -38,12 +39,10 @@ import java.io.IOException;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Types;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
 import java.util.stream.Collectors;
 
 import static com.alibaba.hologres.client.copy.CopyUtil.buildCopyInSql;
@@ -56,6 +55,7 @@ public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
             LoggerFactory.getLogger(HologresJDBCCopyWriter.class);
     private int taskNumber;
     private int numTasks;
+    private Integer routedShardId;
     private final int shardCount;
     private final CopyMode copyMode;
     private transient Map<String, CopyContext> partitionValueToCopyContext;
@@ -129,6 +129,14 @@ public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
 
     @Override
     public long writeAddRecord(T record) throws IOException {
+        return writeAddRecord(record, null);
+    }
+
+    /** Writes a record carrying the shard id calculated before the sink topology. */
+    public long writeAddRecord(T record, Integer targetShard) throws IOException {
+        if (targetShard != null) {
+            registerRoutedShard(targetShard);
+        }
         CopyContext copyContext;
         Record jdbcRecord = recordConverter.convertFrom(record);
         LOG.debug("Hologres insert record in JDBC-COPY: {}", jdbcRecord);
@@ -328,14 +336,19 @@ public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
                         "set hg_experimental_enable_fixed_dispatcher_affected_rows = off;",
                         false);
                 if (param.isEnableReshuffleByHolo()) {
+                    if (routedShardId == null) {
+                        throw new IllegalStateException(
+                                "Reshuffle is enabled but the input record does not carry a shard id");
+                    }
                     String result =
-                            getTargetShardList().stream()
+                            getTargetShardList(routedShardId).stream()
                                     .map(String::valueOf)
                                     .collect(Collectors.joining(","));
                     LOG.info(
-                            "enable target-shards, numTasks: {}, this taskNumber: {}, target shard list: {}",
+                            "enable target-shards from routed data, numTasks: {}, this taskNumber: {}, routed shard: {}, target shard list: {}",
                             numTasks,
                             taskNumber,
+                            routedShardId,
                             result);
                     JDBCUtils.executeSql(
                             pgConn,
@@ -351,7 +364,7 @@ public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
                 }
                 manager = new CopyManager(pgConn);
                 LOG.info("init new manager success");
-            } catch (SQLException e) {
+            } catch (Exception e) {
                 if (null != conn) {
                     try {
                         conn.close();
@@ -379,36 +392,38 @@ public class HologresJDBCCopyWriter<T> extends HologresWriter<T> {
         }
     }
 
+    /** Records and validates the shard routing carried by input records. */
+    private void registerRoutedShard(int targetShard) throws IOException {
+        if (targetShard < 0 || targetShard >= shardCount) {
+            throw new IOException(
+                    String.format(
+                            "Invalid routed shard id %s, expected range is [0, %s)",
+                            targetShard, shardCount));
+        }
+        if (numTasks <= 0) {
+            throw new IOException("Invalid sink parallelism " + numTasks);
+        }
+        if (routedShardId == null) {
+            routedShardId = targetShard;
+            return;
+        }
+        if (targetShard % numTasks != routedShardId % numTasks) {
+            throw new IOException(
+                    String.format(
+                            "The same sink writer received incompatible routed shards %s and %s with parallelism %s",
+                            routedShardId, targetShard, numTasks));
+        }
+    }
+
     /**
-     * compute target shard list for re-shuffle.
+     * Computes the shards assigned to the same downstream partition as {@code targetShard}.
      *
-     * <p>If the holo table has Distribution Keys, data will only be written to the first shardCount
-     * tasks after reshuffle. In other words, if the number of tasks is greater than shardCount,
-     * there will be no data flow into the additional tasks. If the holo table does not have
-     * Distribution Keys set, reshuffle will be random, and all tasks will have traffic and only
-     * write to a single shard.
-     *
-     * <p>for example, hava distribution key, numTasks = 2, shardCount = 4: Task 0: [0, 2], Task 1:
-     * [1, 3]
-     *
-     * <p>for example, hava distribution key, numTasks = 8, shardCount = 4: Task 0: [0], Task 1:
-     * [1], Task 2: [2], Task 3: [3], Task 4-7: none
-     *
-     * <p>for example, no distribution key, numTasks = 8, shardCount = 4: Task 0: [0], Task 1: [1],
-     * Task 2: [2], Task 3: [3], Task 4-7: random single shard
-     *
-     * @return target shard list
+     * <p>The routed shard from the data stream identifies the actual partition, so this calculation
+     * does not depend on the sink task id. For example, with parallelism 2 and shard count 4, a
+     * routed shard 2 maps to [0, 2], while a routed shard 3 maps to [1, 3].
      */
-    private List<Integer> getTargetShardList() {
-        List<Integer> targetShardList = new ArrayList<>();
-        for (int i = 0; i * numTasks + taskNumber < shardCount; i++) {
-            int p = i * numTasks + taskNumber;
-            targetShardList.add(p);
-        }
-        if (targetShardList.isEmpty()) {
-            targetShardList.add(new Random().nextInt(shardCount));
-        }
-        return targetShardList;
+    private List<Integer> getTargetShardList(int targetShard) {
+        return RowDataShardUtil.getTargetShardList(targetShard, shardCount, numTasks);
     }
 
     private com.alibaba.hologres.client.model.TableSchema checkChildTableExists(

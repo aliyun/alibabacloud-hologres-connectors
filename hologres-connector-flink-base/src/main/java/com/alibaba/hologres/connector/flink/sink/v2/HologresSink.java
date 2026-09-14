@@ -21,15 +21,13 @@ import org.apache.flink.streaming.api.connector.sink2.SupportsPreWriteTopology;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.table.api.TableSchema;
 import org.apache.flink.table.api.constraints.UniqueConstraint;
+import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.types.logical.LogicalType;
 
-import com.alibaba.hologres.connector.flink.api.HologresTableSchema;
 import com.alibaba.hologres.connector.flink.config.HologresConnectionParam;
 import com.alibaba.hologres.connector.flink.sink.repartition.HoloKeySelector;
 import com.alibaba.hologres.connector.flink.sink.repartition.HoloPartitioner;
 import com.alibaba.hologres.connector.flink.utils.SchemaUtil;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.Collections;
@@ -38,26 +36,30 @@ import java.util.Map;
 
 /** A {@link Sink V2} for Hologres. */
 public class HologresSink<InputT> implements Sink<InputT>, SupportsPreWriteTopology<InputT> {
-    private static final Logger LOG = LoggerFactory.getLogger(HologresSink.class);
-
     private final HologresConnectionParam param;
-    private final HologresTableSchema hologresTableSchema;
-    private final Integer[] distributionKeyIndexes;
 
     // TableSchema is not Serialiaze, just get what we need from TableSchema;
     private final String[] targetFieldNames;
     private final LogicalType[] targetFieldTypes;
     private final Integer[] targetColumnIndexs;
     private final Map<String, LogicalType> primarykeys;
-
-    // user can custom set sink parallelism, default null
+    private final int shardCount;
+    private final Integer[] distributionKeyIndexes;
+    private final LogicalType[] routingFieldTypes;
     private Integer parallelism;
+
+    public HologresSink(
+            HologresConnectionParam param, TableSchema tableSchema, Integer[] targetColumnIndexes) {
+        this(param, tableSchema, targetColumnIndexes, 0, new Integer[0], new LogicalType[0]);
+    }
 
     public HologresSink(
             HologresConnectionParam param,
             TableSchema tableSchema,
-            HologresTableSchema hologresTableSchema,
-            Integer[] targetColumnIndexes) {
+            Integer[] targetColumnIndexes,
+            int shardCount,
+            Integer[] distributionKeyIndexes,
+            LogicalType[] routingFieldTypes) {
         this.param = param;
         String[] targetFieldNames =
                 SchemaUtil.getTargetFieldNames(tableSchema, targetColumnIndexes);
@@ -75,12 +77,32 @@ public class HologresSink<InputT> implements Sink<InputT>, SupportsPreWriteTopol
                                                 .getFieldDataType(name)
                                                 .orElseThrow(IllegalArgumentException::new)
                                                 .getLogicalType()));
-        this.hologresTableSchema = hologresTableSchema;
-        this.distributionKeyIndexes = getDistributionKeyIndexesInFlink(tableSchema);
         this.targetFieldNames = targetFieldNames;
         this.targetFieldTypes = targetFieldTypes;
         this.primarykeys = pks;
         this.targetColumnIndexs = targetColumnIndexes;
+        this.shardCount = shardCount;
+        this.distributionKeyIndexes = distributionKeyIndexes;
+        this.routingFieldTypes = routingFieldTypes;
+    }
+
+    public void setParallelism(Integer parallelism) {
+        this.parallelism = parallelism;
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public DataStream<InputT> addPreWriteTopology(DataStream<InputT> input) {
+        if (distributionKeyIndexes.length == 0) {
+            return input;
+        }
+        DataStream<RowData> rowDataInput = (DataStream<RowData>) (DataStream<?>) input;
+        return (DataStream<InputT>)
+                (DataStream<?>)
+                        rowDataInput.partitionCustom(
+                                new HoloPartitioner(parallelism),
+                                new HoloKeySelector<>(
+                                        shardCount, distributionKeyIndexes, routingFieldTypes));
     }
 
     @Override
@@ -91,53 +113,9 @@ public class HologresSink<InputT> implements Sink<InputT>, SupportsPreWriteTopol
                 targetFieldTypes,
                 targetColumnIndexs,
                 primarykeys,
+                shardCount,
+                distributionKeyIndexes,
+                routingFieldTypes,
                 initContext);
-    }
-
-    @Override
-    public DataStream<InputT> addPreWriteTopology(DataStream<InputT> input) {
-        // 必须指定使用reshuffle参数
-        if (!param.isEnableReshuffleByHolo()) {
-            return input;
-        }
-
-        LOG.info(
-                "PreWriteTopology: reShuffle by hologres distribution keys, input parallelism: {}, shardCount: {}, distribution keys: {}",
-                input.getParallelism(),
-                hologresTableSchema.getShardCount(),
-                hologresTableSchema.get().getDistributionKeys());
-
-        HoloKeySelector<InputT> keySelector =
-                new HoloKeySelector<>(
-                        hologresTableSchema.getShardCount(),
-                        distributionKeyIndexes,
-                        targetFieldTypes);
-        HoloPartitioner partitioner = new HoloPartitioner(parallelism);
-        return input.partitionCustom(partitioner, keySelector);
-    }
-
-    /**
-     * Get distribution key indexes.
-     *
-     * @param tableSchema table schema
-     * @return distribution key indexes
-     */
-    private Integer[] getDistributionKeyIndexesInFlink(TableSchema tableSchema) {
-        Map<String, Integer> columnNameToIndex = new HashMap<>();
-        for (int i = 0; i < tableSchema.getFieldCount(); i++) {
-            columnNameToIndex.put(tableSchema.getFieldNames()[i], i);
-        }
-
-        String[] distributionKeys = hologresTableSchema.get().getDistributionKeys();
-        Integer[] distributionKeyIndexesInFlink = new Integer[distributionKeys.length];
-        int i = 0;
-        for (String dk : distributionKeys) {
-            distributionKeyIndexesInFlink[i++] = columnNameToIndex.get(dk);
-        }
-        return distributionKeyIndexesInFlink;
-    }
-
-    public void setParallelism(Integer parallelism) {
-        this.parallelism = parallelism;
     }
 }

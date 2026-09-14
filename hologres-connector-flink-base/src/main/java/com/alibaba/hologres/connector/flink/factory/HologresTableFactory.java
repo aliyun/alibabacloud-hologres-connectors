@@ -79,7 +79,9 @@ public class HologresTableFactory implements DynamicTableSinkFactory, DynamicTab
 
     @Override
     public Set<ConfigOption<?>> optionalOptions() {
-        return HologresConfigs.getAllOption();
+        Set<ConfigOption<?>> allOptions = HologresConfigs.getAllOption();
+        allOptions.removeAll(requiredOptions());
+        return allOptions;
     }
 
     public static DynamicTableFactory.Context normalizeContext(

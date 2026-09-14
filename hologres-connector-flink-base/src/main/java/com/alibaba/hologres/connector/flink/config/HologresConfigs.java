@@ -53,6 +53,11 @@ public class HologresConfigs {
             key("serverless-computing.enabled".toLowerCase()).booleanType().defaultValue(false);
     public static final ConfigOption<Integer> SERVERLESS_COMPUTING_QUERY_PRIORITY =
             key("serverless-computing.query-priority".toLowerCase()).intType().defaultValue(3);
+    public static final ConfigOption<Integer> SERVERLESS_COMPUTING_REQUIRED_CORES =
+            key("serverless-computing.required-cores".toLowerCase())
+                    .intType()
+                    .noDefaultValue()
+                    .withDescription("Serverless 计算所需核数, 不设置时由实例自动推断");
 
     public static final ConfigOption<Integer> JDBC_RETRY_COUNT =
             key("retry-count".toLowerCase()).intType().defaultValue(10);
@@ -70,6 +75,26 @@ public class HologresConfigs {
             key("source.scan.timeout-seconds".toLowerCase()).intType().defaultValue(28800);
     public static final ConfigOption<Boolean> ENABLE_FILTER_PUSH_DOWN =
             key("source.filter-push-down.enabled".toLowerCase()).booleanType().defaultValue(false);
+    public static final ConfigOption<String> SCAN_READ_MODE =
+            key("source.scan.read-mode".toLowerCase())
+                    .stringType()
+                    .defaultValue("select")
+                    .withDescription(
+                            "Scan read mode: select (default, uses SQL SELECT) or bulk_read "
+                                    + "(uses COPY OUT with Arrow format for higher throughput).");
+    public static final ConfigOption<Integer> SCAN_BULK_READ_MAX_BUFFER_SIZE =
+            key("source.scan.bulk-read.max-buffer-size".toLowerCase())
+                    .intType()
+                    .defaultValue(52428800)
+                    .withDescription(
+                            "Max cell buffer size in bytes for COPY OUT Arrow bulk read, "
+                                    + "default 50MB.");
+    public static final ConfigOption<Boolean> SCAN_BULK_READ_COMPRESSION_ENABLED =
+            key("source.scan.bulk-read.compression.enabled".toLowerCase())
+                    .booleanType()
+                    .defaultValue(true)
+                    .withDescription(
+                            "Whether to use LZ4 compressed Arrow format for bulk read, default true.");
 
     // Sink options
     public static final ConfigOption<WriteMode> WRITE_MODE =
@@ -148,6 +173,91 @@ public class HologresConfigs {
                     .booleanType()
                     .defaultValue(false);
 
+    // ========== STAGE 模式参数 ==========
+    public static final ConfigOption<Integer> STAGE_TTL =
+            key("sink.stage.ttl".toLowerCase())
+                    .intType()
+                    .defaultValue(86400)
+                    .withDescription(
+                            "TTL of internal stages in seconds. Default: 86400 (24 hours). "
+                                    + "In synchronous commit mode, successfully imported stages are best-effort cleaned up and TTL is only a safety net. "
+                                    + "In asynchronous checkpoint commit mode, inserted stages are not actively cleaned up so that recovery can replay them; cleanup mainly relies on TTL. "
+                                    + "The TTL must cover the checkpoint interval, Stage INSERT duration, and recovery window.");
+    public static final ConfigOption<Integer> MAX_ARROW_BATCH_SIZE =
+            key("sink.stage.max-arrow-batch-size".toLowerCase())
+                    .intType()
+                    .defaultValue(8192)
+                    .withDescription(
+                            "Maximum number of rows in each STAGE Arrow RecordBatch. Default: 8192 rows.");
+    public static final ConfigOption<Integer> STAGE_FILE_SIZE_LIMIT =
+            key("sink.stage.file-size-limit".toLowerCase())
+                    .intType()
+                    .defaultValue(67108864)
+                    .withDescription(
+                            "Maximum size of each STAGE file in bytes. Default: 67108864 bytes (64 MB).");
+    public static final ConfigOption<Long> STAGE_COMMIT_INTERVAL =
+            key("sink.stage.commit-interval-seconds".toLowerCase())
+                    .longType()
+                    .defaultValue(30L)
+                    .withDescription(
+                            "Time interval in seconds to automatically seal the current Stage in STREAMING mode. Default: 30 seconds.");
+    public static final ConfigOption<Integer> STAGE_MAX_FILES_PER_STAGE =
+            key("sink.stage.max-files-per-stage".toLowerCase())
+                    .intType()
+                    .defaultValue(8)
+                    .withDescription(
+                            "Maximum number of files in a single Stage in STREAMING mode. Default: 8 files. "
+                                    + "When this limit is reached, the current Stage is sealed and enqueued for INSERT.");
+    public static final ConfigOption<Long> STAGE_FLUSH_TIMEOUT_MS =
+            key("sink.stage.flush-timeout-ms".toLowerCase())
+                    .longType()
+                    .defaultValue(300_000L)
+                    .withDescription(
+                            "Total timeout budget for one STREAMING flush/checkpoint to wait for Stage processing to finish. "
+                                    + "Default: 300000 ms. This shared budget covers Stage seal, Stage INSERT, connection rebuild and retry waits after INSERT failures, "
+                                    + "and backpressure waits during flush. If the budget is exhausted, the connector stops retrying, fails the checkpoint, "
+                                    + "and relies on Flink failover/recovery.");
+    public static final ConfigOption<Boolean> STAGE_CHECKPOINT_ASYNC_COMMIT_ENABLED =
+            key("sink.stage.checkpoint-async-commit.enabled".toLowerCase())
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether to enable asynchronous checkpoint commit in STREAMING mode. Default: false. "
+                                    + "When disabled, a checkpoint waits until all Stage INSERTs sealed before that checkpoint have completed. "
+                                    + "When enabled, checkpoint N only waits for the Stage cohort saved by checkpoint N-1. "
+                                    + "The Stage sealed by checkpoint N is inserted asynchronously after the checkpoint returns. "
+                                    + "In other words, after checkpoint N succeeds, the newly sealed Stage is not necessarily visible yet; only after checkpoint N+1 succeeds "
+                                    + "is the previous cohort guaranteed to have completed and become visible.");
+    public static final ConfigOption<StageExecutionMode> STAGE_EXECUTION_MODE =
+            key("sink.stage.execution-mode".toLowerCase())
+                    .enumType(StageExecutionMode.class)
+                    .defaultValue(StageExecutionMode.AUTO)
+                    .withDescription(
+                            "Execution mode for the STAGE sink. Supported values: AUTO, BATCH, STREAMING. Default: AUTO. "
+                                    + "This table-level option takes precedence over Flink's global execution.runtime-mode. "
+                                    + "In AUTO mode, the connector follows Flink's actual boundedness: bounded jobs use BATCH and unbounded jobs use STREAMING.");
+    public static final ConfigOption<Integer> STAGE_MAX_PENDING_INSERTS =
+            key("sink.stage.max-pending-inserts".toLowerCase())
+                    .intType()
+                    .defaultValue(2)
+                    .withDescription(
+                            "Maximum number of unfinished Stage INSERTs allowed per writer in STREAMING mode. Default: 2. "
+                                    + "Unfinished stages include stages waiting for INSERT, currently being inserted, or waiting for the next checkpoint confirmation. "
+                                    + "When the limit is reached, the writer blocks and applies backpressure upstream to avoid unbounded buildup.");
+    public static final ConfigOption<Boolean> STAGE_INTERNAL_STAGE_SERIAL_READ_ENABLED =
+            key("sink.stage.internal-stage-serial-read.enabled".toLowerCase())
+                    .booleanType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Whether to set hg_experimental_internal_stage_serial_read during STAGE INSERT. "
+                                    + "If not explicitly configured, it is enabled by default for streaming jobs and disabled by default for batch jobs.");
+    public static final ConfigOption<Boolean> STAGE_COMPRESSION_ENABLED =
+            key("sink.stage.compression.enabled".toLowerCase())
+                    .booleanType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Whether to enable LZ4 compression for STAGE Arrow files. "
+                                    + "If not explicitly configured, compression is enabled by default for Hologres 4.2.8 and later, and disabled for earlier versions.");
     // 仅copy模式生效，根据总并发数，当前并发id和写入表的shard数，计算当前task将会写入的target shard，需要上游数据已经基于distribution
     // key进行了Repartition，且使用取余的方式分布在了holo的shard上
     public static final ConfigOption<Boolean> ENABLE_RESHUFFLE_BY_HOLO =

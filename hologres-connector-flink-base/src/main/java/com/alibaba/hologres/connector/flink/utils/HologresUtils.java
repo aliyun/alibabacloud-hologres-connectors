@@ -44,6 +44,15 @@ import java.util.Optional;
 /** HologresUtils. */
 public class HologresUtils {
 
+    public static boolean isCopyOutArrowSupported(HoloVersion version) {
+        if (version.compareTo(new HoloVersion(4, 1, 0)) >= 0) {
+            return true;
+        }
+        return version.getMajorVersion() == 4
+                && version.getMinorVersion() == 0
+                && version.compareTo(new HoloVersion(4, 0, 18)) >= 0;
+    }
+
     public static String removeU0000(final String in) {
         if (in != null && in.contains("\u0000")) {
             return in.replaceAll("\u0000", "");

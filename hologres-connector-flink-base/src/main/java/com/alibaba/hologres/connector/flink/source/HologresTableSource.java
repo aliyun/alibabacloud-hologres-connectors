@@ -23,6 +23,7 @@ import com.alibaba.hologres.connector.flink.config.HologresConfigs;
 import com.alibaba.hologres.connector.flink.config.HologresConnectionParam;
 import com.alibaba.hologres.connector.flink.config.JDBCOptions;
 import com.alibaba.hologres.connector.flink.source.bulkread.HologresBulkreadInputFormat;
+import com.alibaba.hologres.connector.flink.source.bulkread.HologresCopyBulkreadInputFormat;
 import com.alibaba.hologres.connector.flink.source.lookup.HologresAsyncLookupFunction;
 import com.alibaba.hologres.connector.flink.source.lookup.HologresLookupFunction;
 import com.alibaba.hologres.connector.flink.utils.HologresUtils;
@@ -156,6 +157,22 @@ public class HologresTableSource
                 HologresTableSchema.get(connectionParam.getJdbcOptions());
         verifyBulkReadJob(tableSchema.getFieldNames(), hologresTableSchema);
         LOG.info("Filter predicate of bulk read is: " + filterPredicate);
+
+        // Use COPY read mode when configured
+        String scanReadMode = connectionParam.getScanReadMode();
+        if ("bulk_read".equalsIgnoreCase(scanReadMode)) {
+            if (connectionParam.isCopyOutArrowSupported()) {
+                LOG.info("Using COPY OUT (Arrow) read mode for bulk read");
+                return InputFormatProvider.of(
+                        new HologresCopyBulkreadInputFormat(
+                                connectionParam, jdbcOptions, tableSchema, filterPredicate, limit));
+            }
+            LOG.warn(
+                    "COPY OUT Arrow read mode requires Hologres >= 4.1.0 or >= 4.0.18 "
+                            + "on the 4.0 branch, but current version is {}. Falling back to SELECT.",
+                    connectionParam.getHoloVersionString());
+        }
+
         return InputFormatProvider.of(
                 new HologresBulkreadInputFormat(
                         connectionParam, jdbcOptions, tableSchema, filterPredicate, limit));

@@ -19,8 +19,6 @@ import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.types.logical.LogicalType;
 
-import java.util.concurrent.ConcurrentSkipListMap;
-
 /**
  * HoloKeySelector.
  *
@@ -28,16 +26,12 @@ import java.util.concurrent.ConcurrentSkipListMap;
  * shard where the holo is written.
  */
 public class HoloKeySelector<InputT> implements KeySelector<InputT, Integer> {
-    private final ConcurrentSkipListMap<Integer, Integer> splitRange =
-            new ConcurrentSkipListMap<>();
+    private final int shardCount;
     private final Integer[] keyIndexes;
     private final LogicalType[] fieldTypes;
 
     public HoloKeySelector(int shardCount, Integer[] keyIndexes, LogicalType[] fieldTypes) {
-        int[][] range = RowDataShardUtil.split(shardCount);
-        for (int i = 0; i < shardCount; ++i) {
-            splitRange.put(range[i][0], i);
-        }
+        this.shardCount = shardCount;
         this.keyIndexes = keyIndexes;
         this.fieldTypes = fieldTypes;
     }
@@ -46,9 +40,7 @@ public class HoloKeySelector<InputT> implements KeySelector<InputT, Integer> {
     @Override
     public Integer getKey(InputT value) {
         if (value instanceof RowData) {
-            int raw = RowDataShardUtil.hash((RowData) value, keyIndexes, fieldTypes);
-            int hash = Integer.remainderUnsigned(raw, RowDataShardUtil.RANGE_END);
-            return splitRange.floorEntry(hash).getValue();
+            return RowDataShardUtil.getShardId((RowData) value, keyIndexes, fieldTypes, shardCount);
         } else {
             throw new RuntimeException("HoloKeySelector only support RowData.");
         }

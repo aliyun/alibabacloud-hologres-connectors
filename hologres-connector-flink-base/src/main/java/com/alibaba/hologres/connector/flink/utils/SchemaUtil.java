@@ -25,6 +25,16 @@ public class SchemaUtil {
         return fieldTypes;
     }
 
+    public static RowType getRowType(TableSchema tableSchema, String[] fieldNames) {
+        RowType.RowField[] rowFields = new RowType.RowField[fieldNames.length];
+        for (int i = 0; i < fieldNames.length; i++) {
+            LogicalType logicalType =
+                    tableSchema.getFieldDataType(fieldNames[i]).get().getLogicalType();
+            rowFields[i] = new RowType.RowField(fieldNames[i], logicalType);
+        }
+        return new RowType(java.util.Arrays.asList(rowFields));
+    }
+
     public static String[] getTargetFieldNames(
             org.apache.flink.table.api.TableSchema tableSchema, Integer[] targetColumnIndexes) {
         if (Objects.nonNull(targetColumnIndexes) && targetColumnIndexes.length > 0) {
