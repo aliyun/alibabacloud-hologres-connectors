@@ -412,6 +412,48 @@ public class CommonUtil {
     }
 
     /**
+     * Parse the logical partition column names stored in hg_table_properties
+     * (logical_partition_columns). Column names are stored raw (without quotes) by default, and
+     * wrapped in double quotes only when they contain special characters such as commas, e.g.
+     * {@code ds} -> {@code ["ds"]}; {@code DS,My Col} -> {@code ["DS", "My Col"]}; {@code "d,s"} ->
+     * {@code ["d,s"]}.
+     */
+    public static String[] parseLogicalPartitionColumnsProperty(String propertyValue) {
+        List<String> columnNames = new ArrayList<>();
+        StringBuilder currentIdentifier = new StringBuilder();
+        boolean insideQuotes = false;
+
+        for (int i = 0; i < propertyValue.length(); ++i) {
+            char ch = propertyValue.charAt(i);
+
+            if (insideQuotes) {
+                if (ch == '"') {
+                    if (i + 1 < propertyValue.length() && propertyValue.charAt(i + 1) == '"') {
+                        currentIdentifier.append('"');
+                        i++;
+                    } else {
+                        insideQuotes = false;
+                    }
+                } else {
+                    currentIdentifier.append(ch);
+                }
+            } else {
+                if (ch == '"') {
+                    insideQuotes = true;
+                } else if (ch == ',') {
+                    columnNames.add(currentIdentifier.toString());
+                    currentIdentifier.setLength(0);
+                } else {
+                    currentIdentifier.append(ch);
+                }
+            }
+        }
+        columnNames.add(currentIdentifier.toString());
+
+        return columnNames.toArray(new String[0]);
+    }
+
+    /**
      * Parse the quoted logical partition values string into a 2D array. Columns within a partition
      * are separated by commas; multiple partitions are separated by semicolons. Each value must be
      * wrapped in double quotes and embedded double quotes are escaped by doubling. Whitespace

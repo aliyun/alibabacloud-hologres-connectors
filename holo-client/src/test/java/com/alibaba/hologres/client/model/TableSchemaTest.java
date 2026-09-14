@@ -77,6 +77,140 @@ public class TableSchemaTest extends HoloClientTestBase {
         }
     }
 
+    /** 逻辑分区表的分区列名元数据. Method: getLogicalPartitionColumnNames(). */
+    @Test
+    public void testLogicalPartitionTableMetadata() throws Exception {
+        if (properties == null) {
+            return;
+        }
+        // 逻辑分区表自Hologres V3.1版本起支持
+        if (holoVersion.compareTo(new HoloVersion(3, 1, 0)) < 0) {
+            return;
+        }
+        HoloConfig config = buildConfig();
+        try (Connection conn = buildConnection();
+                HoloClient client = new HoloClient(config)) {
+            String singleTable = "holo_client_lp_single";
+            String twoColTable = "holo_client_lp_two_cols";
+            String normalTable = "holo_client_lp_normal";
+
+            String[] dropSqls = {
+                "drop table if exists " + singleTable,
+                "drop table if exists " + twoColTable,
+                "drop table if exists " + normalTable
+            };
+            String createSingleSql =
+                    "create table "
+                            + singleTable
+                            + "(pk bigint not null, id bigint, ds text not null, primary key(pk, ds)) "
+                            + "LOGICAL PARTITION BY LIST(ds)";
+            String createTwoColSql =
+                    "create table "
+                            + twoColTable
+                            + "(pk bigint not null, id bigint, yy text not null, mm text not null, primary key(pk, yy, mm)) "
+                            + "LOGICAL PARTITION BY LIST(yy, mm)";
+            String createNormalSql =
+                    "create table "
+                            + normalTable
+                            + "(pk bigint not null, id bigint, primary key(pk))";
+
+            execute(
+                    conn,
+                    new String[] {
+                        dropSqls[0],
+                        dropSqls[1],
+                        dropSqls[2],
+                        createSingleSql,
+                        createTwoColSql,
+                        createNormalSql
+                    });
+
+            try {
+                TableSchema singleSchema = client.getTableSchema(singleTable, true);
+                Assert.assertTrue(singleSchema.isLogicalPartitionedTable());
+                Assert.assertEquals(
+                        singleSchema.getLogicalPartitionColumnNames(), new String[] {"ds"});
+
+                TableSchema twoColSchema = client.getTableSchema(twoColTable, true);
+                Assert.assertTrue(twoColSchema.isLogicalPartitionedTable());
+                Assert.assertEquals(
+                        twoColSchema.getLogicalPartitionColumnNames(), new String[] {"yy", "mm"});
+
+                TableSchema normalSchema = client.getTableSchema(normalTable, true);
+                Assert.assertFalse(normalSchema.isLogicalPartitionedTable());
+                Assert.assertNull(normalSchema.getLogicalPartitionColumnNames());
+            } finally {
+                execute(conn, dropSqls);
+            }
+        }
+    }
+
+    /** 特殊字符分区列名(大写/空格). Method: getLogicalPartitionColumnNames(). */
+    @Test
+    public void testLogicalPartitionTableMetadataWithSpecialColumnNames() throws Exception {
+        if (properties == null) {
+            return;
+        }
+        // 逻辑分区表自Hologres V3.1版本起支持
+        if (holoVersion.compareTo(new HoloVersion(3, 1, 0)) < 0) {
+            return;
+        }
+        HoloConfig config = buildConfig();
+        try (Connection conn = buildConnection();
+                HoloClient client = new HoloClient(config)) {
+            String mixedCaseTable = "holo_client_lp_special_case";
+
+            String[] dropSqls = {"drop table if exists " + mixedCaseTable};
+            // 大写+空格列名, 服务端存储为不带引号的原始列名
+            // (列名含逗号/双引号等字符时服务端distribution_key等其他属性本身存在歧义, 不在e2e覆盖,
+            //  由CommonUtilTest.testParseColumnsPropertyQuotedComma覆盖解析逻辑)
+            String createMixedCaseSql =
+                    "create table "
+                            + mixedCaseTable
+                            + "(pk bigint not null, id bigint, \"DS\" text not null, \"My Col\" text not null, "
+                            + "primary key(pk, \"DS\", \"My Col\")) LOGICAL PARTITION BY LIST(\"DS\", \"My Col\")";
+
+            execute(conn, new String[] {dropSqls[0], createMixedCaseSql});
+
+            try {
+                TableSchema mixedCaseSchema = client.getTableSchema(mixedCaseTable, true);
+                Assert.assertTrue(mixedCaseSchema.isLogicalPartitionedTable());
+                Assert.assertEquals(
+                        mixedCaseSchema.getLogicalPartitionColumnNames(),
+                        new String[] {"DS", "My Col"});
+            } finally {
+                execute(conn, dropSqls);
+            }
+        }
+    }
+
+    /** 逻辑分区列名字段纯单测, 不依赖实例. */
+    @Test
+    public void testLogicalPartitionColumnNamesBuilder() {
+        Column col = new Column();
+        col.setName("id");
+        col.setType(4);
+        col.setTypeName("int4");
+
+        TableSchema schema =
+                new TableSchema.Builder("test_id", "v1")
+                        .setTableName(TableName.valueOf("public.test_table"))
+                        .addColumn(col)
+                        .build();
+        // 默认非逻辑分区表, 分区列名为null
+        Assert.assertFalse(schema.isLogicalPartitionedTable());
+        Assert.assertNull(schema.getLogicalPartitionColumnNames());
+
+        TableSchema.Builder builder = new TableSchema.Builder("test_id", "v1");
+        builder.setTableName(TableName.valueOf("public.test_table"));
+        builder.addColumn(col);
+        builder.setIsLogicalPartitionedTable(true);
+        builder.setLogicalPartitionColumnNames(new String[] {"yy", "mm"});
+        TableSchema lpSchema = builder.build();
+        Assert.assertTrue(lpSchema.isLogicalPartitionedTable());
+        Assert.assertEquals(lpSchema.getLogicalPartitionColumnNames(), new String[] {"yy", "mm"});
+    }
+
     @Test
     public void testTableSchemaToString() throws Exception {
         if (properties == null) {
@@ -126,6 +260,7 @@ public class TableSchemaTest extends HoloClientTestBase {
                                         + "partitionInfo='null', \n"
                                         + "orientation='column,row', \n"
                                         + "binlogLevel=REPLICA, \n"
+                                        + "logicalPartitionColumns=null, \n"
                                         + "columns=[\n"
                                         + "Column{name='id', typeName='int4', not null, primary key}, \n"
                                         + "Column{name='amount', typeName='numeric'}, \n"
@@ -311,6 +446,7 @@ public class TableSchemaTest extends HoloClientTestBase {
                                         + "partitionInfo='null', \n"
                                         + "orientation='column', \n"
                                         + "binlogLevel=NONE, \n"
+                                        + "logicalPartitionColumns=null, \n"
                                         + "columns=[\n"
                                         + "Column{name='id', typeName='int4', not null, primary key}, \n"
                                         + "Column{name='"

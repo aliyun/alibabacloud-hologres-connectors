@@ -115,6 +115,10 @@ public class TableSchema implements Serializable {
             tableSchema.isLogicalPartitionedTable = isLogicalPartitionedTable;
         }
 
+        public void setLogicalPartitionColumnNames(String[] logicalPartitionColumnNames) {
+            tableSchema.logicalPartitionColumnNames = logicalPartitionColumnNames;
+        }
+
         public Builder setPartitionColumnName(String partitionColumnName) {
             tableSchema.partitionInfo = partitionColumnName;
             tableSchema.partitionIndex = -2;
@@ -182,6 +186,8 @@ public class TableSchema implements Serializable {
 
     String partitionInfo;
     private boolean isLogicalPartitionedTable = false;
+    // 逻辑分区表的分区列名, 来自hg_table_properties的logical_partition_columns, 非逻辑分区表为null
+    private String[] logicalPartitionColumnNames;
 
     /** ORIENTATION "column/row". */
     private String orientation = "column";
@@ -326,6 +332,10 @@ public class TableSchema implements Serializable {
 
     public boolean isLogicalPartitionedTable() {
         return isLogicalPartitionedTable;
+    }
+
+    public String[] getLogicalPartitionColumnNames() {
+        return logicalPartitionColumnNames;
     }
 
     public GlobalIndex[] getGlobalIndexs() {
@@ -495,6 +505,8 @@ public class TableSchema implements Serializable {
                 + '\''
                 + ", \nbinlogLevel="
                 + binlogLevel
+                + ", \nlogicalPartitionColumns="
+                + Arrays.toString(logicalPartitionColumnNames)
                 + ", \ncolumns="
                 + Arrays.toString(columns)
                 + (autoPartitioning.isEnable() ? ", \nautoPartitioning=" + autoPartitioning : "")

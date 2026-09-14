@@ -25,11 +25,11 @@ public class BaseArrowTimeStampMicroAccessor extends AbstractArrowVectorAccessor
             return null;
         }
         long microseconds = getMicroSeconds(rowId);
-        Timestamp timestamp =
-                new Timestamp(
-                        microseconds / 1000L
-                                - TimeZone.getDefault().getOffset(microseconds / 1000));
-        timestamp.setNanos((int) ((microseconds % 1_000_000L) * 1_000));
+        // 使用 floorDiv/floorMod 而非 / 和 %, 避免 1970 年之前的负值向零截断导致时间偏移,
+        // 以及负数取模传入 setNanos 触发 IllegalArgumentException (与 HoloBinlogDecoder 同款修复).
+        long millis = Math.floorDiv(microseconds, 1000L);
+        Timestamp timestamp = new Timestamp(millis - TimeZone.getDefault().getOffset(millis));
+        timestamp.setNanos((int) (Math.floorMod(microseconds, 1_000_000L) * 1_000));
         return timestamp;
     }
 }

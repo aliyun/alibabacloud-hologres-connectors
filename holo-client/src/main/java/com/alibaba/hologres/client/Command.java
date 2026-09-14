@@ -41,16 +41,51 @@ public class Command {
                                 try (ResultSet rs = ps.executeQuery()) {
                                     if (rs.next()) {
                                         shardCount = rs.getInt(1);
-                                    } else {
-                                        throw new SQLException(
-                                                "table "
-                                                        + schema.getTableNameObj().getFullName()
-                                                        + " not exists");
                                     }
                                 }
                             }
+                            // 特殊表的属性只写入全局系统表 pg_catalog.pg_holo_table_properties /
+                            // pg_holo_table_group_properties, 当从 hg_table_properties 未查到时回退再查一次.
+                            // 低版本实例无该系统表时抛 "表不存在", 由 helper 捕获并忽略, 保持旧行为.
+                            if (shardCount == -1) {
+                                shardCount = getShardCountFromGlobalTable(conn, schema);
+                            }
+                            if (shardCount == -1) {
+                                throw new SQLException(
+                                        "table "
+                                                + schema.getTableNameObj().getFullName()
+                                                + " not exists");
+                            }
                             return shardCount;
                         }));
+    }
+
+    /**
+     * 从全局系统表回退查询 shard_count.
+     *
+     * <p>pg_catalog.pg_holo_table_properties / pg_holo_table_group_properties 的 database_name 恒为
+     * "postgres", 不随当前库变化, 因此不能用 current_database() 过滤; holo 保证 (table_namespace, table_name) 唯一,
+     * 直接按其定位即可. 低版本实例没有这些系统表时, 查询抛出 "表不存在" 的 SQLException, 此处捕获并忽略, 返回 -1 交由调用方按旧逻辑报错.
+     */
+    private static int getShardCountFromGlobalTable(java.sql.Connection conn, TableSchema schema)
+            throws SQLException {
+        try (PreparedStatement ps =
+                conn.prepareStatement(
+                        "select g.property_value from pg_catalog.pg_holo_table_properties t,pg_catalog.pg_holo_table_group_properties g\n"
+                                + "where t.property_key='table_group' and g.property_key='shard_count' and t.table_namespace=? and t.table_name=? and t.property_value = g.tablegroup_name")) {
+            ps.setObject(1, schema.getTableNameObj().getSchemaName());
+            ps.setObject(2, schema.getTableNameObj().getTableName());
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt(1);
+                }
+            }
+        } catch (SQLException e) {
+            if (!ConnectionUtil.isTableNotExistException(e)) {
+                throw e;
+            }
+        }
+        return -1;
     }
 
     public static List<String> getSlotNames(HoloClient client, TableSchema schema)

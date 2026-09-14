@@ -254,6 +254,7 @@ public class PutActionHandler extends ActionHandler<PutAction> {
                             }
                         }
                     }
+                    ConnectionUtil.logAndClearWarnings(conn);
                     return null;
                 });
     }

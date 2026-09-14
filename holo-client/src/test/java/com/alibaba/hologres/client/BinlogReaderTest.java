@@ -4,6 +4,9 @@
 
 package com.alibaba.hologres.client;
 
+import com.alibaba.hologres.client.copy.CopyFormat;
+import com.alibaba.hologres.client.copy.CopyMode;
+import com.alibaba.hologres.client.copy.in.CopyInWrapper;
 import com.alibaba.hologres.client.exception.HoloClientException;
 import com.alibaba.hologres.client.impl.binlog.BinlogEventType;
 import com.alibaba.hologres.client.impl.binlog.BinlogOffset;
@@ -188,6 +191,96 @@ public class BinlogReaderTest extends HoloClientTestBase {
                 } catch (SQLException e) {
                     LOG.warn("", e);
                 }
+            }
+        }
+    }
+
+    /** Verify lambda column through insert, point get, fixed copy, and binlog paths. */
+    @Test(groups = "nonConcurrentGroup")
+    public void testLambdaColumnAcrossWriteReadPaths() throws Exception {
+        if (properties == null || holoVersion.compareTo(needVersion) < 0) {
+            return;
+        }
+        HoloConfig config = buildConfig();
+        config.setOnConflictAction(OnConflictAction.INSERT_OR_REPLACE);
+        config.setBinlogReadBatchSize(2);
+
+        try (Connection conn = buildConnection();
+                HoloClient client = new HoloClient(config)) {
+            String tableName = "holo_client_lambda_column";
+            String dropSql = "drop table if exists " + tableName;
+            String createSql =
+                    "create table "
+                            + tableName
+                            + "(id int not null, \"lambda\" text, primary key(id));\n"
+                            + "call set_table_property('"
+                            + tableName
+                            + "', 'binlog.level', 'replica');\n"
+                            + "call set_table_property('"
+                            + tableName
+                            + "', 'shard_count', '1');\n";
+
+            execute(conn, new String[] {dropSql, "begin;", createSql, "commit;"});
+            BinlogShardGroupReader reader = null;
+            try {
+                TableSchema schema = client.getTableSchema(tableName, true);
+                Thread.sleep(1000L);
+                Timestamp binlogStartTime = new Timestamp(System.currentTimeMillis());
+
+                Put put = new Put(schema);
+                put.setObject("id", 1);
+                put.setObject("lambda", "insert-value");
+                client.put(put);
+                client.flush();
+
+                Record insertRecord =
+                        client.get(Get.newBuilder(schema).setPrimaryKey("id", 1).build()).get();
+                Assert.assertEquals(insertRecord.getObject("lambda"), "insert-value");
+
+                try (Connection copyConn = buildConnection();
+                        CopyInWrapper copyIn =
+                                new CopyInWrapper(
+                                        copyConn,
+                                        schema,
+                                        CopyFormat.BINARY,
+                                        CopyMode.STREAM,
+                                        OnConflictAction.INSERT_OR_REPLACE,
+                                        1024 * 1024)) {
+                    Record copyRecord = Record.build(schema);
+                    copyRecord.setObject(schema.getColumnIndex("id"), 2);
+                    copyRecord.setObject(schema.getColumnIndex("lambda"), "fixed-copy-value");
+                    copyIn.putRecord(copyRecord);
+                }
+
+                Record copyRecord =
+                        client.get(Get.newBuilder(schema).setPrimaryKey("id", 2).build()).get();
+                Assert.assertEquals(copyRecord.getObject("lambda"), "fixed-copy-value");
+
+                reader =
+                        client.binlogSubscribe(
+                                Subscribe.newStartTimeBuilder(tableName)
+                                        .setBinlogReadStartTime(binlogStartTime.toString())
+                                        .build());
+                Map<Integer, String> expectedValues = new HashMap<>();
+                expectedValues.put(1, "insert-value");
+                expectedValues.put(2, "fixed-copy-value");
+                while (!expectedValues.isEmpty()) {
+                    BinlogRecord record = reader.getBinlogRecord(60000L);
+                    Assert.assertNotNull(record, "Timed out waiting for lambda column binlog");
+                    if (record.isHeartBeat()) {
+                        continue;
+                    }
+                    int id = (Integer) record.getObject("id");
+                    if (expectedValues.containsKey(id)) {
+                        Assert.assertEquals(record.getBinlogEventType(), BinlogEventType.INSERT);
+                        Assert.assertEquals(record.getObject("lambda"), expectedValues.remove(id));
+                    }
+                }
+            } finally {
+                if (reader != null) {
+                    reader.cancel();
+                }
+                execute(conn, new String[] {dropSql});
             }
         }
     }
@@ -5741,6 +5834,221 @@ public class BinlogReaderTest extends HoloClientTestBase {
                 }
             }
         }
+    }
+
+    @Test
+    public void binlogReaderPre1970TimestampTest() throws Exception {
+        if (properties == null || holoVersion.compareTo(needVersion) < 0) {
+            return;
+        }
+        HoloConfig config = buildConfig();
+        config.setUseFixedFe(false);
+        config.setOnConflictAction(OnConflictAction.INSERT_OR_REPLACE);
+        config.setBinlogReadBatchSize(128);
+
+        String tableName = "holo_client_binlog_reader_pre1970_timestamp";
+        String dropSql = "drop table if exists " + tableName;
+        String createSql =
+                "create table "
+                        + tableName
+                        + "(id int not null, ts timestamp, tstz timestamptz, primary key(id))"
+                        + "with (binlog_level='replica', table_group='tg_1')\n";
+
+        try (Connection conn = buildConnection();
+                HoloClient client = new HoloClient(config)) {
+            execute(conn, new String[] {dropSql});
+            execute(conn, new String[] {"begin;", createSql, "commit;"});
+
+            BinlogShardGroupReader reader = null;
+            try {
+                TableSchema schema = client.getTableSchema(tableName, true);
+
+                Timestamp ts = Timestamp.valueOf("1969-12-31 23:59:59.123456");
+                Timestamp tstz = Timestamp.valueOf("1969-12-31 23:59:59.123");
+
+                Put put = new Put(schema);
+                put.setObject("id", 1);
+                put.setObject("ts", ts);
+                put.setObject("tstz", tstz);
+                client.put(put);
+                client.flush();
+
+                reader =
+                        client.binlogSubscribe(
+                                Subscribe.newOffsetBuilder(tableName)
+                                        .setEnableCompression(false)
+                                        .addShardsStartOffset(
+                                                IntStream.range(0, 1)
+                                                        .boxed()
+                                                        .collect(Collectors.toSet()),
+                                                new BinlogOffset()
+                                                        .setTimestamp("2021-04-12 12:12:12"))
+                                        .build());
+
+                int count = 0;
+                BinlogRecord record;
+                while ((record = reader.getBinlogRecord()) != null) {
+                    int id = (int) record.getObject(0);
+                    if (id == 1) {
+                        Timestamp readTs = (Timestamp) record.getObject(1);
+                        Timestamp readTstz = (Timestamp) record.getObject(2);
+                        LOG.info(
+                                "pre-1970 timestamp roundtrip: ts={} (getTime={}), tstz={} (getTime={})",
+                                readTs,
+                                readTs.getTime(),
+                                readTstz,
+                                readTstz.getTime());
+                        Assert.assertEquals(ts, readTs);
+                        Assert.assertEquals(tstz, readTstz);
+                    }
+                    count++;
+                    if (count == 1) {
+                        reader.cancel();
+                        break;
+                    }
+                }
+                LOG.info("reader cancel, count={}", count);
+            } finally {
+                if (reader != null) {
+                    reader.cancel();
+                }
+                execute(conn, new String[] {dropSql});
+            }
+        }
+    }
+
+    /**
+     * e2e 回归 Aone 74203844：含 geometry/geography/roaringbitmap 列的表消费 binlog。
+     *
+     * <p>geometry/geography 在服务端写 binlog 时是 bytea 原样透传，内容是 PostGIS 内部的 GSERIALIZED 字节， 不是合法
+     * UTF-8。改动前会抛 "decodeUTF8 error" 并终止整个 shard 的消费（本工单现象）， 现在降级为该列置 null + ERROR 日志，消费可以继续。本用例验证：
+     *
+     * <ul>
+     *   <li>不加 projection 也能消费成功，作业不再被这两列打断；
+     *   <li>geometry/geography 列为 null；
+     *   <li>roaringbitmap 仍解析成 byte[]，且与服务端 {@code rb::bytea} 完全一致；
+     *   <li>text 列仍是正常字符串。
+     * </ul>
+     */
+    @Test
+    public void binlogReaderGeometryUdt() throws Exception {
+        if (properties == null) {
+            return;
+        }
+        if (holoVersion.compareTo(needVersion) < 0) {
+            LOG.info(
+                    "Skip binlogReaderGeometryUdt because holo version is {} < 1.1.2", holoVersion);
+            return;
+        }
+        HoloConfig config = buildConfig();
+        try (Connection conn = buildConnection();
+                HoloClient client = new HoloClient(config)) {
+            // geometry 依赖 postgis 扩展，roaringbitmap 依赖 roaringbitmap 扩展，尽力创建，已存在则忽略
+            tryExecute(
+                    conn,
+                    new String[] {
+                        "create extension if not exists postgis;",
+                        "create extension if not exists roaringbitmap;"
+                    });
+            // 若扩展不可用则跳过，避免在不支持 postgis 的实例上误报失败
+            boolean geometrySupported;
+            try (Statement stat = conn.createStatement();
+                    ResultSet rs =
+                            stat.executeQuery(
+                                    "select count(1) from pg_type where typname in ('geometry','geography','roaringbitmap')")) {
+                rs.next();
+                geometrySupported = rs.getInt(1) == 3;
+            }
+            if (!geometrySupported) {
+                LOG.info(
+                        "Skip binlogReaderGeometryUdt because postgis/roaringbitmap not available");
+                return;
+            }
+
+            String tableName = "holo_client_binlog_geometry_udt";
+            String dropSql = "drop table if exists " + tableName;
+            String createSql =
+                    "create table "
+                            + tableName
+                            + "(id int not null, geom geometry, geog geography, rb roaringbitmap, t text, primary key(id)) "
+                            + "with (binlog_level='replica', table_group='tg_1');\n";
+            String insertSql =
+                    "insert into "
+                            + tableName
+                            + " values (1, ST_GeomFromText('POINT(114.926378 25.827722)', 4326), "
+                            + "ST_GeographyFromText('SRID=4326;POINT(114.9 25.8)'), "
+                            + "rb_build('{1,2,3}'), 'hello');";
+            execute(conn, new String[] {dropSql});
+            execute(conn, new String[] {"begin;", createSql, "commit;"});
+
+            BinlogShardGroupReader reader = null;
+            try {
+                execute(conn, new String[] {insertSql});
+
+                byte[] expectRb;
+                try (Statement stat = conn.createStatement();
+                        ResultSet rs =
+                                stat.executeQuery(
+                                        "select rb::bytea from " + tableName + " where id = 1")) {
+                    Assert.assertTrue(rs.next());
+                    expectRb = rs.getBytes(1);
+                }
+
+                reader =
+                        client.binlogSubscribe(
+                                Subscribe.newStartTimeBuilder(tableName)
+                                        .setBinlogReadStartTime("1970-01-01 00:00:00")
+                                        .build());
+
+                BinlogRecord record = null;
+                try {
+                    BinlogRecord r;
+                    while ((r = reader.getBinlogRecord(60000)) != null) {
+                        if (r.getObject("id") != null && (int) r.getObject("id") == 1) {
+                            record = r;
+                            break;
+                        }
+                    }
+                } catch (HoloClientException e) {
+                    // 较老版本的服务端 FE 在 binlog reader 解析列类型 oid 时就会拒绝扩展类型，
+                    // 报 "Not supported type: geometry0"，客户端拿不到数据，这属于服务端侧的另一个缺口。
+                    String message = fullMessage(e);
+                    if (message.contains("Not supported type")) {
+                        LOG.info(
+                                "Skip assertions: server side binlog reader rejected the extension type: {}",
+                                message);
+                        return;
+                    }
+                    throw e;
+                }
+
+                Assert.assertNotNull(record, "should consume the inserted row");
+                // 关键回归点：geometry/geography 不再打断消费，只是解析为 null
+                Assert.assertNull(record.getObject("geom"));
+                Assert.assertNull(record.getObject("geog"));
+                Object rb = record.getObject("rb");
+                Assert.assertTrue(rb instanceof byte[], "roaringbitmap should decode to byte[]");
+                Assert.assertEquals((byte[]) rb, expectRb);
+                Assert.assertEquals(record.getObject("t"), "hello");
+            } finally {
+                if (reader != null) {
+                    reader.cancel();
+                }
+                execute(conn, new String[] {dropSql});
+            }
+        }
+    }
+
+    /** 收集整条 cause 链上的 message，reader 链路可能再包一层，断言时用全链路文本更稳。 */
+    private static String fullMessage(Throwable e) {
+        StringBuilder sb = new StringBuilder();
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            sb.append(t.getMessage()).append('\n');
+            if (t.getCause() == t) {
+                break;
+            }
+        }
+        return sb.toString();
     }
 
     public static <K, V> boolean isMapContained(Map<K, V> largeMap, Map<K, V> smallMap) {

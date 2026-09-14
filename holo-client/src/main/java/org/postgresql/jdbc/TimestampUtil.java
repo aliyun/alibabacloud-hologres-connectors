@@ -57,12 +57,12 @@ public class TimestampUtil {
             nanos = dateTime.getNano();
         } else if (obj instanceof Number) {
             long ms = ((Number) obj).longValue();
-            seconds = ms / 1000L;
-            nanos = (ms % 1000) * 1000000L;
+            seconds = Math.floorDiv(ms, 1000L);
+            nanos = Math.floorMod(ms, 1000L) * 1000000L;
         } else if (obj instanceof java.util.Date) {
             long ms = ((java.util.Date) obj).getTime();
-            seconds = ms / 1000L;
-            nanos = (ms % 1000) * 1000000L;
+            seconds = Math.floorDiv(ms, 1000L);
+            nanos = Math.floorMod(ms, 1000L) * 1000000L;
         } else {
             throw new RuntimeException(
                     "unsupported type for timestamp " + obj.getClass().getName());
@@ -147,7 +147,7 @@ public class TimestampUtil {
         if (obj instanceof java.sql.Time) {
             java.sql.Time timeObj = (java.sql.Time) obj;
             LocalTime localTime = timeObj.toLocalTime();
-            long nanos = (timeObj.getTime() % 1000) * 1000000L;
+            long nanos = Math.floorMod(timeObj.getTime(), 1000L) * 1000000L;
             localTime = localTime.plusNanos(nanos);
             tVal = localTime.toNanoOfDay() / 1000;
             timezone = timeObj.getTimezoneOffset() * 60;

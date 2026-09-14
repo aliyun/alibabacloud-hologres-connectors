@@ -166,6 +166,7 @@ public class GetActionHandler extends ActionHandler<GetAction> {
                                             registry.meter(Metrics.METRICS_DIMLOOKUP_RPS_ALL)
                                                     .mark(recordList.size());
                                         }
+                                        ConnectionUtil.logAndClearWarnings(conn);
                                         return resultMap;
                                     },
                                     config.getReadRetryCount());

@@ -174,6 +174,8 @@ public class CopyInStageWrapper<RECORD> implements AutoCloseable {
                                 cp.cancelCopy();
                             }
                         }
+                        // Log copy statistics and clear accumulated warnings
+                        CopyUtil.logAndClearCopyWarnings(conn);
                         return null;
                     },
                     config.getRetryCount());

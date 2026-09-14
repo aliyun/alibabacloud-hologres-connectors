@@ -2,6 +2,7 @@
 
 - [通过holo-client读写Hologres](#通过holo-client读写hologres)
   - [功能介绍](#功能介绍)
+  - [默认行为变更说明](#默认行为变更说明)
   - [holo-client引入](#holo-client引入)
   - [连接数说明](#连接数说明)
   - [数据写入](#数据写入)
@@ -55,6 +56,15 @@ select instance_max_connections(); -- holo实例版本需大于等于1.3.22，�
 ```sql
 select count(*) from pg_stat_activity where backend_type='client backend';
 ```
+
+## 默认行为变更说明
+此处记录holo-client每个版本中的默认行为变更。
+### 2.6版本默认行为变更
+2.6版本起，holo-client默认启用V4签名。
+- V4签名仅支持Hologres 2.0及以上版本，对于1.3及以下版本实例，建议升级到2.0及以上，或者通过配置useAkv4为false回退到V2签名，详见[通用配置](#通用配置)。
+- 启用V4签名时，可通过配置region指定加签使用的地域，若不手动指定，holo-client默认解析实例endpoint中的region，详见[通用配置](#通用配置)。
+- holo-client 2.6.0版本存在已知问题，V4签名在特定时间段将导致登录认证失败，请升级到2.6.1及以上版本，详见[2.X版本已知问题](#2.X版本已知问题)。
+
 ## holo-client引入
 - Maven
 ```xml
@@ -260,6 +270,12 @@ fixed copy与HoloClient.put，以及普通copy的差异如下：
   - 无delete时，建议使用fixed copy写入，相比HoloClient.put方法，fixed copy方式可以更高的吞吐（因为是流模式），更低的数据延时，更低的客户端内存消耗（因为不攒批).
 
 对于无delete的实时写入场景，建议都使用fixed copy写入.
+
+`CopyInWrapper` 的 `CopyMode.BULK_LOAD` 和 `CopyMode.BULK_LOAD_ON_CONFLICT` 在 Hologres 5.0.0
+及以上版本支持 `CopyFormat.BINARY`。低于 5.0.0 的实例选择该组合时，客户端会在发起 COPY
+前抛出版本不支持异常；`CopyFormat.CSV` 的行为不受影响。直接使用 `CopyUtil` 构建 SQL 时，
+版本兼容性由调用方负责，并通过 `enableBulkLoadBinary` 参数显式启用；旧重载继续保持
+non-stream binary 回退 CSV 的兼容行为。
 
 ### fixed copy写入普通表
 
@@ -925,6 +941,14 @@ unnest格式相比multi values有如下优点:
 | 2.7.0 | • 新增 CopyInStageWrapper，支持通过 fixed copy 将数据写入 Stage（外部存储），并提供生成 INSERT 语句的工具方法<br>• Arrow 依赖版本升级到 17.0，并对 copy out 相关实现进行适配 | • 修复获取 index 信息时意外抛出异常的问题，改为返回空列表 |
 | 2.7.1 | • insert overwrite stage 支持写入部分列<br>• 支持写入限流：新增 `writeRps` 参数，可限制每秒最多写入的记录数，同时作用于 HoloClient.put 和 fixed copy 写入 | |
 | 2.7.2 | • COPY CSV 的 NULLSTRING 支持使用\N<br>• 优化 COPY STAGE 链路，避免频繁创建对象 | |
+| 2.7.3 | • stage 写入尽可能支持所有类型<br>• 消费分区父表时忽略 filter 并打印日志，避免消费无法推进<br>• distribution key 忽略 dynamic table 隐藏列，put 操作禁止写入 dt<br>• arrow 依赖调整为 provided，不再 shaded | • 修复 COPY OUT arrow 格式中 jsonb 列字段名为 jsonb_out 的问题 |
+| 2.7.4 | • 支持 ignoreNullWhenUpdate<br>• 新增 ignoreNullEnableDeduplication 配置 | • 修复 GlobalIndex 未实现 Serializable 导致 TableSchema 序列化失败的问题 |
+| 2.7.5 | • holo-client 支持指定逻辑分区表分区<br>• copy 打印 backend id | • 遇到缩容导致的 PROTOCOL_VIOLATION 异常时重建连接<br>• 修复 ignoreNull 去重 merge 时 null 值覆盖的问题 |
+| 2.7.6 | • internal stage 支持 Arrow IPC V5 buffer-level LZ4 压缩<br>• internal stage 压缩空字符串标记设置兼容 C++ 解压 | |
+| 2.7.7 | • COPY操作结束时清理 connection 上累积的 SQLWarning，防止内存增长，并以 INFO 级别打印服务端返回的 copy statistics 关键指标 | • 修复 1970 年之前 timestamp 类型消费 binlog 时负 nanos 导致 IllegalArgumentException 的问题 |
+| 2.7.8 | • holo-client 适配 pg_catalog.pg_holo_table_properties 作为表属性查询回退 | • 全局系统表回退查询去掉 database_name=current_database() 过滤 |
+| 2.7.9 | • COPY支持逻辑分区子句(Hologres 5.0+ bulk_load分区锁优化)<br>• TableSchema支持逻辑分区列名元数据(logical_partition_columns) | • 修复arrow读取1970年之前timestamp负微秒向零截断的问题 |
+| 2.8.0 | • 订正空投影注释<br>• copy out 空投影退化为常量投影, 避免 ORCA 崩溃<br>• Support get fe id according to task index using round robin<br>• holo-client bulkload 支持 binary 格式及 5.0 版本门禁 | • binlog 不支持的 Types.OTHER 列改为打日志降级，不再抛异常终止消费<br>• e2e 兼容较老版本 FE 的 "Not supported type: geometry0" 报错<br>• geometry/geography 消费 binlog 改为明确报错并提示用 projection 排除<br>• 修复消费binlog时geometry/geography列报decodeUTF8 error |
 
 ## 附录
 ### HoloConfig参数说明
@@ -945,8 +969,8 @@ unnest格式相比multi values有如下优点:
 | connectionSizeWhenUseFixedFe | 1       | 仅useFixedFe=true时生效，表示除了Get/Put之外的调用使用的连接池大小                                                                                                                                         | 2.2.0 |
 | sslMode                      | disable | 是否启动传输加密，详见[Hologres启用SSL传输加密](https://help.aliyun.com/zh/hologres/user-guide/ssl-encrypted-transmission)。取值为disable、require、verify-ca、verify-full，后两种需要通过sslRootCertLocation参数配置CA证书的路径 | 2.3.0 |
 | sslRootCertLocation          | 无       | sslMode=verify-ca或verify-full时必填，CA证书的路径                                                                                                                                             | 2.3.0 |
-| useAkv4                      | true    | 启用Akv4认证                                                                                                                                                                             | 2.3.0 |
-| region                       | 无       | 启用Akv4认证需要设置Region,默认会尝试解析endpoint获取,如果使用ip地址等无法解析,需要手动指定                                                                                                                            | 2.3.0 |
+| useAkv4                      | true    | 启用Akv4认证                                                                                                                                                                             | 2.6.0 |
+| region                       | 无       | 启用Akv4认证需要设置Region,默认会尝试解析endpoint获取,如果使用ip地址等无法解析,需要手动指定                                                                                                                            | 2.6.0 |
 
 #### 写入配置
 | 参数名                                   | 默认值                        | 说明                                                                                                                                                              | 引入版本     | 

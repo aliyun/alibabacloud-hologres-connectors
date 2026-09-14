@@ -11,6 +11,7 @@ import com.alibaba.hologres.client.model.HoloVersion;
 import com.alibaba.hologres.client.model.Partition;
 import com.alibaba.hologres.client.model.TableName;
 import com.alibaba.hologres.client.model.TableSchema;
+import com.alibaba.hologres.client.utils.CommonUtil;
 import com.alibaba.hologres.client.utils.IdentifierUtil;
 import com.alibaba.hologres.client.utils.Tuple;
 import org.postgresql.PGProperty;
@@ -28,6 +29,7 @@ import java.sql.SQLException;
 import java.sql.SQLWarning;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -44,8 +46,9 @@ public class ConnectionUtil {
     public static final Logger LOGGER = LoggerFactory.getLogger(ConnectionUtil.class);
     static Pattern holoVersionPattern = Pattern.compile("release-([^ )]*)");
     static Pattern hgVersionPattern = Pattern.compile("Hologres ([^ -]*)");
-    private static String optionProperty = "options=";
+    private static final String optionProperty = "options=";
     private static String fixedOption = "type=fixed%20";
+    private static final String FRONTEND_OPTION = "fe=";
     private static String TABLE_ID_KEY = "table_id";
     private static String SCHEMA_VERSION_KEY = "schema_version";
 
@@ -77,6 +80,139 @@ public class ConnectionUtil {
     // 目前还有问题，哪个版本修复不确定，拍个2.0.0先，后面版本确定了再改
     private static final HoloVersion CHECK_TABLE_META_SUPPORTED_MIN_VERSION =
             new HoloVersion(1, 1, 50);
+
+    /** First version of each pre-5.0 release line that supports {@code hg_get_fe_id}. */
+    private static final Map<String, HoloVersion> FE_ROUND_ROBIN_SUPPORTED_MIN_VERSIONS;
+
+    static {
+        Map<String, HoloVersion> minVersions = new HashMap<>();
+        minVersions.put("4.2", new HoloVersion(4, 2, 10));
+        minVersions.put("4.1", new HoloVersion(4, 1, 30));
+        minVersions.put("4.0", new HoloVersion(4, 0, 45));
+        minVersions.put("3.2", new HoloVersion(3, 2, 42));
+        minVersions.put("3.1", new HoloVersion(3, 1, 52));
+        FE_ROUND_ROBIN_SUPPORTED_MIN_VERSIONS = Collections.unmodifiableMap(minVersions);
+    }
+
+    /**
+     * Pick a frontend id for the given subtask using an existing JDBC connection.
+     *
+     * <p>Frontend ids are queried on every call rather than cached: the frontend list is scoped to
+     * the connection's current warehouse and changes when the warehouse scales, so a cached list
+     * can pin a subtask to a frontend that no longer exists or belongs to another warehouse.
+     *
+     * <p>Returns {@code null} when the frontend ids cannot be resolved, so callers fall back to the
+     * default jdbc url.
+     */
+    public static Long pickRoundRobinFeId(Connection conn, int subtaskIndex) {
+        List<Long> frontendIds = getFeIds(conn);
+        if (frontendIds.isEmpty()) {
+            return null;
+        }
+        return frontendIds.get(Math.floorMod(subtaskIndex, frontendIds.size()));
+    }
+
+    /**
+     * Query all frontend ids using an existing JDBC connection.
+     *
+     * <p>This is the preferred entry point when the caller already has an open connection and wants
+     * to avoid creating another one just for FE discovery.
+     */
+    public static List<Long> getFeIds(Connection connection) {
+        if (connection == null) {
+            return Collections.emptyList();
+        }
+        HoloVersion version;
+        try {
+            version = getHoloVersion(connection);
+        } catch (SQLException e) {
+            LOGGER.warn("Failed to get the hologres version when resolving fe ids.", e);
+            return Collections.emptyList();
+        }
+        if (!isFeRoundRobinSupported(version)) {
+            LOGGER.warn(
+                    "Hologres version {} does not support hg_get_fe_id (requires >=5.0, or "
+                            + ">=4.2.10/4.1.30/4.0.45/3.2.42/3.1.52).",
+                    version);
+            return Collections.emptyList();
+        }
+        String warehouse = null;
+        try {
+            warehouse = getCurrentWarehouse(connection);
+        } catch (SQLException e) {
+            LOGGER.warn("Failed to get current_warehouse when resolving fe ids.", e);
+        }
+        String sql = "SELECT fe_id FROM hg_get_fe_id(?)";
+
+        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+            if (warehouse == null || warehouse.isEmpty()) {
+                pstmt.setNull(1, java.sql.Types.VARCHAR);
+            } else {
+                pstmt.setString(1, warehouse);
+            }
+
+            try (ResultSet resultSet = pstmt.executeQuery()) {
+                List<Long> frontendIds = new ArrayList<>();
+                while (resultSet.next()) {
+                    frontendIds.add(resultSet.getLong(1));
+                }
+                return frontendIds;
+            }
+        } catch (Exception e) {
+            LOGGER.warn(
+                    "Failed to query hg_get_fe_id for warehouse {}, falling back to the default "
+                            + "connection.",
+                    warehouse,
+                    e);
+            return Collections.emptyList();
+        }
+    }
+
+    /**
+     * Whether the given Hologres version supports {@code hg_get_fe_id}, and therefore frontend
+     * round-robin.
+     */
+    public static boolean isFeRoundRobinSupported(HoloVersion version) {
+        if (version == null || version.isUndefined()) {
+            return false;
+        }
+        if (version.getMajorVersion() >= 5) {
+            return true;
+        }
+        HoloVersion minSupported =
+                FE_ROUND_ROBIN_SUPPORTED_MIN_VERSIONS.get(
+                        version.getMajorVersion() + "." + version.getMinorVersion());
+        return minSupported != null && version.compareTo(minSupported) >= 0;
+    }
+
+    private static String getCurrentWarehouse(Connection connection) throws SQLException {
+        try (Statement statement = connection.createStatement();
+                ResultSet resultSet = statement.executeQuery("SELECT current_warehouse();")) {
+            if (!resultSet.next()) {
+                return null;
+            }
+            return resultSet.getString(1);
+        }
+    }
+
+    /** Append a frontend startup option while preserving existing gateway options. */
+    public static String appendFeOption(String url, long feId) {
+        String feOption = FRONTEND_OPTION + feId;
+        int index = findLastOptionsParameter(url);
+        if (index >= 0) {
+            int insertAt = index + optionProperty.length();
+            return url.substring(0, insertAt) + feOption + "%20" + url.substring(insertAt);
+        }
+        return url + (url.contains("?") ? "&" : "?") + optionProperty + feOption;
+    }
+
+    private static int findLastOptionsParameter(String url) {
+        int separator =
+                Math.max(
+                        url.lastIndexOf("?" + optionProperty),
+                        url.lastIndexOf("&" + optionProperty));
+        return separator < 0 ? -1 : separator + 1;
+    }
 
     public static CheckMetaResult checkMeta(
             Connection conn, HoloVersion version, String fullName, int timeout)
@@ -504,7 +640,7 @@ public class ConnectionUtil {
             throws SQLException {
         String sql =
                 "select property_key,property_value from hologres.hg_table_properties where table_namespace=? and table_name=? and property_key in "
-                        + "('distribution_key','table_id','schema_version','orientation','clustering_key','segment_key','bitmap_columns','dictionary_encoding_columns','time_to_live_in_seconds','binlog.level', 'is_logical_partitioned_table')";
+                        + "('distribution_key','table_id','schema_version','orientation','clustering_key','segment_key','bitmap_columns','dictionary_encoding_columns','time_to_live_in_seconds','binlog.level', 'is_logical_partitioned_table', 'logical_partition_columns')";
         Map<String, String> properties = new HashMap<>();
         try (PreparedStatement stat = conn.prepareStatement(sql)) {
             stat.setString(1, tableName.getSchemaName());
@@ -519,6 +655,14 @@ public class ConnectionUtil {
             }
         }
 
+        // 部分特殊用户创建的表, 其属性只写入全局系统表 pg_catalog.pg_holo_table_properties,
+        // 不会写入 hologres.hg_table_properties. 当从 hg_table_properties 未查询到属性时,
+        // 回退到 pg_catalog.pg_holo_table_properties 再查一次. 对尚未提供该系统表的低版本实例,
+        // 查询会抛出 "表不存在" 的 SQLException, 此处捕获并忽略, 保持与改动前完全一致的为空/报错行为.
+        if (properties.isEmpty()) {
+            fillTablePropertiesFromGlobalTable(conn, tableName, properties);
+        }
+
         if (properties.isEmpty()) {
             throw new SQLException("can not found table " + tableName.getFullName());
         }
@@ -529,6 +673,42 @@ public class ConnectionUtil {
             throw new SQLException("table " + tableName.getFullName() + " has no schemaVersion");
         }
         return properties;
+    }
+
+    /**
+     * 从全局系统表 pg_catalog.pg_holo_table_properties 回退查询表属性.
+     *
+     * <p>该全局系统表的 database_name 恒为 "postgres", 不随当前库变化, 因此不能用 current_database() 过滤; holo 保证该表的
+     * (table_namespace, table_name) 唯一, 直接按其定位即可. 对于尚未提供该系统表的低版本实例, 查询会抛出 "表不存在" 的 SQLException,
+     * 此处捕获并忽略, 从而保持与改动前完全一致的行为, 不影响老实例可用性.
+     */
+    private static void fillTablePropertiesFromGlobalTable(
+            Connection conn, TableName tableName, Map<String, String> properties)
+            throws SQLException {
+        String sql =
+                "select property_key,property_value from pg_catalog.pg_holo_table_properties where table_namespace=? and table_name=? and property_key in "
+                        + "('distribution_key','table_id','schema_version','orientation','clustering_key','segment_key','bitmap_columns','dictionary_encoding_columns','time_to_live_in_seconds','binlog.level', 'is_logical_partitioned_table')";
+        try (PreparedStatement stat = conn.prepareStatement(sql)) {
+            stat.setString(1, tableName.getSchemaName());
+            stat.setString(2, tableName.getTableName());
+
+            try (ResultSet rs = stat.executeQuery()) {
+                while (rs.next()) {
+                    properties.put(rs.getString(1), rs.getString(2));
+                }
+            }
+        } catch (SQLException e) {
+            if (isTableNotExistException(e)) {
+                // 低版本实例没有该全局系统表, 保持旧行为(视为未查询到属性).
+                return;
+            }
+            throw e;
+        }
+    }
+
+    /** 判断 SQLException 是否为 PostgreSQL 的 undefined_table(42P01) 错误, 即目标表/关系不存在. */
+    public static boolean isTableNotExistException(SQLException e) {
+        return PSQLState.UNDEFINED_TABLE.getState().equals(e.getSQLState());
     }
 
     public static TableSchema getTableSchema(Connection conn, TableName tableName)
@@ -693,6 +873,11 @@ public class ConnectionUtil {
                     break;
                 case "is_logical_partitioned_table":
                     builder.setIsLogicalPartitionedTable(Boolean.parseBoolean(value));
+                    break;
+                case "logical_partition_columns":
+                    // 含逗号等特殊字符的列名在服务端会带双引号存储, 需按带引号CSV解析而非简单split
+                    builder.setLogicalPartitionColumnNames(
+                            CommonUtil.parseLogicalPartitionColumnsProperty(value));
                     break;
                 default:
             }
@@ -967,6 +1152,45 @@ public class ConnectionUtil {
             warning = warning.getNextWarning();
         }
         return "";
+    }
+
+    /**
+     * Log all SQLWarnings on the connection and then clear them. Server may send NoticeResponse
+     * messages during query execution which accumulate as SQLWarnings on the connection object.
+     * This method should be called after each query execution to log these warnings and prevent
+     * memory growth.
+     *
+     * @param conn the connection to inspect and clear warnings from
+     */
+    public static void logAndClearWarnings(Connection conn) {
+        if (conn == null) {
+            return;
+        }
+        try {
+            SQLWarning warning = conn.getWarnings();
+            if (warning == null) {
+                return;
+            }
+            int count = 0;
+            while (warning != null) {
+                count++;
+                String message = warning.getMessage();
+                String sqlState = warning.getSQLState();
+                // Skip copy statistics warnings - they are handled by CopyUtil
+                if (message != null && message.startsWith("copy statistics:")) {
+                    warning = warning.getNextWarning();
+                    continue;
+                }
+                LOGGER.info("Server warning: SQLState={}, Message={}", sqlState, message);
+                warning = warning.getNextWarning();
+            }
+            if (count > 0) {
+                LOGGER.debug("Total {} warnings on connection", count);
+            }
+            conn.clearWarnings();
+        } catch (SQLException e) {
+            LOGGER.debug("Failed to log/clear connection warnings", e);
+        }
     }
 
     public static final String DEFAULT_PUB_NAME = "publication_for_table_%s_used_by_holo_client";

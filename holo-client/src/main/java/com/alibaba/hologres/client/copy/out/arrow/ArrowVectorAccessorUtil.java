@@ -59,10 +59,13 @@ public class ArrowVectorAccessorUtil {
         }
         List<Record> currentRecords = new ArrayList<>();
         int rowCount = root.getRowCount();
+        // 请求 0 列时 sql 退化为常量投影(见 CopyUtil.EMPTY_PROJECTION_PLACEHOLDER),
+        // arrow 结果必然比 columns 多一列. 调用方只关心行数, 按行数产出空 Record.
+        boolean emptyProjection = columns.isEmpty();
         for (int i = 0; i < rowCount; ++i) {
             Record record = new Record(schema);
             // columns 与 copy out sql 中的列顺序和数量要完全一致
-            if (columns.size() != root.getSchema().getFields().size()) {
+            if (!emptyProjection && columns.size() != root.getSchema().getFields().size()) {
                 throw new IOException(
                         "The number of columns is not equal to the number of vectors.");
             }

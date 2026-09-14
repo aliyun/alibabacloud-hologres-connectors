@@ -40,6 +40,35 @@ public class CopyInWrapper implements AutoCloseable {
                         maxCellBufferSize);
     }
 
+    /**
+     * copy in 指定的部分字段, 并指定逻辑分区 (Hologres V5.0+).
+     *
+     * <p>对 bulk_load/bulk_load_on_conflict 模式: 指定分区可将表级锁降级为分区级锁, 并发写入不同分区不再互相阻塞; 对 stream 模式:
+     * stream 本身是行锁, 分区子句不影响锁级别, 仅起数据过滤作用.
+     *
+     * @param partitionClause 预先由 {@link CopyUtil#buildPartitionClause} 生成的分区子句, 空字符串表示不指定分区
+     */
+    public CopyInWrapper(
+            Connection conn,
+            TableSchema schema,
+            List<String> columns,
+            CopyFormat copyFormat,
+            CopyMode copyMode,
+            OnConflictAction onConflictAction,
+            int maxCellBufferSize,
+            String partitionClause) {
+        this.context =
+                new CopyInContext(
+                        conn,
+                        schema,
+                        columns,
+                        copyFormat,
+                        copyMode,
+                        onConflictAction,
+                        maxCellBufferSize,
+                        partitionClause);
+    }
+
     /* copy in 表的所有字段. */
     public CopyInWrapper(
             Connection conn,

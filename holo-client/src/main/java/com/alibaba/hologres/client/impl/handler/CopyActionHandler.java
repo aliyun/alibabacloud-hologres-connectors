@@ -5,6 +5,7 @@
 package com.alibaba.hologres.client.impl.handler;
 
 import com.alibaba.hologres.client.HoloConfig;
+import com.alibaba.hologres.client.copy.CopyUtil;
 import com.alibaba.hologres.client.exception.HoloClientException;
 import com.alibaba.hologres.client.impl.ConnectionHolder;
 import com.alibaba.hologres.client.impl.action.CopyAction;
@@ -64,6 +65,9 @@ public class CopyActionHandler extends ActionHandler<CopyAction> {
                 } // typically after several kB
             }
             throw e;
+        } finally {
+            // Log copy statistics and clear accumulated warnings
+            CopyUtil.logAndClearCopyWarnings(copyContext.getConn());
         }
     }
 
@@ -100,6 +104,8 @@ public class CopyActionHandler extends ActionHandler<CopyAction> {
                     throw ioEx;
                 }
             }
+            // Log copy statistics and clear accumulated warnings
+            CopyUtil.logAndClearCopyWarnings(copyContext.getConn());
         }
     }
 

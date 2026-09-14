@@ -64,9 +64,13 @@ public class MetaActionHandler extends ActionHandler<MetaAction> {
                                                         }
                                                     }
                                                 }
-                                                return ConnectionUtil.getTableSchema(
-                                                        connWithVersion.getConn(),
-                                                        action.getTableName());
+                                                TableSchema schema =
+                                                        ConnectionUtil.getTableSchema(
+                                                                connWithVersion.getConn(),
+                                                                action.getTableName());
+                                                ConnectionUtil.logAndClearWarnings(
+                                                        connWithVersion.getConn());
+                                                return schema;
                                             }));
         } catch (HoloClientException e) {
             action.getFuture().completeExceptionally(e);

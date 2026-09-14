@@ -230,7 +230,7 @@ public class RecordBinaryRowOutputStream extends RecordBinaryOutputStream {
                     if (obj instanceof java.sql.Time) {
                         java.sql.Time timeObj = (java.sql.Time) obj;
                         LocalTime localTime = timeObj.toLocalTime();
-                        long nanos = (timeObj.getTime() % 1000) * 1000000L;
+                        long nanos = Math.floorMod(timeObj.getTime(), 1000L) * 1000000L;
                         localTime = localTime.plusNanos(nanos);
                         tVal = localTime.toNanoOfDay() / 1000;
                         timezone = timeObj.getTimezoneOffset() * 60;

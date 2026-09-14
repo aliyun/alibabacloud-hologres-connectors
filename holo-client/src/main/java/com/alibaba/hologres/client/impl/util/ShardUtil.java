@@ -134,7 +134,7 @@ public class ShardUtil {
                     if (obj instanceof java.sql.Time) {
                         java.sql.Time timeObj = (java.sql.Time) obj;
                         LocalTime localTime = timeObj.toLocalTime();
-                        long nanos = (timeObj.getTime() % 1000) * 1000000L;
+                        long nanos = Math.floorMod(timeObj.getTime(), 1000L) * 1000000L;
                         localTime = localTime.plusNanos(nanos);
                         return localTime.toNanoOfDay() / 1000;
                     } else if (obj instanceof java.time.LocalTime) {

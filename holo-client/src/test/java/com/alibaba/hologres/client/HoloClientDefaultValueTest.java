@@ -7,10 +7,7 @@ package com.alibaba.hologres.client;
 import com.alibaba.hologres.client.copy.CopyFormat;
 import com.alibaba.hologres.client.copy.CopyMode;
 import com.alibaba.hologres.client.copy.CopyUtil;
-import com.alibaba.hologres.client.copy.in.CopyInOutputStream;
-import com.alibaba.hologres.client.copy.in.RecordBinaryOutputStream;
-import com.alibaba.hologres.client.copy.in.RecordOutputStream;
-import com.alibaba.hologres.client.copy.in.RecordTextOutputStream;
+import com.alibaba.hologres.client.copy.in.CopyInWrapper;
 import com.alibaba.hologres.client.impl.util.ConnectionUtil;
 import com.alibaba.hologres.client.model.HoloVersion;
 import com.alibaba.hologres.client.model.OnConflictAction;
@@ -18,13 +15,10 @@ import com.alibaba.hologres.client.model.Record;
 import com.alibaba.hologres.client.model.TableName;
 import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.utils.RecordChecker;
-import org.postgresql.copy.CopyManager;
-import org.postgresql.jdbc.PgConnection;
 import org.testng.Assert;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
-import java.io.OutputStream;
 import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.Timestamp;
@@ -317,12 +311,11 @@ public class HoloClientDefaultValueTest extends HoloClientTestBase {
 
     @DataProvider(name = "copyCaseData")
     public Object[][] createData() {
-        Object[][] ret = new Object[8][];
+        Object[][] ret = new Object[10][];
         ret[0] = new Object[] {true, OnConflictAction.INSERT_OR_UPDATE, CopyMode.STREAM};
         ret[1] = new Object[] {true, OnConflictAction.INSERT_OR_IGNORE, CopyMode.STREAM};
         ret[2] = new Object[] {false, OnConflictAction.INSERT_OR_UPDATE, CopyMode.STREAM};
         ret[3] = new Object[] {false, OnConflictAction.INSERT_OR_IGNORE, CopyMode.STREAM};
-        // bulkload copy目前不支持binary模式
         ret[4] = new Object[] {false, OnConflictAction.INSERT_OR_UPDATE, CopyMode.BULK_LOAD};
         ret[5] = new Object[] {false, OnConflictAction.INSERT_OR_IGNORE, CopyMode.BULK_LOAD};
         ret[6] =
@@ -333,6 +326,11 @@ public class HoloClientDefaultValueTest extends HoloClientTestBase {
                 new Object[] {
                     false, OnConflictAction.INSERT_OR_IGNORE, CopyMode.BULK_LOAD_ON_CONFLICT
                 };
+        ret[8] = new Object[] {true, OnConflictAction.INSERT_OR_UPDATE, CopyMode.BULK_LOAD};
+        ret[9] =
+                new Object[] {
+                    true, OnConflictAction.INSERT_OR_UPDATE, CopyMode.BULK_LOAD_ON_CONFLICT
+                };
         return ret;
     }
 
@@ -341,6 +339,10 @@ public class HoloClientDefaultValueTest extends HoloClientTestBase {
     public void testDefaultValue04(
             boolean binary, OnConflictAction onConflictAction, CopyMode copyMode) throws Exception {
         if (properties == null) {
+            return;
+        }
+        if (binary && copyMode != CopyMode.STREAM && !isBulkLoadBinarySupported()) {
+            LOG.info("skip bulkload binary test, holoVersion {} < 5.0.0", holoVersion);
             return;
         }
         try (Connection conn = buildConnection();
@@ -384,22 +386,16 @@ public class HoloClientDefaultValueTest extends HoloClientTestBase {
             execute(conn, new String[] {dropSql, createSql, setCopyOnConflictGucSql});
 
             try {
-                PgConnection pgConn = conn.unwrap(PgConnection.class);
-
-                HoloVersion version = ConnectionUtil.getHoloVersion(pgConn);
+                HoloVersion version = ConnectionUtil.getHoloVersion(conn);
                 if (copyMode == CopyMode.BULK_LOAD_ON_CONFLICT
                         && version.compareTo(new HoloVersion("3.1.0")) < 0) {
                     // copy on conflict need all columns below 3.1.0
                     return;
                 }
                 TableName tn = TableName.valueOf(tableName);
-                ConnectionUtil.checkMeta(pgConn, version, tn.getFullName(), 120);
+                ConnectionUtil.checkMeta(conn, version, tn.getFullName(), 120);
 
                 TableSchema schema = ConnectionUtil.getTableSchema(conn, tn);
-                CopyManager copyManager = new CopyManager(conn.unwrap(PgConnection.class));
-                String copySql = null;
-                OutputStream os = null;
-                RecordOutputStream ros = null;
 
                 long minTs = System.currentTimeMillis();
                 int index = -1;
@@ -429,29 +425,17 @@ public class HoloClientDefaultValueTest extends HoloClientTestBase {
                 CopyUtil.prepareRecordForCopy(record2);
 
                 RecordChecker.check(record);
-                copySql =
-                        CopyUtil.buildCopyInSql(
+                try (CopyInWrapper copyInWrapper =
+                        new CopyInWrapper(
+                                conn,
                                 record,
                                 binary ? CopyFormat.BINARY : CopyFormat.CSV,
+                                copyMode,
                                 onConflictAction,
-                                copyMode);
-                LOG.info("copySql : {}", copySql);
-                os = new CopyInOutputStream(copyManager.copyIn(copySql));
-                ros =
-                        binary
-                                ? new RecordBinaryOutputStream(
-                                        os,
-                                        schema,
-                                        pgConn.unwrap(PgConnection.class),
-                                        1024 * 1024 * 10)
-                                : new RecordTextOutputStream(
-                                        os,
-                                        schema,
-                                        pgConn.unwrap(PgConnection.class),
-                                        1024 * 1024 * 10);
-                ros.putRecord(record);
-                ros.putRecord(record2);
-                ros.close();
+                                1024 * 1024 * 10)) {
+                    copyInWrapper.putRecord(record);
+                    copyInWrapper.putRecord(record2);
+                }
 
                 long maxTs = System.currentTimeMillis();
 

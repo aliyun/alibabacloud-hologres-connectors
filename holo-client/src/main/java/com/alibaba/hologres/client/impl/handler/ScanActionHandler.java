@@ -12,6 +12,7 @@ import com.alibaba.hologres.client.Scan;
 import com.alibaba.hologres.client.exception.HoloClientException;
 import com.alibaba.hologres.client.impl.ConnectionHolder;
 import com.alibaba.hologres.client.impl.action.ScanAction;
+import com.alibaba.hologres.client.impl.util.ConnectionUtil;
 import com.alibaba.hologres.client.model.RecordScanner;
 import com.alibaba.hologres.client.model.TableSchema;
 import com.alibaba.hologres.client.utils.IdentifierUtil;
@@ -272,6 +273,7 @@ public class ScanActionHandler extends ActionHandler<ScanAction> {
                         } finally {
                             conn.setAutoCommit(true);
                         }
+                        ConnectionUtil.logAndClearWarnings(conn);
                         return null;
                     },
                     1);

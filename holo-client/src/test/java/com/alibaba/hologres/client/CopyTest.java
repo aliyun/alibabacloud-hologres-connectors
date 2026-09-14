@@ -1484,7 +1484,7 @@ public class CopyTest extends HoloClientTestBase {
                                 CopyMode.STREAM),
                         "copy \"public\".\"holo_client_copy_util_001\"(id,name,address) from stdin with(stream_mode true, format csv, DELIMITER ',', ESCAPE '\\', QUOTE '\"', NULL '\\N', on_conflict ignore)");
 
-                // stream_mode = false, don't care binary, don't care OnConflictAction default
+                // Existing overloads retain the historical CSV fallback for compatibility.
                 Assert.assertEquals(
                         CopyUtil.buildCopyInSql(
                                 schema,
@@ -2143,6 +2143,151 @@ public class CopyTest extends HoloClientTestBase {
                 }
             } finally {
                 // execute(conn, new String[] {dropSql});
+            }
+        }
+    }
+
+    /** buildCopyInSql 逻辑分区子句 SQL 生成单测(无需实例). */
+    @Test
+    public void testBuildCopyInSqlWithPartitionClause() {
+        List<String> columns = Arrays.asList("a", "b", "ds");
+        // 带分区子句: PARTITION 子句应插入表名与列列表之间
+        String sqlWithPartition =
+                CopyUtil.buildCopyInSql(
+                        "test_tbl",
+                        columns,
+                        CopyFormat.CSV,
+                        false,
+                        "0",
+                        OnConflictAction.INSERT_OR_IGNORE,
+                        CopyMode.BULK_LOAD,
+                        false,
+                        "PARTITION (ds = '2025-01-11') PARTITION (ds = '2025-01-12')");
+        Assert.assertTrue(
+                sqlWithPartition.startsWith(
+                        "copy test_tbl PARTITION (ds = '2025-01-11')"
+                                + " PARTITION (ds = '2025-01-12')("),
+                "actual: " + sqlWithPartition);
+
+        // 空分区子句: 行为应与不带分区参数的重载完全一致
+        String sqlEmptyPartition =
+                CopyUtil.buildCopyInSql(
+                        "test_tbl",
+                        columns,
+                        CopyFormat.CSV,
+                        false,
+                        "0",
+                        OnConflictAction.INSERT_OR_IGNORE,
+                        CopyMode.BULK_LOAD,
+                        false,
+                        "");
+        String sqlNoPartition =
+                CopyUtil.buildCopyInSql(
+                        "test_tbl",
+                        columns,
+                        CopyFormat.CSV,
+                        false,
+                        "0",
+                        OnConflictAction.INSERT_OR_IGNORE,
+                        CopyMode.BULK_LOAD,
+                        false);
+        Assert.assertEquals(sqlEmptyPartition, sqlNoPartition);
+        Assert.assertTrue(
+                sqlEmptyPartition.startsWith("copy test_tbl("), "actual: " + sqlEmptyPartition);
+    }
+
+    @DataProvider(name = "copyModeForLogicalPartition")
+    public Object[][] copyModeForLogicalPartition() {
+        return new Object[][] {{CopyMode.STREAM}, {CopyMode.BULK_LOAD}};
+    }
+
+    /**
+     * 逻辑分区表 COPY 指定 PARTITION 子句 e2e 测试 (Hologres V5.0+). 覆盖 STREAM 与 BULK_LOAD 两种模式,
+     * 验证仅声明分区内的数据落库, 分区外数据被服务端过滤.
+     */
+    @Test(dataProvider = "copyModeForLogicalPartition")
+    public void testCopyToLogicalPartitionTable(CopyMode copyMode) throws Exception {
+        if (properties == null) {
+            return;
+        }
+        if (holoVersion.compareTo(new HoloVersion("5.0.0")) < 0) {
+            LOG.info(
+                    "skip testCopyToLogicalPartitionTable[{}], holoVersion {} < 5.0.0",
+                    copyMode,
+                    holoVersion);
+            return;
+        }
+        String tableName =
+                "\"holo_client_copy_lp_" + copyMode + "_" + System.currentTimeMillis() + "\"";
+        String createSql =
+                "create table "
+                        + tableName
+                        + " (id int, name text, ds text not null, kind int not null,"
+                        + " primary key (id, ds, kind)) LOGICAL PARTITION BY LIST (ds, kind)";
+        try (Connection conn = buildConnection()) {
+            execute(conn, new String[] {"set hg_experimental_force_sync_replay = on"});
+            execute(conn, new String[] {"drop table if exists " + tableName});
+            execute(conn, new String[] {createSql});
+            try {
+                TableName tn = TableName.valueOf(tableName);
+                TableSchema schema = ConnectionUtil.getTableSchema(conn, tn);
+                List<String> columns = Arrays.asList("id", "name", "ds", "kind");
+
+                // 声明写入 p1(2025-01-11,100) 和 p2(2025-01-12,200) 两个分区
+                String[] partitionColumnNames = {"ds", "kind"};
+                String[][] partitionValues = {{"2025-01-11", "100"}, {"2025-01-12", "200"}};
+                String partitionClause =
+                        CopyUtil.buildPartitionClause(
+                                schema, partitionColumnNames, partitionValues);
+
+                // 数据里额外混入 p3(2025-01-13,300), 不在声明分区内, 应被服务端过滤
+                Object[][] rows = {
+                    {1, "p1a", "2025-01-11", 100},
+                    {2, "p1b", "2025-01-11", 100},
+                    {3, "p2a", "2025-01-12", 200},
+                    {4, "p3-filtered", "2025-01-13", 300},
+                };
+                try (Connection copyConn = buildConnection();
+                        CopyInWrapper copyIn =
+                                new CopyInWrapper(
+                                        copyConn,
+                                        schema,
+                                        columns,
+                                        CopyFormat.CSV,
+                                        copyMode,
+                                        OnConflictAction.INSERT_OR_IGNORE,
+                                        1024 * 1024,
+                                        partitionClause)) {
+                    for (Object[] row : rows) {
+                        Record record = Record.build(schema);
+                        record.setObject(0, row[0]);
+                        record.setObject(1, row[1]);
+                        record.setObject(2, row[2]);
+                        record.setObject(3, row[3]);
+                        copyIn.putRecord(record);
+                    }
+                }
+
+                // 仅 p1(2行) + p2(1行) 落库, p3 被过滤
+                int count = 0;
+                try (Statement stat = conn.createStatement();
+                        ResultSet rs =
+                                stat.executeQuery(
+                                        "select id, name, ds, kind from "
+                                                + tableName
+                                                + " order by id")) {
+                    while (rs.next()) {
+                        count++;
+                        Assert.assertNotEquals(
+                                rs.getInt("kind"),
+                                300,
+                                copyMode + ": p3 data should be filtered out");
+                    }
+                }
+                Assert.assertEquals(
+                        count, 3, copyMode + ": only declared-partition rows should land");
+            } finally {
+                execute(conn, new String[] {"drop table if exists " + tableName});
             }
         }
     }

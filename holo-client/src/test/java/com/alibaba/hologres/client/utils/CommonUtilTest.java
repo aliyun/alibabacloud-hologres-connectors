@@ -28,6 +28,36 @@ public class CommonUtilTest {
                 CommonUtil.parseLogicalPartitionColumnNames("  \"ds\" , \"kind\"  "));
     }
 
+    // -------------------- parseLogicalPartitionColumnsProperty --------------------
+
+    @Test
+    public void testParseColumnsPropertySingle() {
+        Assert.assertEquals(
+                new String[] {"ds"}, CommonUtil.parseLogicalPartitionColumnsProperty("ds"));
+    }
+
+    @Test
+    public void testParseColumnsPropertyMultipleWithSpecialChars() {
+        // 服务端存储: 普通列名不带引号, 空格保留
+        Assert.assertEquals(
+                new String[] {"DS", "My Col"},
+                CommonUtil.parseLogicalPartitionColumnsProperty("DS,My Col"));
+    }
+
+    @Test
+    public void testParseColumnsPropertyQuotedComma() {
+        // 含逗号列名服务端带双引号存储
+        Assert.assertEquals(
+                new String[] {"d,s"}, CommonUtil.parseLogicalPartitionColumnsProperty("\"d,s\""));
+        Assert.assertEquals(
+                new String[] {"a,b", "c"},
+                CommonUtil.parseLogicalPartitionColumnsProperty("\"a,b\",c"));
+        // 同时含逗号和双引号的列名: 整体加引号, 内部双引号翻倍, 如列名 d,"s 存为 "d,""s"
+        Assert.assertEquals(
+                new String[] {"d,\"s"},
+                CommonUtil.parseLogicalPartitionColumnsProperty("\"d,\"\"s\""));
+    }
+
     @Test
     public void testParseColumnNamesWithCommaInside() {
         Assert.assertEquals(

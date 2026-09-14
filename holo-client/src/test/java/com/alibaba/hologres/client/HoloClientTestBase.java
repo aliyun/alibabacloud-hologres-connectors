@@ -196,6 +196,11 @@ public class HoloClientTestBase {
         return config;
     }
 
+    /** Whether the connected test instance supports binary format in bulk-load COPY modes. */
+    protected static boolean isBulkLoadBinarySupported() {
+        return holoVersion.compareTo(new HoloVersion("5.0.0")) >= 0;
+    }
+
     // 包含异常信息的异常断言
     public static void assertThrowsWithMessage(
             Class<? extends Throwable> expectedClass,

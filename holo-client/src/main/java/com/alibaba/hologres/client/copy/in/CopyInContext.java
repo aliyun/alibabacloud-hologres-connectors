@@ -7,6 +7,7 @@ import com.alibaba.hologres.client.copy.CopyUtil;
 import com.alibaba.hologres.client.copy.in.binaryrow.RecordBinaryRowOutputStream;
 import com.alibaba.hologres.client.impl.util.ConnectionUtil;
 import com.alibaba.hologres.client.model.Column;
+import com.alibaba.hologres.client.model.HoloVersion;
 import com.alibaba.hologres.client.model.OnConflictAction;
 import com.alibaba.hologres.client.model.TableSchema;
 import org.postgresql.copy.CopyManager;
@@ -25,6 +26,9 @@ import java.util.List;
 
 public class CopyInContext extends CopyContextCommon {
     public static final Logger LOG = LoggerFactory.getLogger(CopyInContext.class);
+    private static final HoloVersion BULK_LOAD_BINARY_MIN_VERSION = new HoloVersion("5.0.0");
+    private static final String BULK_LOAD_BINARY_VERSION_ERROR =
+            "binary 格式仅在 Hologres 5.0.0 及以上版本可用，当前版本不支持";
 
     // for copy in
     public CopyInOutputStream inOs = null;
@@ -32,6 +36,13 @@ public class CopyInContext extends CopyContextCommon {
 
     private final CopyMode copyMode;
     private final OnConflictAction onConflictAction;
+
+    /**
+     * 逻辑分区子句, 如 PARTITION(ds='2025-01-11', "KIND"=100) PARTITION(ds='2025-01-12', "KIND"=200).
+     * 空字符串表示不指定分区. 对 bulk_load/bulk_load_on_conflict 模式: 指定分区可将表级锁降级为分区级锁, 并发写不同分区不再互相阻塞; 对 stream
+     * 模式: stream 本身是行锁, 分区子句不影响锁级别, 主要起数据过滤作用(不属于声明分区的数据会被丢弃).
+     */
+    private String partitionClause = "";
 
     private BitSet needSetColumns;
 
@@ -50,9 +61,38 @@ public class CopyInContext extends CopyContextCommon {
         this.onConflictAction = onConflictAction;
     }
 
+    /** 带逻辑分区子句的构造函数 (Hologres V5.0+). */
+    public CopyInContext(
+            Connection conn,
+            TableSchema schema,
+            List<String> columns,
+            CopyFormat copyFormat,
+            CopyMode copyMode,
+            OnConflictAction onConflictAction,
+            int maxCellBufferSize,
+            String partitionClause) {
+        this(conn, schema, columns, copyFormat, copyMode, onConflictAction, maxCellBufferSize);
+        if (partitionClause != null) {
+            this.partitionClause = partitionClause;
+        }
+    }
+
+    public void setPartitionClause(String partitionClause) {
+        if (partitionClause != null) {
+            this.partitionClause = partitionClause;
+        }
+    }
+
     @Override
     public void init() throws IOException {
         try {
+            if (copyFormat == CopyFormat.BINARY && copyMode != CopyMode.STREAM) {
+                try {
+                    checkBulkLoadBinaryVersion(ConnectionUtil.getHoloVersion(conn), copyMode);
+                } catch (SQLException e) {
+                    throw new IOException("Failed to query Hologres version", e);
+                }
+            }
             // RecordOutputStream putRecord时是按照schema中的字段顺序, 因此需要保证 columns 中的字段顺序与 schema 中的字段顺序一致
             List<String> orderedColumns = new ArrayList<>();
             needSetColumns = new BitSet(schema.getColumnSchema().length);
@@ -80,7 +120,9 @@ public class CopyInContext extends CopyContextCommon {
                             schema.getSchemaVersion(),
                             onConflictAction,
                             copyMode,
-                            enableCheckSchemaVersion);
+                            enableCheckSchemaVersion,
+                            partitionClause,
+                            copyFormat == CopyFormat.BINARY && copyMode != CopyMode.STREAM);
             LOG.info("copy in backendPid: {}", ConnectionUtil.getBackendPidByConn(conn));
             LOG.info("copy in sql: {}", copySql);
             copyManager = new CopyManager(conn.unwrap(PgConnection.class));
@@ -119,6 +161,18 @@ public class CopyInContext extends CopyContextCommon {
         isInit.set(true);
     }
 
+    /**
+     * Validate the server version before opening a bulk-load binary COPY stream. Keeping this check
+     * separate makes the version gate deterministic and unit-testable without a database.
+     */
+    static void checkBulkLoadBinaryVersion(HoloVersion version, CopyMode copyMode)
+            throws IOException {
+        if (copyMode != CopyMode.STREAM
+                && (version == null || version.compareTo(BULK_LOAD_BINARY_MIN_VERSION) < 0)) {
+            throw new IOException(BULK_LOAD_BINARY_VERSION_ERROR);
+        }
+    }
+
     public OnConflictAction getOnConflictAction() {
         return onConflictAction;
     }
@@ -131,6 +185,8 @@ public class CopyInContext extends CopyContextCommon {
         if (recordOs != null) {
             recordOs.close();
         }
+        // Log copy statistics and clear accumulated warnings when copy ends
+        CopyUtil.logAndClearCopyWarnings(conn);
         copyManager = null;
     }
 

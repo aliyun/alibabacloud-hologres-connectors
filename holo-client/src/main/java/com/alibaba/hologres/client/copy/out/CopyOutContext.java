@@ -139,6 +139,8 @@ public class CopyOutContext extends CopyContextCommon {
         if (reader != null) {
             reader.close();
         }
+        // Log copy statistics and clear accumulated warnings when copy ends
+        CopyUtil.logAndClearCopyWarnings(conn);
         copyManager = null;
     }
 

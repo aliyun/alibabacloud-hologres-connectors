@@ -8,6 +8,7 @@ import com.alibaba.hologres.client.HoloConfig;
 import com.alibaba.hologres.client.exception.HoloClientException;
 import com.alibaba.hologres.client.impl.ConnectionHolder;
 import com.alibaba.hologres.client.impl.action.SqlAction;
+import com.alibaba.hologres.client.impl.util.ConnectionUtil;
 
 /** SqlAction处理类. */
 public class SqlActionHandler extends ActionHandler<SqlAction> {
@@ -27,7 +28,11 @@ public class SqlActionHandler extends ActionHandler<SqlAction> {
             action.getFuture()
                     .complete(
                             connectionHolder.retryExecute(
-                                    (conn) -> action.getHandler().apply(conn)));
+                                    (conn) -> {
+                                        Object result = action.getHandler().apply(conn);
+                                        ConnectionUtil.logAndClearWarnings(conn);
+                                        return result;
+                                    }));
         } catch (HoloClientException e) {
             action.getFuture().completeExceptionally(e);
         }

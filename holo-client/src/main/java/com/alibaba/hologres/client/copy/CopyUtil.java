@@ -15,6 +15,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
+import java.sql.Connection;
+import java.sql.SQLException;
+import java.sql.SQLWarning;
 import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.LocalDate;
@@ -34,6 +37,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /** CopyUtil. */
@@ -107,6 +112,70 @@ public class CopyUtil {
             LOGGER.warn(s, obj);
             warnCount = 0;
         }
+    }
+
+    private static final Pattern TOTAL_ROWS_PATTERN =
+            Pattern.compile("total_received_rows\\((\\d+)\\)");
+    private static final Pattern TOTAL_BYTES_PATTERN =
+            Pattern.compile("total_received_bytes\\((\\d+)\\)");
+    private static final Pattern IDLE_TIME_PATTERN =
+            Pattern.compile("idle_time_us\\((\\d+)\\s*us?\\)");
+    private static final Pattern WAIT_WRITE_TIME_PATTERN =
+            Pattern.compile("wait_write_time_us\\((\\d+)\\s*us?\\)");
+
+    /**
+     * Log copy statistics from connection warnings and then clear them. The server sends copy
+     * statistics as NoticeResponse messages which accumulate as SQLWarnings on the connection. The
+     * final summary warning (containing total_received_rows) is logged at INFO level with time
+     * units converted to seconds.
+     *
+     * @param conn the connection to inspect and clear warnings from
+     */
+    public static void logAndClearCopyWarnings(Connection conn) {
+        if (conn == null) {
+            return;
+        }
+        try {
+            SQLWarning warning = conn.getWarnings();
+            while (warning != null) {
+                String msg = warning.getMessage();
+                if (msg != null
+                        && msg.startsWith("copy statistics:")
+                        && msg.contains("total_received_rows")) {
+                    logCopyStatsSummary(msg);
+                }
+                warning = warning.getNextWarning();
+            }
+            conn.clearWarnings();
+        } catch (SQLException e) {
+            LOGGER.debug("Failed to log/clear connection warnings", e);
+        }
+    }
+
+    private static void logCopyStatsSummary(String msg) {
+        long totalRows = extractLong(TOTAL_ROWS_PATTERN, msg);
+        long totalBytes = extractLong(TOTAL_BYTES_PATTERN, msg);
+        long idleTimeUs = extractLong(IDLE_TIME_PATTERN, msg);
+        long waitWriteTimeUs = extractLong(WAIT_WRITE_TIME_PATTERN, msg);
+        LOGGER.info(
+                "copy statistics: total_received_rows({}), total_received_bytes({}),"
+                        + " idle_time({}s), wait_write_time({}s)",
+                totalRows,
+                totalBytes,
+                String.format("%.3f", idleTimeUs / 1_000_000.0),
+                String.format("%.3f", waitWriteTimeUs / 1_000_000.0));
+    }
+
+    private static long extractLong(Pattern pattern, String msg) {
+        Matcher m = pattern.matcher(msg);
+        if (m.find()) {
+            try {
+                return Long.parseLong(m.group(1));
+            } catch (NumberFormatException e) {
+                return -1;
+            }
+        }
+        return -1;
     }
 
     public static String buildCopyInStageSql(String stageName, String stageFileName) {
@@ -392,8 +461,92 @@ public class CopyUtil {
             OnConflictAction onConflictAction,
             CopyMode copyMode,
             boolean enableCheckSchemaVersion) {
+        return buildCopyInSql(
+                tableName,
+                columns,
+                format,
+                withPk,
+                schemaVersion,
+                onConflictAction,
+                copyMode,
+                enableCheckSchemaVersion,
+                "");
+    }
+
+    /**
+     * 生成带逻辑分区子句的 COPY IN SQL (Hologres V5.0+).
+     *
+     * <p>语法示例: {@code COPY table PARTITION(ds='2025-01-11', "KIND"=100) PARTITION(...) (col1,...)
+     * FROM STDIN WITH(...)}
+     *
+     * @param partitionClause 预先由 {@link #buildPartitionClause(TableSchema, String[], String[][])}
+     *     生成的分区子句; 空字符串表示不指定分区，表现与不传该参数相同
+     */
+    public static String buildCopyInSql(
+            String tableName,
+            List<String> columns,
+            CopyFormat format,
+            boolean withPk,
+            String schemaVersion,
+            OnConflictAction onConflictAction,
+            CopyMode copyMode,
+            boolean enableCheckSchemaVersion,
+            String partitionClause) {
+        return buildCopyInSqlInternal(
+                tableName,
+                columns,
+                format,
+                withPk,
+                schemaVersion,
+                onConflictAction,
+                copyMode,
+                enableCheckSchemaVersion,
+                partitionClause,
+                false);
+    }
+
+    /** Build COPY IN SQL with caller-controlled binary support for non-stream modes. */
+    public static String buildCopyInSql(
+            String tableName,
+            List<String> columns,
+            CopyFormat format,
+            boolean withPk,
+            String schemaVersion,
+            OnConflictAction onConflictAction,
+            CopyMode copyMode,
+            boolean enableCheckSchemaVersion,
+            String partitionClause,
+            boolean enableBulkLoadBinary) {
+        return buildCopyInSqlInternal(
+                tableName,
+                columns,
+                format,
+                withPk,
+                schemaVersion,
+                onConflictAction,
+                copyMode,
+                enableCheckSchemaVersion,
+                partitionClause,
+                enableBulkLoadBinary);
+    }
+
+    private static String buildCopyInSqlInternal(
+            String tableName,
+            List<String> columns,
+            CopyFormat format,
+            boolean withPk,
+            String schemaVersion,
+            OnConflictAction onConflictAction,
+            CopyMode copyMode,
+            boolean enableCheckSchemaVersion,
+            String partitionClause,
+            boolean enableBulkLoadBinary) {
         StringBuilder sb = new StringBuilder();
-        sb.append("copy ").append(tableName).append("(");
+        sb.append("copy ").append(tableName);
+        if (partitionClause != null && !partitionClause.isEmpty()) {
+            sb.append(" ").append(partitionClause);
+        }
+        sb.append("(");
         boolean first = true;
         for (String column : columns) {
             if (!first) {
@@ -426,16 +579,19 @@ public class CopyUtil {
                 sb.append(", schema_version ").append(schemaVersion);
             }
         } else {
-            // 目前hologres普通copy（非stream_mode）只支持format csv
-            sb.append("format csv, DELIMITER '")
-                    .append(DELIMITER)
-                    .append("', ESCAPE '")
-                    .append(ESCAPE)
-                    .append("', QUOTE '")
-                    .append(QUOTE)
-                    .append("', NULL '")
-                    .append(NULL)
-                    .append("'");
+            if (format == CopyFormat.BINARY && enableBulkLoadBinary) {
+                sb.append("format binary");
+            } else {
+                sb.append("format csv, DELIMITER '")
+                        .append(DELIMITER)
+                        .append("', ESCAPE '")
+                        .append(ESCAPE)
+                        .append("', QUOTE '")
+                        .append(QUOTE)
+                        .append("', NULL '")
+                        .append(NULL)
+                        .append("'");
+            }
         }
         // bulkLoad 自Hologres 2.2.25版本起支持on_conflict, 为了兼容历史版本, 分为两种模式
         if (withPk && (copyMode == CopyMode.STREAM || copyMode == CopyMode.BULK_LOAD_ON_CONFLICT)) {
@@ -509,6 +665,9 @@ public class CopyUtil {
                 false);
     }
 
+    /** 列投影为空时使用的常量投影, 避免生成 "select from tbl" 这种列数对不上的 SQL. */
+    public static final String EMPTY_PROJECTION_PLACEHOLDER = "1";
+
     // for read from holo, a more common scenario may be to directly pass in a query
     public static String buildCopyOutSql(String query, CopyFormat copyFormat) {
         switch (copyFormat) {
@@ -532,6 +691,11 @@ public class CopyUtil {
         sb.append("select ");
         boolean first = true;
         boolean where = false;
+        if (columns.isEmpty()) {
+            // 空列表会生成 "select  from tbl": 服务端仍会返回一列, 而调用方一列都没传,
+            // 列数对不上. 显式塞一个常量列更可控, 行数不变.
+            sb.append(EMPTY_PROJECTION_PLACEHOLDER);
+        }
         for (String column : columns) {
             if (!first) {
                 sb.append(",");

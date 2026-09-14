@@ -66,20 +66,51 @@ public class AKv4AuthenticationPlugin implements AuthenticationPlugin {
         }
     }
 
-    private static final Pattern regionPattern =
-            Pattern.compile(
-                    "^[^-]+-[^-]+-[^-]+-(.+?)(?:-internal|-vpc|-vpc-st)?\\.hologres\\.aliyuncs\\.com$");
+    private static final String HOLO_SUFFIX = ".hologres.aliyuncs.com";
 
+    /** 需要在匹配 region 之前剥掉的网络类型后缀, 长的放前面, 避免 -vpc 抢先匹配 -vpc-st. */
+    private static final String[] NETWORK_SUFFIXES = {"-internal", "-vpc-st", "-vpc"};
+
+    /** cn-beijing / cn-hongkong / ap-southeast-1 / cn-shanghai-finance-1 / eu-central-1 ... */
+    private static final Pattern regionPattern =
+            Pattern.compile("(?:cn|ap|us|eu|me|na)-[a-z]+(?:-[a-z]+)*(?:-\\d+)?");
+
+    /**
+     * 从 host 中抽取 region.
+     *
+     * <p>做法是从右往左取后缀, 返回最短的合法 region. 早先的实现用 {@code ^[^-]+-[^-]+-[^-]+-(.+?)...} 跳过固定的 3 段前缀,
+     * 对前缀段数不等于 3 的 endpoint 会抽错: holohub-catalog-cn-beijing.hologres.aliyuncs.com 前缀只有 2 段, "cn"
+     * 被当成第 3 段前缀吃掉, 只抽出 "beijing". region 参与 AKv4 签名的密钥派生, 抽错的直接后果是服务端报 password authentication
+     * failed, 排查时完全指不到真正原因.
+     *
+     * <p>也不能直接用贪婪正则在末尾匹配: 对 hgprecn-cn-test-cn-shanghai-finance-1 会一路吞成
+     * cn-test-cn-shanghai-finance-1.
+     *
+     * @return 抽取到的 region; host 为 null、非 Hologres 公网域名或形态不可识别时返回 null
+     */
     public static String extractRegionFromHost(String host) {
-        if (host == null) {
+        if (host == null || !host.endsWith(HOLO_SUFFIX)) {
             return null;
         }
-        Matcher matcher = regionPattern.matcher(host);
-        if (matcher.find()) {
-            return matcher.group(1);
-        } else {
-            return null;
+        String prefix = host.substring(0, host.length() - HOLO_SUFFIX.length());
+        for (String networkSuffix : NETWORK_SUFFIXES) {
+            if (prefix.endsWith(networkSuffix)) {
+                prefix = prefix.substring(0, prefix.length() - networkSuffix.length());
+                break;
+            }
         }
+        String[] segments = prefix.split("-");
+        for (int n = 2; n <= segments.length; n++) {
+            StringBuilder candidate = new StringBuilder(segments[segments.length - n]);
+            for (int i = segments.length - n + 1; i < segments.length; i++) {
+                candidate.append("-").append(segments[i]);
+            }
+            Matcher matcher = regionPattern.matcher(candidate);
+            if (matcher.matches()) {
+                return candidate.toString();
+            }
+        }
+        return null;
     }
 
     public static String encodeAKv4Password(String secret, String region, String product) {

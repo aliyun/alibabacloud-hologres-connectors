@@ -182,6 +182,7 @@ public class AutoPartitioningTest extends HoloClientTestBase {
                                             + "partitionInfo='t', \n"
                                             + "orientation='row,column', \n"
                                             + "binlogLevel=REPLICA, \n"
+                                            + "logicalPartitionColumns=null, \n"
                                             + "columns=[\n"
                                             + "Column{name='id', typeName='int4', not null, primary key}, \n"
                                             + "Column{name='amount', typeName='numeric'}, \n"
