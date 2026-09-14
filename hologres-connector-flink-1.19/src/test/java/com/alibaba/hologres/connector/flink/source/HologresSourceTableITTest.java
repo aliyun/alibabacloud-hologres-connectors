@@ -122,15 +122,31 @@ public class HologresSourceTableITTest extends HologresTestBase {
 
     @Test
     public void testSourceTable() {
-        testSourceTable(sourceTable);
+        testSourceTable(sourceTable, "");
     }
 
     @Test
     public void testSourceTableWithSchema() {
-        testSourceTable(sourceTableWithSchema);
+        testSourceTable(sourceTableWithSchema, "");
     }
 
-    private void testSourceTable(String tableName) {
+    @Test
+    public void testSourceTableWithCompressedBulkRead() {
+        testSourceTable(
+                sourceTable,
+                ",\n'source.scan.read-mode'='bulk_read',\n"
+                        + "'source.scan.bulk-read.compression.enabled'='true'");
+    }
+
+    @Test
+    public void testSourceTableWithUncompressedBulkRead() {
+        testSourceTable(
+                sourceTable,
+                ",\n'source.scan.read-mode'='bulk_read',\n"
+                        + "'source.scan.bulk-read.compression.enabled'='false'");
+    }
+
+    private void testSourceTable(String tableName, String additionalOptions) {
         tEnv.executeSql(
                 "create table source"
                         + "(\n"
@@ -171,7 +187,9 @@ public class HologresSourceTableITTest extends HologresTestBase {
                         + "',\n"
                         + "'password'='"
                         + password
-                        + "'\n"
+                        + "'"
+                        + additionalOptions
+                        + "\n"
                         + ")");
 
         String expected =
