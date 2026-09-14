@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hologres-connector-ray"
+dynamic = ["version"]
+description = "Ray Data connector for Hologres"
+requires-python = ">=3.8"
+dependencies = [
+    "hologres-client>=0.1.2",
+    # 2.56.0 hash-shuffles via an in-place np.mod into a read-only pandas array,
+    # which breaks repartition(keys=...) under pandas >= 3; fixed in 2.56.1.
+    "ray[data]>=2.50.0,!=2.56.0",
+    "pyarrow>=12.0",
+    "lz4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "ruff>=0.4",
+]
+
+[tool.setuptools.dynamic]
+version = {attr = "hologres_ray._version.__version__"}
+
+[tool.setuptools.packages.find]
+include = ["hologres_ray*"]
+exclude = ["tests*"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py38"
+
+[tool.ruff.format]
+quote-style = "double"
