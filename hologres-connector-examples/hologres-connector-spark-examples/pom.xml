@@ -18,7 +18,7 @@
     <dependencies>
         <dependency>
             <groupId>com.alibaba.hologres</groupId>
-            <artifactId>hologres-connector-spark-3.x</artifactId>
+            <artifactId>hologres-connector-spark-3.5.3</artifactId>
             <version>1.6.3-SNAPSHOT</version>
             <classifier>jar-with-dependencies</classifier>
         </dependency>

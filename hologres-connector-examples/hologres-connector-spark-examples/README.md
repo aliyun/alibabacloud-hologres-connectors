@@ -8,12 +8,12 @@
 * 2.SparkWriteDataFrameToHoloExample
 
   一个使用java实现的通过Holo Spark connector将数据写入至Hologres的应用
-  使用scala脚本实现的例子可以参考 hologres-connector-spark-3.x/README.md
+  使用scala脚本实现的例子可以参考 hologres-connector-spark/README.md
 
 * 3.SparkReadHoloToDataFrameExample
 
   一个使用java实现的通过Holo Spark connector从Hologres读取数据的应用
-  使用scala脚本实现的例子可以参考 hologres-connector-spark-3.x/README.md
+  使用scala脚本实现的例子可以参考 hologres-connector-spark/README.md
 
 * 4.SparkToHoloRepartitionExample
 

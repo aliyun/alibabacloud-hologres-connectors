@@ -56,7 +56,7 @@ public class SparkHoloTableCatalogExample {
                         .config("spark.stage.maxConsecutiveAttempts", 3)
                         .config("spark.task.maxFailures", 3)
                         .config("spark.default.parallelism", 24)
-                        .config("spark.sql.catalog.hologres_external_test_db", "com.alibaba.hologres.spark3.HoloTableCatalog")
+                        .config("spark.sql.catalog.hologres_external_test_db", "com.alibaba.hologres.spark.HoloTableCatalog")
                         // 此处参数都是connector本身支持的参数
                         .config("spark.sql.catalog.hologres_external_test_db.username", username)
                         .config("spark.sql.catalog.hologres_external_test_db.password", password)
