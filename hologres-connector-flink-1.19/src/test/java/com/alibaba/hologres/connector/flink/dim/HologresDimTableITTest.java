@@ -512,6 +512,11 @@ public class HologresDimTableITTest extends HologresTestBase {
         testDimTableWithCache("PARTIAL");
     }
 
+    @Test
+    public void testDimTableWithFullCache() {
+        testDimTableWithCache("FULL");
+    }
+
     private void runTest() {
         runTest("dim");
     }
@@ -679,6 +684,8 @@ public class HologresDimTableITTest extends HologresTestBase {
                         + "'lookup.cache'='"
                         + cacheStrategy
                         + "',\n"
+                        + "'lookup.full-cache.reload-strategy'='periodic',\n"
+                        + "'lookup.full-cache.periodic-reload.interval'='10 min',\n"
                         + "'lookup.partial-cache.expire-after-access'='18213s',\n"
                         + "'lookup.partial-cache.expire-after-write'='10000s',\n"
                         + "'lookup.partial-cache.max-rows'='10000'"
